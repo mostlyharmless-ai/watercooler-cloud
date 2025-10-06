@@ -3,27 +3,56 @@ from __future__ import annotations
 import getpass
 import json
 import os
+import re
 from pathlib import Path
 from typing import Tuple
 
 
 def _load_agents_registry(path: str | None) -> dict:
+    """Load agents registry from JSON file, merging with defaults.
+
+    The registry structure is:
+        {
+            "canonical": {"claude": "Claude", "codex": "Codex", ...},
+            "counterpart": {"Codex": "Claude", "Claude": "Codex", ...},
+            "default_ball": "Team"
+        }
+    """
+    default_registry = {
+        "canonical": {"claude": "Claude", "codex": "Codex"},
+        "counterpart": {"Codex": "Claude", "Claude": "Codex"},
+        "default_ball": "Team",
+    }
     if not path:
-        return {}
+        return default_registry
     p = Path(path)
     if not p.exists():
-        return {}
+        return default_registry
     try:
-        return json.loads(p.read_text(encoding="utf-8"))
+        file_registry = json.loads(p.read_text(encoding="utf-8"))
+        # Merge loaded registry into default registry for any missing keys:
+        merged = default_registry.copy()
+        merged.update(file_registry)
+        # For nested dict "canonical" and "counterpart", merge keys:
+        for key in ["canonical", "counterpart"]:
+            if key in file_registry and isinstance(file_registry[key], dict):
+                merged[key] = {**default_registry.get(key, {}), **file_registry[key]}
+        return merged
     except Exception:
-        return {}
+        return default_registry
 
 
 def _split_agent_and_tag(agent: str) -> Tuple[str, str | None]:
-    if "#" in agent:
-        a, tag = agent.split("#", 1)
-        return a, tag or None
-    return agent, None
+    """Parse agent strings in the format 'Agent (user)'.
+
+    Returns a tuple: (agent, tag) where tag is None if not present.
+    """
+    match = re.match(r"^(.*?)(?:\s*\(([^)]+)\))\s*$", agent)
+    if match:
+        base = match.group(1).strip()
+        tag = match.group(2).strip()
+        return base, tag or None
+    return agent.strip(), None
 
 
 def _get_git_user() -> str | None:
@@ -35,21 +64,43 @@ def _get_git_user() -> str | None:
 
 
 def _canonical_agent(agent: str, registry: dict | None = None) -> str:
+    """Return the canonical agent name with user tag.
+
+    Looks up the base in registry["canonical"] using a lower-case key.
+    If no tag is provided, appends the OS user (if available) in the form " (user)".
+    """
     a, tag = _split_agent_and_tag(agent.strip())
-    canon = (a.lower() if a else "").strip()
-    mapping = (registry or {}).get("aliases", {}) if registry else {}
-    canon = mapping.get(canon, canon)
-    return f"{canon}#{tag}" if tag else canon
+    base_key = a.lower()
+    canonical_map = (registry or {}).get("canonical", {})
+    canonical = canonical_map.get(base_key, a)
+    # If tag is not provided, attempt to get the git/OS username.
+    if not tag:
+        tag = _get_git_user()
+    return f"{canonical} ({tag})" if tag else canonical
 
 
 def _counterpart_of(agent: str, registry: dict | None = None) -> str:
-    mapping = (registry or {}).get("counterparts", {}) if registry else {"codex": "claude", "claude": "codex"}
-    base, tag = _split_agent_and_tag(_canonical_agent(agent, registry))
-    other = mapping.get(base, base)
-    return f"{other}#{tag}" if tag else other
+    """
+    Return the counterpart agent after resolving multi-agent chains.
+
+    Uses the registry["counterpart"] mapping to follow a chain of counterparts.
+    The chain is resolved until no further mapping is found (or a cycle is detected).
+    The user tag, if any, is then reattached in the form " (tag)".
+    """
+    counterpart_map = (registry or {}).get("counterpart", {"codex": "claude", "claude": "codex"})
+    # Get the canonical base and separate tag.
+    canon_with_tag = _canonical_agent(agent, registry)
+    base, tag = _split_agent_and_tag(canon_with_tag)
+    visited = set()
+    current = base
+    while current in counterpart_map and current not in visited:
+        visited.add(current)
+        current = counterpart_map[current]
+    return f"{current} ({tag})" if tag else current
 
 
-def _default_agent_and_role(registry: dict | None = None) -> tuple[str, str]:
+def _default_agent_and_role(registry: dict | None = None) -> Tuple[str, str]:
+    """Returns a tuple of default agent from registry and current user name."""
     user = _get_git_user() or "user"
-    default = (registry or {}).get("default", "codex") if registry else "codex"
+    default = (registry or {}).get("default_ball", "Team")
     return default, user
