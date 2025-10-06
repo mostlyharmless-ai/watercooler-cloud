@@ -11,10 +11,11 @@ def run_cli(*args: str, cwd: str | None = None) -> subprocess.CompletedProcess[s
 
 def test_reindex_and_search(tmp_path: Path):
     # init threads and append content
+    # Phase 2: append-entry requires --agent, --role, --title
     run_cli("init-thread", "alpha", "--threads-dir", str(tmp_path))
-    run_cli("append-entry", "alpha", "--threads-dir", str(tmp_path), "--body", "Discuss roadmap")
+    run_cli("append-entry", "alpha", "--threads-dir", str(tmp_path), "--agent", "team", "--role", "planner", "--title", "Roadmap", "--body", "Discuss roadmap")
     run_cli("init-thread", "beta", "--threads-dir", str(tmp_path))
-    run_cli("append-entry", "beta", "--threads-dir", str(tmp_path), "--body", "Fix bug 123")
+    run_cli("append-entry", "beta", "--threads-dir", str(tmp_path), "--agent", "team", "--role", "implementer", "--title", "Bugfix", "--body", "Fix bug 123")
 
     # reindex
     cp = run_cli("reindex", "--threads-dir", str(tmp_path))

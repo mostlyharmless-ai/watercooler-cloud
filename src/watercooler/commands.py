@@ -78,6 +78,7 @@ def init_thread(
             "NOWUTC": now,
             "UTC": now,
             "BALL": ball,
+            "STATUS": status.upper(),  # Add status to mapping
         }
         content = _fill_template(template, mapping)
 

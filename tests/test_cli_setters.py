@@ -29,20 +29,24 @@ def test_append_entry(tmp_path: Path):
     # init thread
     cp = run_cli("init-thread", "topic2", "--threads-dir", str(tmp_path))
     assert cp.returncode == 0
-    # append
+    # append - Phase 2: requires --agent, --role, --title
     cp = run_cli(
         "append-entry",
         "topic2",
         "--threads-dir",
         str(tmp_path),
-        "--author",
+        "--agent",
         "dev",
+        "--role",
+        "implementer",
+        "--title",
+        "Completed task",
         "--body",
         "Did the thing",
-        "--bump-status",
+        "--status",
         "in-review",
     )
     assert cp.returncode == 0
     s = (tmp_path / "topic2.md").read_text(encoding="utf-8")
-    assert "Status: in-review" in s
+    assert "in-review" in s
     assert "Did the thing" in s

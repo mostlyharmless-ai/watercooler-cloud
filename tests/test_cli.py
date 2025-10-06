@@ -15,10 +15,11 @@ def test_help_exits_zero():
 
 
 def test_all_commands_exist_and_exit_zero():
+    # Updated for Phase 2: append-entry, say now require additional args
     for cmd in [
         "init-thread topic",
-        "append-entry topic --body note",
-        "say topic --body note",
+        "append-entry topic --agent codex --role implementer --title Test --body note",
+        "say topic --title Note --body note",
         "ack topic",
         "set-status topic open",
         "set-ball topic codex",

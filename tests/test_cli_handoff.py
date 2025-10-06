@@ -12,10 +12,12 @@ def run_cli(*args: str, cwd: str | None = None) -> subprocess.CompletedProcess[s
 def test_handoff_flips_ball(tmp_path: Path):
     cp = run_cli("init-thread", "handoff1", "--threads-dir", str(tmp_path), "--ball", "codex")
     assert cp.returncode == 0
-    # handoff should flip ball to counterpart of codex (claude per default mapping expectation)
-    cp = run_cli("handoff", "handoff1", "--threads-dir", str(tmp_path), "--author", "codex", "--note", "please take a look")
+    # handoff should flip ball to counterpart of codex (Claude per default mapping)
+    # Updated for Phase 2: --author → --agent
+    cp = run_cli("handoff", "handoff1", "--threads-dir", str(tmp_path), "--agent", "codex", "--note", "please take a look")
     assert cp.returncode == 0
     s = (tmp_path / "handoff1.md").read_text(encoding="utf-8")
-    assert "Ball: claude" in s or "ball: claude" in s.lower()
+    # Ball should be "Claude" (capitalized, may include user tag)
+    assert "Ball: Claude" in s or "Ball: claude" in s
     assert "please take a look" in s
 

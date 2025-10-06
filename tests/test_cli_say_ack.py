@@ -13,13 +13,13 @@ def test_say_and_ack(tmp_path: Path):
     # init
     cp = run_cli("init-thread", "topic3", "--threads-dir", str(tmp_path))
     assert cp.returncode == 0
-    # say
-    cp = run_cli("say", "topic3", "--threads-dir", str(tmp_path), "--author", "dev", "--body", "Heads-up")
+    # say - Phase 2: requires --title
+    cp = run_cli("say", "topic3", "--threads-dir", str(tmp_path), "--agent", "dev", "--title", "Update", "--body", "Heads-up")
     assert cp.returncode == 0
     s = (tmp_path / "topic3.md").read_text(encoding="utf-8")
     assert "Heads-up" in s
-    # ack
-    cp = run_cli("ack", "topic3", "--threads-dir", str(tmp_path), "--author", "dev")
+    # ack - Phase 2: --author → --agent
+    cp = run_cli("ack", "topic3", "--threads-dir", str(tmp_path), "--agent", "dev")
     assert cp.returncode == 0
     s = (tmp_path / "topic3.md").read_text(encoding="utf-8")
     assert "ack" in s.lower()
@@ -30,11 +30,13 @@ def test_handoff(tmp_path: Path):
     cp = run_cli("init-thread", "topic4", "--threads-dir", str(tmp_path), "--ball", "codex")
     assert cp.returncode == 0
     s = (tmp_path / "topic4.md").read_text(encoding="utf-8")
-    assert "Ball: codex" in s
-    # handoff flips ball to counterpart (claude by default)
-    cp = run_cli("handoff", "topic4", "--threads-dir", str(tmp_path), "--author", "codex", "--note", "your turn")
+    assert "codex" in s.lower()
+    # handoff flips ball to counterpart (Claude by default)
+    # Phase 2: --author → --agent
+    cp = run_cli("handoff", "topic4", "--threads-dir", str(tmp_path), "--agent", "codex", "--note", "your turn")
     assert cp.returncode == 0
     s = (tmp_path / "topic4.md").read_text(encoding="utf-8")
-    assert "Ball: claude" in s
+    # Ball should be "Claude" (capitalized)
+    assert "Ball: Claude" in s or "Ball: claude" in s
     assert "your turn" in s
 

@@ -1,5 +1,5 @@
 # {{TOPIC}} — Thread
-Status: OPEN
+Status: {{STATUS}}
 Ball: {{BALL}}
 Topic: {{TOPIC}}
 Created: {{UTC}}

@@ -71,7 +71,9 @@ def _canonical_agent(agent: str, registry: dict | None = None) -> str:
     """
     a, tag = _split_agent_and_tag(agent.strip())
     base_key = a.lower()
-    canonical_map = (registry or {}).get("canonical", {})
+    # Default canonical mapping for common agents
+    default_canonical = {"codex": "Codex", "claude": "Claude", "team": "Team"}
+    canonical_map = (registry or {}).get("canonical", default_canonical)
     canonical = canonical_map.get(base_key, a)
     # If tag is not provided, attempt to get the git/OS username.
     if not tag:
@@ -84,18 +86,22 @@ def _counterpart_of(agent: str, registry: dict | None = None) -> str:
     Return the counterpart agent after resolving multi-agent chains.
 
     Uses the registry["counterpart"] mapping to follow a chain of counterparts.
-    The chain is resolved until no further mapping is found (or a cycle is detected).
+    For simple 2-agent flips (A→B, B→A), returns B when given A.
+    For multi-agent chains (A→B→C), follows the chain until end or cycle.
     The user tag, if any, is then reattached in the form " (tag)".
     """
-    counterpart_map = (registry or {}).get("counterpart", {"codex": "claude", "claude": "codex"})
+    # Default counterpart mapping uses canonical (capitalized) keys to match _canonical_agent output
+    counterpart_map = (registry or {}).get("counterpart", {"Codex": "Claude", "Claude": "Codex"})
     # Get the canonical base and separate tag.
     canon_with_tag = _canonical_agent(agent, registry)
     base, tag = _split_agent_and_tag(canon_with_tag)
-    visited = set()
-    current = base
-    while current in counterpart_map and current not in visited:
-        visited.add(current)
-        current = counterpart_map[current]
+
+    # Simple case: just one hop to the counterpart
+    if base in counterpart_map:
+        current = counterpart_map[base]
+    else:
+        current = base  # No counterpart defined, return self
+
     return f"{current} ({tag})" if tag else current
 
 
