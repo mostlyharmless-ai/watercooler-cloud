@@ -3,11 +3,13 @@ from __future__ import annotations
 from pathlib import Path
 from typing import Optional
 
-from .fs import write, thread_path, lock_path_for_topic, utcnow_iso
+from .fs import write, thread_path, lock_path_for_topic, utcnow_iso, read_body
 from .lock import AdvisoryLock
 from .header import bump_header
 from .metadata import thread_meta, is_closed, last_entry_by
-from .agents import _counterpart_of, _canonical_agent
+from .agents import _counterpart_of, _canonical_agent, _default_agent_and_role
+from .config import load_template, resolve_templates_dir
+from .templates import _fill_template
 
 
 def init_thread(
@@ -18,7 +20,23 @@ def init_thread(
     status: str = "open",
     ball: str = "codex",
     body: str | None = None,
+    owner: str | None = None,
+    participants: str | None = None,
+    templates_dir: Path | None = None,
 ) -> Path:
+    """Initialize a new thread using the topic thread template.
+
+    Args:
+        topic: Thread topic identifier
+        threads_dir: Directory containing threads
+        title: Optional title override
+        status: Initial status (default: "open")
+        ball: Initial ball owner (default: "codex")
+        body: Optional initial body text
+        owner: Thread owner (default: "Team")
+        participants: Comma-separated list of participants
+        templates_dir: Optional templates directory override
+    """
     threads_dir.mkdir(parents=True, exist_ok=True)
     tp = thread_path(topic, threads_dir)
     if tp.exists():
@@ -28,16 +46,45 @@ def init_thread(
     with AdvisoryLock(lp, timeout=2, ttl=10, force_break=False):
         if tp.exists():
             return tp
-        hdr_title = title or topic.replace("-", " ").strip()
+
+        # Load thread template
+        try:
+            template = load_template("_TEMPLATE_topic_thread.md", templates_dir)
+        except FileNotFoundError:
+            # Fallback to simple format if template not found
+            hdr_title = title or topic.replace("-", " ").strip()
+            now = utcnow_iso()
+            content = (
+                f"Title: {hdr_title}\n"
+                f"Status: {status}\n"
+                f"Ball: {ball}\n"
+                f"Updated: {now}\n\n"
+                f"# {hdr_title}\n"
+            )
+            if body:
+                content += body
+            write(tp, content)
+            return tp
+
+        # Fill template
         now = utcnow_iso()
-        header = (
-            f"Title: {hdr_title}\n"
-            f"Status: {status}\n"
-            f"Ball: {ball}\n"
-            f"Updated: {now}\n\n"
-            f"# {hdr_title}\n"
-        )
-        content = header + (body or "")
+        hdr_title = title or topic.replace("-", " ").strip()
+        mapping = {
+            "TOPIC": topic,
+            "topic": topic,
+            "Short title": hdr_title,
+            "OWNER": owner or "Team",
+            "PARTICIPANTS": participants or "Team, Codex, Claude",
+            "NOWUTC": now,
+            "UTC": now,
+            "BALL": ball,
+        }
+        content = _fill_template(template, mapping)
+
+        # Append body if provided
+        if body:
+            content = content.rstrip() + "\n\n" + body.rstrip() + "\n"
+
         write(tp, content)
     return tp
 
@@ -46,27 +93,81 @@ def append_entry(
     topic: str,
     *,
     threads_dir: Path,
-    author: str | None = None,
+    agent: str,
+    role: str,
+    title: str,
+    entry_type: str = "Note",
     body: str,
-    bump_status: str | None = None,
-    bump_ball: str | None = None,
+    status: str | None = None,
+    ball: str | None = None,
+    templates_dir: Path | None = None,
+    registry: dict | None = None,
 ) -> Path:
+    """Append a structured entry to a thread.
+
+    Args:
+        topic: Thread topic
+        threads_dir: Directory containing threads
+        agent: Agent name (will be canonicalized with user tag)
+        role: Agent role (planner, critic, implementer, tester, pm, scribe)
+        title: Entry title
+        entry_type: Entry type (Note, Plan, Decision, PR, Closure)
+        body: Entry body text
+        status: Optional status update
+        ball: Optional ball update (if None, auto-flips to counterpart)
+        templates_dir: Optional templates directory
+        registry: Optional agent registry
+
+    Returns:
+        Path to updated thread file
+    """
     tp = thread_path(topic, threads_dir)
     lp = lock_path_for_topic(topic, threads_dir)
     with AdvisoryLock(lp, timeout=2, ttl=10, force_break=False):
         if not tp.exists():
-            # Initialize minimal header if missing
             init_thread(topic, threads_dir=threads_dir)
         s = tp.read_text(encoding="utf-8")
-        # Optionally update header values
-        if bump_status or bump_ball:
-            s = bump_header(s, status=bump_status, ball=bump_ball)
-        # Always update Updated header
-        s = bump_header(s, status=None, ball=None)
+
+        # Load entry template
+        try:
+            template = load_template("_TEMPLATE_entry_block.md", templates_dir)
+        except FileNotFoundError:
+            # Fallback to simple format
+            now = utcnow_iso()
+            canonical = _canonical_agent(agent, registry)
+            who = f" by {canonical}"
+            entry = f"\n\n---\n\n- Updated: {now}{who}\n\n{body}\n"
+            s = bump_header(s, status=status, ball=ball)
+            write(tp, s + entry)
+            return tp
+
+        # Fill entry template
         now = utcnow_iso()
-        who = f" by {author}" if author else ""
-        entry = f"\n\n---\n\n- Updated: {now}{who}\n\n{body}\n"
-        write(tp, s + entry)
+        canonical_agent = _canonical_agent(agent, registry)
+
+        mapping = {
+            "UTC": now,
+            "AGENT": canonical_agent,
+            "TYPE": entry_type,
+            "ROLE": role,
+            "TITLE": title,
+            "BODY": body.rstrip() + "\n",
+        }
+        filled_entry = _fill_template(template, mapping)
+
+        # If template doesn't have BODY placeholder, append body after template
+        if ("{{BODY}}" not in template) and ("<BODY>" not in template) and body.strip():
+            filled_entry = filled_entry.rstrip() + "\n\n" + body.rstrip() + "\n"
+
+        # Auto-flip ball if not explicitly provided
+        final_ball = ball if ball is not None else _counterpart_of(canonical_agent, registry)
+
+        # Update header
+        s = bump_header(s, status=status, ball=final_ball)
+
+        # Append entry
+        new_text = s.rstrip() + "\n\n" + filled_entry
+        write(tp, new_text)
     return tp
 
 
@@ -114,43 +215,155 @@ def say(
     topic: str,
     *,
     threads_dir: Path,
-    author: str | None = None,
+    agent: str | None = None,
+    role: str | None = None,
+    title: str,
+    entry_type: str = "Note",
     body: str,
+    status: str | None = None,
+    ball: str | None = None,
+    templates_dir: Path | None = None,
+    registry: dict | None = None,
 ) -> Path:
-    # Convenience wrapper: append without header bumps
-    return append_entry(topic, threads_dir=threads_dir, author=author, body=body)
+    """Quick team note with auto-ball-flip.
+
+    Convenience wrapper for append_entry that defaults agent to Team
+    and auto-flips ball to counterpart unless explicitly provided.
+
+    Args:
+        topic: Thread topic
+        threads_dir: Directory containing threads
+        agent: Agent name (defaults to Team via _default_agent_and_role)
+        role: Agent role (defaults to role from registry)
+        title: Entry title (required)
+        entry_type: Entry type (default: "Note")
+        body: Entry body text
+        status: Optional status update
+        ball: Optional ball update (if not provided, auto-flips)
+        templates_dir: Optional templates directory
+        registry: Optional agent registry
+    """
+    # Default agent to Team
+    default_agent, default_role = _default_agent_and_role(registry)
+    final_agent = agent if agent is not None else default_agent
+    final_role = role if role is not None else default_role
+
+    return append_entry(
+        topic,
+        threads_dir=threads_dir,
+        agent=final_agent,
+        role=final_role,
+        title=title,
+        entry_type=entry_type,
+        body=body,
+        status=status,
+        ball=ball,  # append_entry will auto-flip if None
+        templates_dir=templates_dir,
+        registry=registry,
+    )
 
 
 def ack(
     topic: str,
     *,
     threads_dir: Path,
-    author: str | None = None,
-    note: str | None = None,
+    agent: str | None = None,
+    role: str | None = None,
+    title: str | None = None,
+    entry_type: str = "Note",
+    body: str | None = None,
+    status: str | None = None,
+    ball: str | None = None,
+    templates_dir: Path | None = None,
     registry: dict | None = None,
 ) -> Path:
-    # Acknowledge without flipping ball; add a terse note
-    text = note or "ack"
-    return append_entry(topic, threads_dir=threads_dir, author=author, body=text)
+    """Acknowledge without auto-flipping ball.
+
+    Like say() but does NOT auto-flip ball - ball only changes if explicitly provided.
+    Default title is "Ack".
+
+    Args:
+        topic: Thread topic
+        threads_dir: Directory containing threads
+        agent: Agent name (defaults to Team)
+        role: Agent role (defaults to role from registry)
+        title: Entry title (defaults to "Ack")
+        entry_type: Entry type (default: "Note")
+        body: Entry body text (defaults to "ack")
+        status: Optional status update
+        ball: Optional ball update (does NOT auto-flip)
+        templates_dir: Optional templates directory
+        registry: Optional agent registry
+    """
+    # Default agent to Team
+    default_agent, default_role = _default_agent_and_role(registry)
+    final_agent = agent if agent is not None else default_agent
+    final_role = role if role is not None else default_role
+    final_title = title if title is not None else "Ack"
+    final_body = body if body is not None else "ack"
+
+    return append_entry(
+        topic,
+        threads_dir=threads_dir,
+        agent=final_agent,
+        role=final_role,
+        title=final_title,
+        entry_type=entry_type,
+        body=final_body,
+        status=status,
+        ball=ball,  # Only set if explicitly provided (no auto-flip)
+        templates_dir=templates_dir,
+        registry=registry,
+    )
 
 
 def handoff(
     topic: str,
     *,
     threads_dir: Path,
-    author: str | None = None,
+    agent: str | None = None,
+    role: str = "pm",
     note: str | None = None,
     registry: dict | None = None,
+    templates_dir: Path | None = None,
 ) -> Path:
-    """Flip the Ball to the counterpart and append an entry."""
+    """Flip the Ball to the counterpart and append a handoff entry.
+
+    Args:
+        topic: Thread topic
+        threads_dir: Directory containing threads
+        agent: Agent performing handoff (defaults to Team)
+        role: Agent role (default: "pm" for project management)
+        note: Optional custom handoff message
+        registry: Optional agent registry
+        templates_dir: Optional templates directory
+    """
     tp = thread_path(topic, threads_dir)
     # Determine current counterpart based on registry and existing ball
     title, status, ball, updated = thread_meta(tp)
     target = _counterpart_of(ball, registry)
+
+    # Default agent to Team
+    default_agent, default_role = _default_agent_and_role(registry)
+    final_agent = agent if agent is not None else default_agent
+
+    # Create handoff message
     text = note or f"handoff to {target}"
-    # Update ball first, then append entry indicating the handoff; also bump header again to ensure latest
-    set_ball(topic, threads_dir=threads_dir, ball=target)
-    return append_entry(topic, threads_dir=threads_dir, author=author, body=text, bump_ball=target)
+    handoff_title = f"Handoff to {target}"
+
+    # Append structured handoff entry with explicit ball
+    return append_entry(
+        topic,
+        threads_dir=threads_dir,
+        agent=final_agent,
+        role=role,
+        title=handoff_title,
+        entry_type="Note",
+        body=text,
+        ball=target,  # Explicitly set target (no auto-flip needed)
+        templates_dir=templates_dir,
+        registry=registry,
+    )
 
 
 def reindex(*, threads_dir: Path, out_file: Path | None = None, open_only: bool | None = True) -> Path:
