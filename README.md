@@ -4,9 +4,7 @@ File-based collaboration protocol for agentic coding projects.
 
 ## Status
 
-**Phase: L0 - Repository Scaffolding** ✓
-
-This library is under active development following a staged extraction plan.
+L1 is complete and most of L2/L3 are implemented. The CLI is functional and covered by tests.
 
 ## Design Principles
 
@@ -25,30 +23,11 @@ Thread-based collaboration with:
 - **Automatic backups**: Rolling backups per thread in `.bak/<topic>/`
 - **Index generation**: Actionable/Open/In Review summaries with NEW markers
 
-## Roadmap (L-Series)
+## Implemented
 
-- [x] **L0**: Repository scaffolding
-  - pyproject.toml, src/ layout, CI smoke tests
-  - No functional code yet
-
-- [ ] **L1**: Core utilities + CLI stub
-  - Extract: `fs.py` (paths/backups), `lock.py` (AdvisoryLock), `header.py` (parsing), `agents.py` (canonical names)
-  - CLI: `watercooler --help` with command stubs
-  - Tests with sample thread fixtures
-
-- [ ] **L2**: Command parity (append/set/list/reindex)
-  - Port all core commands with snapshot parity validation
-  - Maintain stdlib-only constraint
-
-- [ ] **L3**: Advanced features (web-export/search)
-  - NEW marker computation
-  - CLOSED filtering
-  - HTML export with configurable link behavior
-
-- [ ] **L4**: Documentation + PyPI publication
-  - API reference + 2-3 tutorials
-  - Publish to TestPyPI, then PyPI
-  - Version 0.1.0
+- Core utilities: fs, lock, header, agents, metadata, templates
+- CLI commands: init-thread, append-entry, say, ack, set-status, set-ball, list, reindex, search, web-export
+- Tests: 20+ passing tests, stdlib-only
 
 ## Installation
 
@@ -60,17 +39,17 @@ cd watercooler-collab
 pip install -e .
 ```
 
-## Quick Example (Coming in L2+)
+## Quick Examples
 
 ```bash
 # Initialize a thread
-watercooler init-thread feature_discussion --ball Codex
-
-# Say something (quick note)
-echo "Proposal accepted, moving forward" | watercooler say feature_discussion "Decision"
-
-# Check status
-watercooler list --status OPEN
+watercooler init-thread feature_discussion --threads-dir ./watercooler --ball codex
+watercooler append-entry feature_discussion --threads-dir ./watercooler --body "Proposal accepted"
+watercooler set-status feature_discussion in-progress --threads-dir ./watercooler
+watercooler list --threads-dir ./watercooler
+watercooler reindex --threads-dir ./watercooler
+watercooler search decision --threads-dir ./watercooler
+watercooler web-export --threads-dir ./watercooler
 ```
 
 ## Development

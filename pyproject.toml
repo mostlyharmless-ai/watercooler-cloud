@@ -40,3 +40,6 @@ where = ["src"]
 
 [tool.setuptools.package-data]
 watercooler = ["py.typed"]
+
+[project.scripts]
+watercooler = "watercooler.cli:main"
