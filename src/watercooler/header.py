@@ -28,4 +28,5 @@ def bump_header(text: str, *, status: str | None = None, ball: str | None = None
         header = _replace_header_line(header, "Status", status)
     if ball is not None:
         header = _replace_header_line(header, "Ball", ball)
-    return header + "\n\n" + body if body else header
+    # Always include a separating blank line to preserve header/body structure
+    return header + "\n\n" + (body or "")

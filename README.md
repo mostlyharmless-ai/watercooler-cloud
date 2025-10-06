@@ -4,7 +4,7 @@ File-based collaboration protocol for agentic coding projects.
 
 ## Status
 
-L1 is complete and most of L2/L3 are implemented. The CLI is functional and covered by tests.
+L1, L2, and L3 are complete. The CLI is fully functional with 11 commands and covered by 25 passing tests.
 
 ## Design Principles
 
@@ -26,8 +26,9 @@ Thread-based collaboration with:
 ## Implemented
 
 - Core utilities: fs, lock, header, agents, metadata, templates
-- CLI commands: init-thread, append-entry, say, ack, set-status, set-ball, list, reindex, search, web-export
-- Tests: 20+ passing tests, stdlib-only
+- CLI commands: init-thread, append-entry, say, ack, handoff, set-status, set-ball, list, reindex, search, web-export
+- Advanced features: NEW markers, CLOSED filtering, template bundling
+- Tests: 25 passing tests, stdlib-only
 
 ## Installation
 

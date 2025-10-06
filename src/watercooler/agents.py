@@ -43,7 +43,7 @@ def _canonical_agent(agent: str, registry: dict | None = None) -> str:
 
 
 def _counterpart_of(agent: str, registry: dict | None = None) -> str:
-    mapping = (registry or {}).get("counterparts", {}) if registry else {}
+    mapping = (registry or {}).get("counterparts", {}) if registry else {"codex": "claude", "claude": "codex"}
     base, tag = _split_agent_and_tag(_canonical_agent(agent, registry))
     other = mapping.get(base, base)
     return f"{other}#{tag}" if tag else other

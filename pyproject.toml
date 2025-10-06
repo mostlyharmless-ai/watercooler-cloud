@@ -39,7 +39,7 @@ dev = [
 where = ["src"]
 
 [tool.setuptools.package-data]
-watercooler = ["py.typed"]
+watercooler = ["py.typed", "templates/*.md"]
 
 [project.scripts]
 watercooler = "watercooler.cli:main"

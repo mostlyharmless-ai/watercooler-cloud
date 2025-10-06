@@ -6,7 +6,7 @@ from typing import Optional
 from .fs import write, thread_path, lock_path_for_topic, utcnow_iso
 from .lock import AdvisoryLock
 from .header import bump_header
-from .metadata import thread_meta
+from .metadata import thread_meta, is_closed, last_entry_by
 from .agents import _counterpart_of, _canonical_agent
 
 
@@ -84,20 +84,29 @@ def set_ball(topic: str, *, threads_dir: Path, ball: str) -> Path:
     tp = thread_path(topic, threads_dir)
     lp = lock_path_for_topic(topic, threads_dir)
     with AdvisoryLock(lp, timeout=2, ttl=10, force_break=False):
-        s = tp.read_text(encoding="utf-8") if tp.exists() else ""
+        if not tp.exists():
+            init_thread(topic, threads_dir=threads_dir)
+        s = tp.read_text(encoding="utf-8")
         s = bump_header(s, ball=ball)
         write(tp, s)
     return tp
 
 
-def list_threads(*, threads_dir: Path) -> list[tuple[str, str, str, str, Path]]:
-    """Return list of (title, status, ball, updated_iso, path) for threads."""
-    out: list[tuple[str, str, str, str, Path]] = []
+def list_threads(*, threads_dir: Path, open_only: bool | None = None) -> list[tuple[str, str, str, str, Path, bool]]:
+    """Return list of (title, status, ball, updated_iso, path, is_new)."""
+    out: list[tuple[str, str, str, str, Path, bool]] = []
     if not threads_dir.exists():
         return out
     for p in sorted(threads_dir.glob("*.md")):
         title, status, ball, updated = thread_meta(p)
-        out.append((title, status, ball, updated, p))
+        if open_only is True and is_closed(status):
+            continue
+        if open_only is False and not is_closed(status):
+            continue
+        who = (last_entry_by(p) or "").strip().lower()
+        # NEW marker if last entry author differs from current ball owner
+        is_new = bool(who and who != (ball or "").strip().lower()) and not is_closed(status)
+        out.append((title, status, ball, updated, p, is_new))
     return out
 
 
@@ -125,14 +134,34 @@ def ack(
     return append_entry(topic, threads_dir=threads_dir, author=author, body=text)
 
 
-def reindex(*, threads_dir: Path, out_file: Path | None = None) -> Path:
+def handoff(
+    topic: str,
+    *,
+    threads_dir: Path,
+    author: str | None = None,
+    note: str | None = None,
+    registry: dict | None = None,
+) -> Path:
+    """Flip the Ball to the counterpart and append an entry."""
+    tp = thread_path(topic, threads_dir)
+    # Determine current counterpart based on registry and existing ball
+    title, status, ball, updated = thread_meta(tp)
+    target = _counterpart_of(ball, registry)
+    text = note or f"handoff to {target}"
+    # Update ball first, then append entry indicating the handoff; also bump header again to ensure latest
+    set_ball(topic, threads_dir=threads_dir, ball=target)
+    return append_entry(topic, threads_dir=threads_dir, author=author, body=text, bump_ball=target)
+
+
+def reindex(*, threads_dir: Path, out_file: Path | None = None, open_only: bool | None = True) -> Path:
     """Write a Markdown index summarizing threads."""
-    rows = list_threads(threads_dir=threads_dir)
+    rows = list_threads(threads_dir=threads_dir, open_only=open_only)
     out_path = out_file or (threads_dir / "index.md")
-    lines = ["# Watercooler Index", "", "Updated | Status | Ball | Title | Path", "---|---|---|---|---"]
-    for title, status, ball, updated, path in rows:
+    lines = ["# Watercooler Index", "", "Updated | Status | Ball | NEW | Title | Path", "---|---|---|---|---|---"]
+    for title, status, ball, updated, path, is_new in rows:
         rel = path.relative_to(threads_dir)
-        lines.append(f"{updated} | {status} | {ball} | {title} | {rel}")
+        newcol = "NEW" if is_new else ""
+        lines.append(f"{updated} | {status} | {ball} | {newcol} | {title} | {rel}")
     write(out_path, "\n".join(lines) + "\n")
     return out_path
 
@@ -151,15 +180,16 @@ def search(*, threads_dir: Path, query: str) -> list[tuple[Path, int, str]]:
     return hits
 
 
-def web_export(*, threads_dir: Path, out_file: Path | None = None) -> Path:
+def web_export(*, threads_dir: Path, out_file: Path | None = None, open_only: bool | None = True) -> Path:
     """Export a simple static HTML index summarizing threads."""
-    rows = list_threads(threads_dir=threads_dir)
+    rows = list_threads(threads_dir=threads_dir, open_only=open_only)
     out_path = out_file or (threads_dir / "index.html")
     tbody = []
-    for title, status, ball, updated, path in rows:
+    for title, status, ball, updated, path, is_new in rows:
         rel = path.relative_to(threads_dir)
+        badge = "<strong style=\"color:#b00\">NEW</strong>" if is_new else ""
         tbody.append(
-            f"<tr><td>{updated}</td><td>{status}</td><td>{ball}</td><td>{title}</td><td><a href=\"{rel}\">{rel}</a></td></tr>"
+            f"<tr><td>{updated}</td><td>{status}</td><td>{ball}</td><td>{badge}</td><td>{title}</td><td><a href=\"{rel}\">{rel}</a></td></tr>"
         )
     html = """
 <!doctype html>
@@ -177,7 +207,7 @@ def web_export(*, threads_dir: Path, out_file: Path | None = None) -> Path:
 </style>
 <h1>Watercooler Index</h1>
 <table>
-  <thead><tr><th>Updated</th><th>Status</th><th>Ball</th><th>Title</th><th>Path</th></tr></thead>
+  <thead><tr><th>Updated</th><th>Status</th><th>Ball</th><th>NEW</th><th>Title</th><th>Path</th></tr></thead>
   <tbody>
     BODY
   </tbody>

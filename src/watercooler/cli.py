@@ -26,6 +26,8 @@ def main(argv: list[str] | None = None) -> None:
     p_web = sub.add_parser("web-export", help="Generate HTML index")
     p_web.add_argument("--threads-dir", default="watercooler")
     p_web.add_argument("--out", help="Optional output file path")
+    p_web.add_argument("--open-only", action="store_true")
+    p_web.add_argument("--closed", action="store_true")
 
     p_say = sub.add_parser("say", help="Quick team note")
     p_say.add_argument("topic")
@@ -39,12 +41,22 @@ def main(argv: list[str] | None = None) -> None:
     p_ack.add_argument("--author")
     p_ack.add_argument("--note", help="Optional note text")
 
+    p_handoff = sub.add_parser("handoff", help="Flip ball to counterpart and append note")
+    p_handoff.add_argument("topic")
+    p_handoff.add_argument("--threads-dir")
+    p_handoff.add_argument("--author")
+    p_handoff.add_argument("--note")
+
     p_list = sub.add_parser("list", help="List threads")
     p_list.add_argument("--threads-dir")
+    p_list.add_argument("--open-only", action="store_true", help="Show only open threads")
+    p_list.add_argument("--closed", action="store_true", help="Show only closed threads")
 
     p_reindex = sub.add_parser("reindex", help="Rebuild index")
     p_reindex.add_argument("--threads-dir")
     p_reindex.add_argument("--out", help="Optional output file path")
+    p_reindex.add_argument("--open-only", action="store_true")
+    p_reindex.add_argument("--closed", action="store_true")
 
     p_search = sub.add_parser("search", help="Search threads")
     p_search.add_argument("query")
@@ -133,9 +145,17 @@ def main(argv: list[str] | None = None) -> None:
         from .commands import list_threads
         from .config import resolve_threads_dir
 
-        rows = list_threads(threads_dir=resolve_threads_dir(args.threads_dir))
-        for title, status, ball, updated, path in rows:
-            print(f"{updated}\t{status}\t{ball}\t{title}\t{path}")
+        oo: bool | None = None
+        if args.open_only and args.closed:
+            oo = None
+        elif args.open_only:
+            oo = True
+        elif args.closed:
+            oo = False
+        rows = list_threads(threads_dir=resolve_threads_dir(args.threads_dir), open_only=oo)
+        for title, status, ball, updated, path, is_new in rows:
+            newcol = "NEW" if is_new else ""
+            print(f"{updated}\t{status}\t{ball}\t{newcol}\t{title}\t{path}")
         sys.exit(0)
 
     if args.cmd == "reindex":
@@ -143,7 +163,14 @@ def main(argv: list[str] | None = None) -> None:
         from .commands import reindex
         from .config import resolve_threads_dir
 
-        out = reindex(threads_dir=resolve_threads_dir(args.threads_dir), out_file=Path(args.out) if args.out else None)
+        oo: bool | None = True
+        if args.open_only and args.closed:
+            oo = None
+        elif args.closed:
+            oo = False
+        elif args.open_only:
+            oo = True
+        out = reindex(threads_dir=resolve_threads_dir(args.threads_dir), out_file=Path(args.out) if args.out else None, open_only=oo)
         print(str(out))
         sys.exit(0)
 
@@ -160,8 +187,16 @@ def main(argv: list[str] | None = None) -> None:
     if args.cmd == "web-export":
         from pathlib import Path
         from .commands import web_export
+        from .config import resolve_threads_dir
 
-        out = web_export(threads_dir=Path(args.threads_dir), out_file=Path(args.out) if args.out else None)
+        oo: bool | None = True
+        if args.open_only and args.closed:
+            oo = None
+        elif args.closed:
+            oo = False
+        elif args.open_only:
+            oo = True
+        out = web_export(threads_dir=resolve_threads_dir(args.threads_dir), out_file=Path(args.out) if args.out else None, open_only=oo)
         print(str(out))
         sys.exit(0)
 
@@ -182,6 +217,15 @@ def main(argv: list[str] | None = None) -> None:
         from .config import resolve_threads_dir
 
         out = ack(args.topic, threads_dir=resolve_threads_dir(args.threads_dir), author=args.author, note=args.note)
+        print(str(out))
+        sys.exit(0)
+
+    if args.cmd == "handoff":
+        from pathlib import Path
+        from .commands import handoff
+        from .config import resolve_threads_dir
+
+        out = handoff(args.topic, threads_dir=resolve_threads_dir(args.threads_dir), author=args.author, note=args.note)
         print(str(out))
         sys.exit(0)
 

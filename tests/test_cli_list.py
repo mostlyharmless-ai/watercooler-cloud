@@ -18,7 +18,7 @@ def test_list_shows_threads(tmp_path: Path):
     assert cp.returncode == 0
     lines = [ln for ln in cp.stdout.splitlines() if ln.strip()]
     assert len(lines) >= 2
-    # columns: updated, status, ball, title, path
+    # columns: updated, status, ball, NEW, title, path
     cols = lines[0].split("\t")
-    assert len(cols) == 5
+    assert len(cols) == 6
     assert cols[1] in {"open", "in-progress", "done"}

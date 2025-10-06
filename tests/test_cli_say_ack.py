@@ -24,3 +24,17 @@ def test_say_and_ack(tmp_path: Path):
     s = (tmp_path / "topic3.md").read_text(encoding="utf-8")
     assert "ack" in s.lower()
 
+
+def test_handoff(tmp_path: Path):
+    # init with ball=codex
+    cp = run_cli("init-thread", "topic4", "--threads-dir", str(tmp_path), "--ball", "codex")
+    assert cp.returncode == 0
+    s = (tmp_path / "topic4.md").read_text(encoding="utf-8")
+    assert "Ball: codex" in s
+    # handoff flips ball to counterpart (claude by default)
+    cp = run_cli("handoff", "topic4", "--threads-dir", str(tmp_path), "--author", "codex", "--note", "your turn")
+    assert cp.returncode == 0
+    s = (tmp_path / "topic4.md").read_text(encoding="utf-8")
+    assert "Ball: claude" in s
+    assert "your turn" in s
+
