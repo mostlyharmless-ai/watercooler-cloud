@@ -303,6 +303,14 @@ def ack(
     final_title = title if title is not None else "Ack"
     final_body = body if body is not None else "ack"
 
+    # If no ball specified, preserve current ball (don't auto-flip)
+    final_ball = ball
+    if final_ball is None:
+        tp = thread_path(topic, threads_dir)
+        if tp.exists():
+            _, _, current_ball, _ = thread_meta(tp)
+            final_ball = current_ball  # Preserve current ball
+
     return append_entry(
         topic,
         threads_dir=threads_dir,
@@ -312,7 +320,7 @@ def ack(
         entry_type=entry_type,
         body=final_body,
         status=status,
-        ball=ball,  # Only set if explicitly provided (no auto-flip)
+        ball=final_ball,  # Explicit ball (no auto-flip)
         templates_dir=templates_dir,
         registry=registry,
     )
