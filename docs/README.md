@@ -9,6 +9,9 @@ Complete documentation for the watercooler-collab file-based collaboration proto
 - **[Claude Collaboration Workflow](claude-collab.md)** - Practical patterns for working with Claude
 
 ### Installation & Setup
+- **[MCP Server Guide](mcp-server.md)** - AI agent integration via Model Context Protocol
+- **[Claude Code Setup](CLAUDE_CODE_SETUP.md)** - Register watercooler with Claude Code CLI
+- **[Claude Desktop Setup](CLAUDE_DESKTOP_SETUP.md)** - Register watercooler with Claude Desktop app
 - **[Git Configuration](../.github/WATERCOOLER_SETUP.md)** - Required git merge strategies and pre-commit hooks for team collaboration
 
 ## Workflows & Use Cases
@@ -46,7 +49,7 @@ Complete documentation for the watercooler-collab file-based collaboration proto
 → [Use Cases Guide](USE_CASES.md) → Pick your scenario
 
 **...work with Claude or other AI agents**
-→ [Claude Collaboration](claude-collab.md) → [Multi-Agent Use Case](USE_CASES.md#multi-agent-collaboration)
+→ [MCP Server Setup](CLAUDE_CODE_SETUP.md) → [Claude Collaboration](claude-collab.md) → [Multi-Agent Use Case](USE_CASES.md#multi-agent-collaboration)
 
 **...set up multi-user collaboration**
 → [Git Configuration](../.github/WATERCOOLER_SETUP.md) → [Async Team Collaboration Use Case](USE_CASES.md#async-team-collaboration)
@@ -74,10 +77,16 @@ watercooler-collab/
 ├── AGENTS.md                       # Agent documentation
 ├── .github/
 │   └── WATERCOOLER_SETUP.md       # Git configuration guide
+├── scripts/
+│   └── install-mcp.sh             # Interactive MCP server setup
 └── docs/
     ├── README.md                   # This file - documentation hub
     ├── USE_CASES.md               # Comprehensive practical examples (600+ lines)
     ├── claude-collab.md           # Claude-specific workflows
+    ├── mcp-server.md              # MCP server tool reference
+    ├── CLAUDE_CODE_SETUP.md       # Claude Code MCP registration
+    ├── CLAUDE_DESKTOP_SETUP.md    # Claude Desktop MCP registration
+    ├── TESTING_RESULTS.md         # Phase 1A validation results
     ├── STRUCTURED_ENTRIES.md      # Entry format and roles reference
     ├── AGENT_REGISTRY.md          # Agent configuration guide
     ├── TEMPLATES.md               # Template customization guide

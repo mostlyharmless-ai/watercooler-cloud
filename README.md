@@ -47,6 +47,27 @@ cd watercooler-collab
 pip install -e .
 ```
 
+### MCP Server (AI Agent Integration)
+
+Enable AI agents (Claude, Codex) to discover and use watercooler tools automatically:
+
+```bash
+# Install with MCP support
+pip install -e ".[mcp]"
+
+# Quick setup for Claude Code (recommended)
+./scripts/install-mcp.sh
+
+# Or manually register
+fastmcp install claude-code src/watercooler_mcp/server.py \
+  --env WATERCOOLER_AGENT=Claude
+```
+
+See setup guides:
+- **[Claude Code Setup](docs/CLAUDE_CODE_SETUP.md)** - For Claude Code CLI
+- **[Claude Desktop Setup](docs/CLAUDE_DESKTOP_SETUP.md)** - For Claude Desktop app
+- **[MCP Server Guide](docs/mcp-server.md)** - Complete tool reference
+
 ### Git Configuration (Multi-User Collaboration)
 
 For team collaboration, configure git merge strategies and pre-commit hooks:
@@ -199,6 +220,9 @@ pytest tests/test_structured_entries.py -v
 ### Configuration & Reference
 - **[API Reference](docs/api.md)** - Python library API documentation
 - **[Integration Guide](docs/integration.md)** - Installation and integration tutorial
+- **[MCP Server Guide](docs/mcp-server.md)** - AI agent integration via Model Context Protocol
+- **[Claude Code Setup](docs/CLAUDE_CODE_SETUP.md)** - Register watercooler with Claude Code
+- **[Claude Desktop Setup](docs/CLAUDE_DESKTOP_SETUP.md)** - Register watercooler with Claude Desktop
 - **[Structured Entries](docs/STRUCTURED_ENTRIES.md)** - Entry format, 6 roles, 5 types, ball auto-flip
 - **[Agent Registry](docs/AGENT_REGISTRY.md)** - Agent configuration and counterpart mappings
 - **[Templates](docs/TEMPLATES.md)** - Customizing thread and entry templates
