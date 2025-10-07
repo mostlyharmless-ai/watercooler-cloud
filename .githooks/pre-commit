@@ -1,0 +1,91 @@
+#!/usr/bin/env bash
+set -euo pipefail
+
+# Watercooler pre-commit hook - enforces append-only protocol
+# Install: git config core.hooksPath .githooks
+
+# Gather staged files
+STAGED_FILES=$(git diff --cached --name-only --diff-filter=ACM)
+
+# Enforce append-only edits on watercooler threads
+# Supports both .watercooler/ and watercooler/ directory conventions
+append_only_ok=true
+for f in $STAGED_FILES; do
+  case "$f" in
+    .watercooler/*.md|watercooler/*.md)
+      # Skip index files (they're regenerated)
+      if [[ "$f" == *"/index.md" ]]; then
+        continue
+      fi
+
+      # Obtain old (HEAD) and new (INDEX) content
+      old_tmp=$(mktemp)
+      new_tmp=$(mktemp)
+      new_prefix_tmp=$(mktemp)
+      old_prefix_tmp=$(mktemp)
+      old_san=$(mktemp)
+      new_san=$(mktemp)
+
+      # Old may not exist on initial add
+      if git show HEAD:"$f" >/dev/null 2>&1; then
+        git show HEAD:"$f" >"$old_tmp" || true
+      else
+        : >"$old_tmp"
+      fi
+
+      # Read staged version; fall back to worktree if needed
+      if git show :0:"$f" >"$new_tmp" 2>/dev/null; then
+        :
+      else
+        git show :"$f" >"$new_tmp" 2>/dev/null || cat "$f" >"$new_tmp"
+      fi
+
+      # Find first Entry line numbers in old/new files
+      new_first_entry_line=$(awk '/^Entry: /{print NR; exit}' "$new_tmp" || true)
+      if [ -z "$new_first_entry_line" ]; then new_first_entry_line=0; fi
+      old_first_entry_line=$(awk '/^Entry: /{print NR; exit}' "$old_tmp" || true)
+      if [ -z "$old_first_entry_line" ]; then old_first_entry_line=0; fi
+
+      if [ "$new_first_entry_line" -eq 0 ]; then
+        # No entries yet (brand new thread) — allow commit
+        rm -f "$old_tmp" "$new_tmp" "$new_prefix_tmp" "$old_prefix_tmp" "$old_san" "$new_san"
+        continue
+      fi
+
+      # Compare only the header (before first entry)
+      head -n $((new_first_entry_line - 1)) "$new_tmp" >"$new_prefix_tmp"
+      if [ "$old_first_entry_line" -gt 0 ]; then
+        head -n $((old_first_entry_line - 1)) "$old_tmp" >"$old_prefix_tmp"
+      else
+        : >"$old_prefix_tmp"
+      fi
+
+      # Drop header fields that are allowed to change
+      sed -e '/^Status:/d' -e '/^Ball:/d' -e '/^Updated:/d' "$old_prefix_tmp" >"$old_san" || true
+      sed -e '/^Status:/d' -e '/^Ball:/d' -e '/^Updated:/d' "$new_prefix_tmp" >"$new_san"
+
+      if ! diff -u "$old_san" "$new_san" >/dev/null; then
+        echo "Error: watercooler header modified (fields other than Status/Ball/Updated) in $f" >&2
+        echo "Hint: use the CLI: watercooler set-status / set-ball, or append-entry which updates header correctly" >&2
+        append_only_ok=false
+      fi
+
+      rm -f "$old_tmp" "$new_tmp" "$new_prefix_tmp" "$old_prefix_tmp" "$old_san" "$new_san"
+      ;;
+  esac
+done
+
+if [ "$append_only_ok" != true ]; then
+  echo "" >&2
+  echo "Watercooler protocol violation detected!" >&2
+  echo "The pre-commit hook enforces append-only entries to maintain data integrity." >&2
+  echo "" >&2
+  echo "To fix:" >&2
+  echo "  1. Use CLI commands: watercooler set-status, set-ball, append-entry" >&2
+  echo "  2. Or revert header changes and append new entries only" >&2
+  echo "" >&2
+  echo "To bypass (not recommended): git commit --no-verify" >&2
+  exit 1
+fi
+
+exit 0

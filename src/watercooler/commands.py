@@ -438,3 +438,56 @@ def web_export(*, threads_dir: Path, out_file: Path | None = None, open_only: bo
 """.replace("BODY", "\n    ".join(tbody))
     write(out_path, html)
     return out_path
+
+
+def unlock(topic: str, *, threads_dir: Path, force: bool = False) -> None:
+    """Clear advisory lock for a topic (debugging tool).
+
+    Args:
+        topic: Thread topic
+        threads_dir: Directory containing threads
+        force: Remove lock even if it appears active
+
+    This command helps recover from stuck locks during development or debugging.
+    Use with caution in production environments.
+    """
+    import sys
+    import time
+
+    lp = lock_path_for_topic(topic, threads_dir)
+
+    print(f"Lock path: {lp}")
+
+    if not lp.exists():
+        print("No lock file present.")
+        return
+
+    # Read lock metadata
+    try:
+        txt = lp.read_text(encoding="utf-8").strip()
+    except Exception:
+        txt = "(unreadable)"
+
+    # Get lock age
+    try:
+        st = lp.stat()
+        age = int(time.time() - st.st_mtime)
+    except Exception:
+        age = -1
+
+    # Check if stale
+    from .lock import AdvisoryLock
+    al = AdvisoryLock(lp)
+    stale = al._is_stale()
+
+    print(f"Contents: {txt}")
+    print(f"Age: {age}s; Stale: {stale}")
+
+    if stale or force:
+        try:
+            lp.unlink()
+            print("Lock removed.")
+        except Exception as e:
+            sys.exit(f"Failed to remove lock: {e}")
+    else:
+        sys.exit("Lock appears active; re-run with --force to remove anyway.")

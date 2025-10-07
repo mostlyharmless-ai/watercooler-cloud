@@ -82,6 +82,11 @@ def main(argv: list[str] | None = None) -> None:
     p_search.add_argument("query")
     p_search.add_argument("--threads-dir")
 
+    p_unlock = sub.add_parser("unlock", help="Clear advisory lock (debugging)")
+    p_unlock.add_argument("topic")
+    p_unlock.add_argument("--threads-dir")
+    p_unlock.add_argument("--force", action="store_true", help="Remove lock even if active")
+
     p_append = sub.add_parser("append-entry", help="Append a structured entry")
     p_append.add_argument("topic")
     p_append.add_argument("--threads-dir")
@@ -217,6 +222,18 @@ def main(argv: list[str] | None = None) -> None:
         hits = search(threads_dir=resolve_threads_dir(args.threads_dir), query=args.query)
         for p, ln, line in hits:
             print(f"{p}:{ln}: {line}")
+        sys.exit(0)
+
+    if args.cmd == "unlock":
+        from pathlib import Path
+        from .commands import unlock
+        from .config import resolve_threads_dir
+
+        unlock(
+            args.topic,
+            threads_dir=resolve_threads_dir(args.threads_dir),
+            force=args.force
+        )
         sys.exit(0)
 
     if args.cmd == "web-export":

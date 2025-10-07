@@ -47,6 +47,20 @@ cd watercooler-collab
 pip install -e .
 ```
 
+### Git Configuration (Multi-User Collaboration)
+
+For team collaboration, configure git merge strategies and pre-commit hooks:
+
+```bash
+# Required: Enable "ours" merge driver
+git config merge.ours.driver true
+
+# Recommended: Enable pre-commit hook (enforces append-only protocol)
+git config core.hooksPath .githooks
+```
+
+See [.github/WATERCOOLER_SETUP.md](.github/WATERCOOLER_SETUP.md) for detailed setup guide.
+
 ## Quick Examples
 
 ### Basic Thread Management

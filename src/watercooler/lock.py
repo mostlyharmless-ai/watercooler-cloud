@@ -1,5 +1,6 @@
 from __future__ import annotations
 
+import getpass
 import os
 import time
 from pathlib import Path
@@ -29,8 +30,19 @@ class AdvisoryLock:
         return (time.time() - mtime) > self.ttl
 
     def _write_pid(self) -> None:
+        """Write lock file with enhanced metadata for debugging."""
         self.path.parent.mkdir(parents=True, exist_ok=True)
-        self.path.write_text(str(os.getpid()), encoding="utf-8")
+        try:
+            user = os.getenv("WATERCOOLER_USER") or getpass.getuser()
+        except Exception:
+            user = "unknown"
+        cwd = os.getcwd()
+        from .fs import utcnow_iso
+        timestamp = utcnow_iso()
+        self.path.write_text(
+            f"pid={os.getpid()} time={timestamp} user={user} cwd={cwd}\n",
+            encoding="utf-8"
+        )
 
     def _pid_of_lock(self) -> int | None:
         try:
@@ -44,8 +56,8 @@ class AdvisoryLock:
             try:
                 # Create exclusively
                 fd = os.open(self.path, os.O_CREAT | os.O_EXCL | os.O_WRONLY, 0o644)
-                with os.fdopen(fd, "w", encoding="utf-8") as f:
-                    f.write(str(os.getpid()))
+                os.close(fd)
+                self._write_pid()
                 self.acquired = True
                 return True
             except FileExistsError:
