@@ -27,7 +27,7 @@ def main(argv: list[str] | None = None) -> None:
     p_init.add_argument("--templates-dir", help="Templates directory override")
 
     p_web = sub.add_parser("web-export", help="Generate HTML index")
-    p_web.add_argument("--threads-dir", default="watercooler")
+    p_web.add_argument("--threads-dir")
     p_web.add_argument("--out", help="Optional output file path")
     p_web.add_argument("--open-only", action="store_true")
     p_web.add_argument("--closed", action="store_true")
