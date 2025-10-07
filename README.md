@@ -4,7 +4,7 @@ File-based collaboration protocol for agentic coding projects.
 
 ## Status
 
-✅ **Full feature parity with acpmonkey achieved** - All phases (L1-L3) complete with 52 passing tests covering all features including structured entries, agent registry, and template system.
+✅ **Full feature parity with acpmonkey achieved** - All phases (L1-L3) complete with 56 passing tests covering all features including structured entries, agent registry, and template system.
 
 ## Design Principles
 
@@ -27,7 +27,7 @@ Thread-based collaboration with:
 
 ## Features
 
-- **11 CLI Commands**: init-thread, append-entry, say, ack, handoff, set-status, set-ball, list, reindex, search, web-export
+- **12 CLI Commands**: init-thread, append-entry, say, ack, handoff, set-status, set-ball, list, reindex, search, web-export, unlock
 - **6 Agent Roles**: planner, critic, implementer, tester, pm, scribe
 - **5 Entry Types**: Note, Plan, Decision, PR, Closure
 - **Agent Format**: `Agent (user)` with user tagging (e.g., "Claude (jay)")
@@ -35,7 +35,7 @@ Thread-based collaboration with:
 - **Template Discovery**: CLI > env var > project-local > bundled
 - **NEW Markers**: Flags when last entry author ≠ ball owner
 - **CLOSED Filtering**: Exclude closed/done/merged/resolved threads
-- **Test Coverage**: 52 passing tests (25 core + 27 feature-specific)
+- **Test Coverage**: 56 passing tests (comprehensive coverage of all CLI commands and modules)
 
 ## Installation
 
@@ -197,6 +197,8 @@ pytest tests/test_structured_entries.py -v
 - **[FAQ](docs/FAQ.md)** - Frequently asked questions and troubleshooting
 
 ### Configuration & Reference
+- **[API Reference](docs/api.md)** - Python library API documentation
+- **[Integration Guide](docs/integration.md)** - Installation and integration tutorial
 - **[Structured Entries](docs/STRUCTURED_ENTRIES.md)** - Entry format, 6 roles, 5 types, ball auto-flip
 - **[Agent Registry](docs/AGENT_REGISTRY.md)** - Agent configuration and counterpart mappings
 - **[Templates](docs/TEMPLATES.md)** - Customizing thread and entry templates
