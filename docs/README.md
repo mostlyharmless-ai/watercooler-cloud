@@ -33,7 +33,6 @@ Complete documentation for the watercooler-collab file-based collaboration proto
 ## Migration & Reference
 
 - **[Migration Guide](MIGRATION.md)** - Migrating from acpmonkey to watercooler-collab
-- **[Project Status](../STATUS.md)** - Detailed project status and phase history
 - **[FAQ](FAQ.md)** - Frequently asked questions and troubleshooting
 
 ## Documentation by User Goal
@@ -72,7 +71,7 @@ Complete documentation for the watercooler-collab file-based collaboration proto
 ```
 watercooler-collab/
 ├── README.md                       # Main project overview
-├── STATUS.md                       # Project status and phase history
+├── AGENTS.md                       # Agent documentation
 ├── .github/
 │   └── WATERCOOLER_SETUP.md       # Git configuration guide
 └── docs/

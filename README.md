@@ -203,11 +203,6 @@ pytest tests/test_structured_entries.py -v
 - **[Git Setup](./github/WATERCOOLER_SETUP.md)** - Merge strategies and pre-commit hooks
 - **[Migration Guide](docs/MIGRATION.md)** - Migrating from acpmonkey
 
-### Project Info
-- [STATUS.md](STATUS.md) - Detailed project status and phase history
-- [IMPLEMENTATION_PLAN.md](IMPLEMENTATION_PLAN.md) - Original L1-L4 roadmap
-- [FEATURE_ANALYSIS.md](FEATURE_ANALYSIS.md) - Feature comparison with acpmonkey
-
 ## License
 
 MIT License - see LICENSE file

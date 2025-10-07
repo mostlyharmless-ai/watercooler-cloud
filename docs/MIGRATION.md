@@ -607,4 +607,3 @@ If you encounter issues during migration:
 - [STRUCTURED_ENTRIES.md](STRUCTURED_ENTRIES.md) - Entry format guide
 - [TEMPLATES.md](TEMPLATES.md) - Template customization
 - [AGENT_REGISTRY.md](AGENT_REGISTRY.md) - Agent configuration
-- [STATUS.md](../STATUS.md) - Project status and history
