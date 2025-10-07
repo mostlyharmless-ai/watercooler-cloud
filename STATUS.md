@@ -182,7 +182,7 @@ pytest tests/test_structured_entries.py -v
 # Install locally
 pip install -e .
 
-# Use CLI with structured entries
+# Use CLI with structured entries (uses .watercooler directory by default)
 watercooler init-thread feature-auth --owner Jay --participants "Jay, Claude, Codex"
 watercooler say feature-auth --agent Claude --role critic --title "Review Complete" --body "Looks good!"
 watercooler ack feature-auth  # Preserves ball
@@ -194,6 +194,9 @@ watercooler init-thread topic  # Uses custom templates
 
 # Agent registry
 watercooler say topic --agents-file agents.json --agent codex --role implementer --title "Done" --body "Implemented"
+
+# Override default directory
+watercooler list --threads-dir ./custom-threads
 
 # Check status
 git status

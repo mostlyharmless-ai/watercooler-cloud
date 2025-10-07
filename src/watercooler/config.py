@@ -8,14 +8,14 @@ def resolve_threads_dir(cli_value: str | None = None) -> Path:
     """Resolve threads directory using precedence: CLI > env > default.
 
     Env var: WATERCOOLER_DIR
-    Default: ./watercooler
+    Default: ./.watercooler
     """
     if cli_value:
         return Path(cli_value)
     env = os.getenv("WATERCOOLER_DIR")
     if env:
         return Path(env)
-    return Path("watercooler")
+    return Path(".watercooler")
 
 
 def resolve_templates_dir(cli_value: str | None = None) -> Path:
@@ -24,7 +24,7 @@ def resolve_templates_dir(cli_value: str | None = None) -> Path:
     Precedence:
     1. CLI argument (--templates-dir)
     2. Environment variable (WATERCOOLER_TEMPLATES)
-    3. Project-local templates (./watercooler/ if exists)
+    3. Project-local templates (./.watercooler/templates/ if exists)
     4. Package bundled templates (always available as fallback)
 
     Returns Path to directory containing _TEMPLATE_*.md files.
@@ -35,7 +35,7 @@ def resolve_templates_dir(cli_value: str | None = None) -> Path:
     if env:
         return Path(env)
     # Check for project-local templates
-    project_local = Path("watercooler")
+    project_local = Path(".watercooler/templates")
     if project_local.exists() and project_local.is_dir():
         return project_local
     # Fallback to package bundled templates

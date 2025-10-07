@@ -13,6 +13,11 @@ Watercooler-collab provides **full CLI parity** with acpmonkey's watercooler.py 
 - ✅ Agent registry structure is the same
 - ✅ Existing threads can be used without modification
 
+**Directory Convention Change**:
+- acpmonkey default: `./watercooler/`
+- watercooler-collab default: `./.watercooler/` (hidden directory)
+- Use `--threads-dir` to specify custom locations
+
 ## Quick Migration
 
 ### 1. Install watercooler-collab
@@ -29,19 +34,41 @@ cd watercooler-collab
 pip install -e .
 ```
 
-### 2. Replace Commands
+### 2. Move Existing Threads (Optional)
+
+If you have existing threads in `./watercooler/`, you can either:
+
+**Option A**: Move to `.watercooler` (recommended):
+```bash
+mv watercooler .watercooler
+```
+
+**Option B**: Keep using `./watercooler` by specifying `--threads-dir`:
+```bash
+# Set environment variable
+export WATERCOOLER_DIR=./watercooler
+
+# Or use --threads-dir flag
+watercooler say topic --threads-dir ./watercooler --title "Update" --body "Done"
+```
+
+### 3. Replace Commands
 
 **Before** (acpmonkey):
 ```bash
-python -m acpmonkey.watercooler say topic --title "Update" --body "Done"
+python -m acpmonkey.watercooler say topic --threads-dir ./watercooler --title "Update" --body "Done"
 ```
 
 **After** (watercooler-collab):
 ```bash
+# Uses .watercooler by default
 watercooler say topic --title "Update" --body "Done"
+
+# Or specify directory explicitly
+watercooler say topic --threads-dir ./watercooler --title "Update" --body "Done"
 ```
 
-That's it! All your existing threads, templates, and agent registries work as-is.
+All your existing threads, templates, and agent registries work as-is.
 
 ## Command Mapping
 
@@ -262,29 +289,44 @@ for thread in Path("watercooler").glob("*.md"):
 
 ## Environment Variables
 
-Both implementations use the same environment variables:
+Both implementations support similar environment variables:
 
 ```bash
-# Templates directory
+# Templates directory (both support)
 export WATERCOOLER_TEMPLATES=/path/to/templates
 
-# Threads directory (if not using --threads-dir)
-# Note: watercooler-collab doesn't use this env var,
-# always requires --threads-dir flag
+# Threads directory
+# acpmonkey: May have WATERCOOLER_DIR support
+# watercooler-collab: WATERCOOLER_DIR overrides .watercooler default
+export WATERCOOLER_DIR=./watercooler  # Optional, defaults to .watercooler
 ```
 
 ## Configuration Files
 
-Both use the same configuration locations:
+**watercooler-collab convention** (recommended):
 
 ```
 project/
-├── .watercooler/
+└── .watercooler/          # Hidden directory (default)
+    ├── templates/         # Optional custom templates
+    │   ├── _TEMPLATE_topic_thread.md
+    │   └── _TEMPLATE_entry_block.md
+    ├── agents.json        # Optional agent registry
+    ├── topic1.md          # Thread files
+    ├── topic2.md
+    └── index.md
+```
+
+**acpmonkey convention** (still supported):
+
+```
+project/
+├── .watercooler/          # Optional templates/config
 │   ├── templates/
 │   │   ├── _TEMPLATE_topic_thread.md
 │   │   └── _TEMPLATE_entry_block.md
 │   └── agents.json
-└── watercooler/           # Threads directory
+└── watercooler/           # Threads directory (use --threads-dir)
     ├── topic1.md
     ├── topic2.md
     └── index.md
@@ -295,7 +337,7 @@ project/
 ### 1. Verify Thread Compatibility
 
 ```bash
-# List threads with both tools
+# List threads with both tools (using same directory)
 python -m acpmonkey.watercooler list --threads-dir ./watercooler
 watercooler list --threads-dir ./watercooler
 
@@ -305,26 +347,26 @@ watercooler list --threads-dir ./watercooler
 ### 2. Test Commands
 
 ```bash
-# Create test thread with acpmonkey
-python -m acpmonkey.watercooler init-thread test-migration --threads-dir ./watercooler
+# Option A: Using new .watercooler default
+watercooler init-thread test-migration
+watercooler say test-migration --title "Test" --body "Migration test"
+cat .watercooler/test-migration.md
 
-# Add entry with watercooler-collab
+# Option B: Using old watercooler directory
+watercooler init-thread test-migration --threads-dir ./watercooler
 watercooler say test-migration --threads-dir ./watercooler --title "Test" --body "Migration test"
-
-# Read with acpmonkey
 cat watercooler/test-migration.md
 ```
 
 ### 3. Verify Templates
 
 ```bash
-# Initialize thread with custom template
-watercooler init-thread test-template \
-  --threads-dir ./watercooler \
-  --templates-dir .watercooler/templates
+# Templates now default to .watercooler/templates/
+mkdir -p .watercooler/templates
+watercooler init-thread test-template
 
 # Check result
-cat watercooler/test-template.md
+cat .watercooler/test-template.md
 ```
 
 ## Side-by-Side Comparison
@@ -514,13 +556,16 @@ Dedicated guides:
 ## Migration Checklist
 
 - [ ] Install watercooler-collab
+- [ ] Decide on directory structure:
+  - [ ] Move `watercooler/` to `.watercooler/` (recommended), OR
+  - [ ] Set `WATERCOOLER_DIR=./watercooler` to keep existing location
 - [ ] Test commands with existing threads
 - [ ] Update shell aliases
 - [ ] Update scripts and automation
 - [ ] Update CI/CD pipelines
 - [ ] Update documentation references
 - [ ] Update Python imports (if using API)
-- [ ] Test template discovery
+- [ ] Test template discovery (now checks `.watercooler/templates/`)
 - [ ] Test agent registry
 - [ ] Verify thread compatibility
 - [ ] Update team documentation

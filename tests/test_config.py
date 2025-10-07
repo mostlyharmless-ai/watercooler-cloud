@@ -19,22 +19,22 @@ def test_resolve_templates_dir_env_var(monkeypatch):
 
 
 def test_resolve_templates_dir_project_local(tmp_path, monkeypatch):
-    """Project-local watercooler/ takes precedence when exists."""
+    """Project-local .watercooler/templates/ takes precedence when exists."""
     # Remove env var if set
     monkeypatch.delenv("WATERCOOLER_TEMPLATES", raising=False)
 
-    # Create project-local watercooler dir
+    # Create project-local .watercooler/templates dir
     project_dir = tmp_path / "project"
     project_dir.mkdir()
-    watercooler_dir = project_dir / "watercooler"
-    watercooler_dir.mkdir()
+    watercooler_dir = project_dir / ".watercooler" / "templates"
+    watercooler_dir.mkdir(parents=True)
 
     # Change to project dir
     original_cwd = os.getcwd()
     try:
         os.chdir(project_dir)
         result = resolve_templates_dir()
-        assert result == Path("watercooler")
+        assert result == Path(".watercooler/templates")
     finally:
         os.chdir(original_cwd)
 

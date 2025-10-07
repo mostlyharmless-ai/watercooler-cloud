@@ -54,14 +54,12 @@ pip install -e .
 ```bash
 # Initialize a thread with custom metadata
 watercooler init-thread feature-auth \
-  --threads-dir ./watercooler \
   --owner Jay \
   --participants "Jay, Claude, Codex" \
   --ball codex
 
 # Add structured entry with role and type
 watercooler append-entry feature-auth \
-  --threads-dir ./watercooler \
   --agent Claude \
   --role critic \
   --title "Security Review Complete" \
@@ -70,25 +68,24 @@ watercooler append-entry feature-auth \
 
 # Quick team note with auto-ball-flip
 watercooler say feature-auth \
-  --threads-dir ./watercooler \
   --agent Team \
   --role pm \
   --title "Timeline Update" \
   --body "Target: end of sprint"
 
 # Acknowledge without flipping ball
-watercooler ack feature-auth \
-  --threads-dir ./watercooler
+watercooler ack feature-auth
 
 # Explicit handoff to counterpart
 watercooler handoff feature-auth \
-  --threads-dir ./watercooler \
   --agent Codex \
   --note "Ready for implementation"
 
 # Update status
-watercooler set-status feature-auth in-review \
-  --threads-dir ./watercooler
+watercooler set-status feature-auth in-review
+
+# Note: All commands default to .watercooler directory
+# Use --threads-dir to override
 ```
 
 ### Agent Registry and Templates
@@ -104,26 +101,29 @@ watercooler say feature-auth \
 
 # Use custom templates
 export WATERCOOLER_TEMPLATES=/path/to/custom/templates
-watercooler init-thread new-topic --threads-dir ./watercooler
+watercooler init-thread new-topic
 ```
 
 ### Listing and Search
 
 ```bash
 # List all open threads
-watercooler list --threads-dir ./watercooler
+watercooler list
 
 # List only closed threads
-watercooler list --threads-dir ./watercooler --closed-only
+watercooler list --closed-only
 
 # Search across threads
-watercooler search "security" --threads-dir ./watercooler
+watercooler search "security"
 
 # Generate markdown index
-watercooler reindex --threads-dir ./watercooler
+watercooler reindex
 
 # Export HTML index
-watercooler web-export --threads-dir ./watercooler
+watercooler web-export
+
+# Override default directory
+watercooler list --threads-dir ./custom-threads
 ```
 
 ## Structured Entry Format

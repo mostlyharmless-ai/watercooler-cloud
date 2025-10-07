@@ -36,10 +36,17 @@ watercooler say topic --title "Note" --body "Using custom templates"
 ### Example: Project-Local
 
 ```bash
+# Create local templates directory
 mkdir -p .watercooler/templates
-cp src/watercooler/templates/_TEMPLATE_*.md .watercooler/templates/
-# Edit templates...
-watercooler init-thread topic  # Uses project-local templates
+
+# Copy bundled templates as starting point
+cp $(python3 -c "import watercooler; import os; print(os.path.dirname(watercooler.__file__))")/templates/_TEMPLATE_*.md .watercooler/templates/
+
+# Edit templates as needed
+# vim .watercooler/templates/_TEMPLATE_topic_thread.md
+
+# Commands will now use your custom templates automatically
+watercooler init-thread topic  # Uses .watercooler/templates/
 ```
 
 ## Placeholder Syntax
