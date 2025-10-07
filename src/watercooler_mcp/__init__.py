@@ -1,0 +1,11 @@
+"""Watercooler MCP Server - Phase 1A MVP
+
+FastMCP server that exposes watercooler-collab tools to AI agents.
+Tools are namespaced as watercooler.v1.* for version compatibility.
+"""
+
+__version__ = "0.1.0"
+
+from .server import mcp
+
+__all__ = ["mcp"]
