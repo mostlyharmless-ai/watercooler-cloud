@@ -2,6 +2,27 @@
 
 This guide helps you migrate from acpmonkey's `watercooler.py` to the standalone `watercooler-collab` library.
 
+## Table of Contents
+
+- [Overview](#overview)
+- [Quick Migration](#quick-migration)
+- [Command Mapping](#command-mapping)
+- [File Compatibility](#file-compatibility)
+- [Import Changes](#import-changes)
+- [Breaking Changes](#breaking-changes-from-early-watercooler-collab)
+- [Environment Variables](#environment-variables)
+- [Configuration Files](#configuration-files)
+- [Testing Migration](#testing-migration)
+- [Side-by-Side Comparison](#side-by-side-comparison)
+- [Shell Aliases](#shell-aliases)
+- [CI/CD Integration](#cicd-integration)
+- [Common Issues](#common-issues)
+- [Rollback Plan](#rollback-plan)
+- [Benefits of Migration](#benefits-of-migration)
+- [Migration Checklist](#migration-checklist)
+- [Support](#support)
+- [See Also](#see-also)
+
 ## Overview
 
 Watercooler-collab provides **full CLI parity** with acpmonkey's watercooler.py implementation. All commands, flags, and behaviors work identically.

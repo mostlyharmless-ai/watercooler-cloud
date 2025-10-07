@@ -182,8 +182,28 @@ pytest tests/test_config.py -v
 pytest tests/test_structured_entries.py -v
 ```
 
-## Documentation
+## 📚 Documentation
 
+### Getting Started
+- **[Documentation Hub](docs/README.md)** - Complete documentation index
+- **[Use Cases Guide](docs/USE_CASES.md)** - 6 comprehensive workflow examples:
+  - Multi-agent collaboration with role specialization
+  - Extended context for LLM sessions
+  - Handoff workflows (developer→reviewer, human→agent)
+  - Async team collaboration across timezones
+  - Decision tracking and architectural records
+  - PR review workflow from design to deployment
+- **[Claude Collaboration](docs/claude-collab.md)** - Practical patterns for working with Claude
+- **[FAQ](docs/FAQ.md)** - Frequently asked questions and troubleshooting
+
+### Configuration & Reference
+- **[Structured Entries](docs/STRUCTURED_ENTRIES.md)** - Entry format, 6 roles, 5 types, ball auto-flip
+- **[Agent Registry](docs/AGENT_REGISTRY.md)** - Agent configuration and counterpart mappings
+- **[Templates](docs/TEMPLATES.md)** - Customizing thread and entry templates
+- **[Git Setup](./github/WATERCOOLER_SETUP.md)** - Merge strategies and pre-commit hooks
+- **[Migration Guide](docs/MIGRATION.md)** - Migrating from acpmonkey
+
+### Project Info
 - [STATUS.md](STATUS.md) - Detailed project status and phase history
 - [IMPLEMENTATION_PLAN.md](IMPLEMENTATION_PLAN.md) - Original L1-L4 roadmap
 - [FEATURE_ANALYSIS.md](FEATURE_ANALYSIS.md) - Feature comparison with acpmonkey

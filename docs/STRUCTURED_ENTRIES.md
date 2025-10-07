@@ -2,6 +2,30 @@
 
 Watercooler-collab uses structured entries to provide rich metadata and context for collaboration between human developers and AI agents.
 
+## Table of Contents
+
+- [Overview](#overview)
+- [Entry Format](#entry-format)
+- [Agent Roles](#agent-roles)
+  - [planner](#planner)
+  - [critic](#critic)
+  - [implementer](#implementer)
+  - [tester](#tester)
+  - [pm](#pm)
+  - [scribe](#scribe)
+- [Entry Types](#entry-types)
+  - [Note](#note)
+  - [Plan](#plan)
+  - [Decision](#decision)
+  - [PR](#pr)
+  - [Closure](#closure)
+- [CLI Commands with Structured Entries](#cli-commands-with-structured-entries)
+- [Agent Format](#agent-format)
+- [Ball Auto-Flip Behavior](#ball-auto-flip-behavior)
+- [Best Practices](#best-practices)
+- [Examples](#examples)
+- [See Also](#see-also)
+
 ## Overview
 
 Each entry in a watercooler thread includes:

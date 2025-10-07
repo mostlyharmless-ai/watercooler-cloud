@@ -2,6 +2,22 @@
 
 Watercooler-collab uses customizable templates for thread initialization and entry formatting. This guide covers template syntax, customization, and discovery.
 
+## Table of Contents
+
+- [Overview](#overview)
+- [Template Discovery](#template-discovery)
+- [Placeholder Syntax](#placeholder-syntax)
+- [Thread Templates](#thread-templates)
+- [Entry Templates](#entry-templates)
+- [Template Special Cases](#template-special-cases)
+- [Complete Customization Example](#complete-customization-example)
+- [Template Variables in Detail](#template-variables-in-detail)
+- [Environment-Specific Templates](#environment-specific-templates)
+- [Troubleshooting](#troubleshooting)
+- [Best Practices](#best-practices)
+- [Advanced Examples](#advanced-examples)
+- [See Also](#see-also)
+
 ## Overview
 
 Two types of templates:

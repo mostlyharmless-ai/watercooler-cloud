@@ -2,6 +2,23 @@
 
 The agent registry configures how watercooler-collab manages agents, their canonical names, counterpart relationships, and multi-agent collaboration chains.
 
+## Table of Contents
+
+- [Overview](#overview)
+- [Registry Structure](#registry-structure)
+- [Agent Format](#agent-format)
+- [Canonical Names](#canonical-names)
+- [Counterpart Mappings](#counterpart-mappings)
+- [Multi-Agent Chains](#multi-agent-chains)
+- [Default Ball Owner](#default-ball-owner)
+- [Using Agent Registry](#using-agent-registry)
+- [Complete Examples](#complete-examples)
+- [User Tagging](#user-tagging)
+- [Troubleshooting](#troubleshooting)
+- [Best Practices](#best-practices)
+- [Advanced Patterns](#advanced-patterns)
+- [See Also](#see-also)
+
 ## Overview
 
 The agent registry is a JSON file that defines:
