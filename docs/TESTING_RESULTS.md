@@ -51,15 +51,15 @@ tools = await mcp.get_tools()
 ```
 
 **Results:** 9 tools registered with correct namespacing:
-1. ✅ `watercooler.v1.health`
-2. ✅ `watercooler.v1.whoami`
-3. ✅ `watercooler.v1.list_threads`
-4. ✅ `watercooler.v1.read_thread`
-5. ✅ `watercooler.v1.say`
-6. ✅ `watercooler.v1.ack`
-7. ✅ `watercooler.v1.handoff`
-8. ✅ `watercooler.v1.set_status`
-9. ✅ `watercooler.v1.reindex`
+1. ✅ `watercooler_v1_health`
+2. ✅ `watercooler_v1_whoami`
+3. ✅ `watercooler_v1_list_threads`
+4. ✅ `watercooler_v1_read_thread`
+5. ✅ `watercooler_v1_say`
+6. ✅ `watercooler_v1_ack`
+7. ✅ `watercooler_v1_handoff`
+8. ✅ `watercooler_v1_set_status`
+9. ✅ `watercooler_v1_reindex`
 
 ### 4. Entry Points ✅
 
@@ -71,13 +71,13 @@ watercooler-mcp
 
 **Python module entry point:**
 ```bash
-python -m watercooler_mcp
+python3 -m watercooler_mcp
 ```
 **Result:** ✅ Server starts correctly
 
 ### 5. Diagnostic Tools ✅
 
-#### Test: `watercooler.v1.health`
+#### Test: `watercooler_v1_health`
 
 **Input:** (no parameters)
 
@@ -92,7 +92,7 @@ Threads Dir Exists: True
 
 **Result:** ✅ Correctly reports server health and configuration
 
-#### Test: `watercooler.v1.whoami`
+#### Test: `watercooler_v1_whoami`
 
 **Input:** (no parameters)
 
@@ -105,7 +105,7 @@ You are: Claude
 
 ### 6. Thread Listing ✅
 
-#### Test: `watercooler.v1.list_threads`
+#### Test: `watercooler_v1_list_threads`
 
 **Input:**
 ```python
@@ -130,7 +130,7 @@ You are: Claude
 
 ### 7. Thread Reading ✅
 
-#### Test: `watercooler.v1.read_thread`
+#### Test: `watercooler_v1_read_thread`
 
 **Input:**
 ```python
@@ -158,7 +158,7 @@ Can you confirm you can see this and respond?
 
 ### 8. Entry Creation with Ball Flip ✅
 
-#### Test: `watercooler.v1.say`
+#### Test: `watercooler_v1_say`
 
 **Input:**
 ```python
@@ -252,7 +252,7 @@ All through the MCP protocol without manual CLI commands.
 |-----------|--------|
 | 7 core tools implemented | ✅ Done |
 | 2 diagnostic tools implemented | ✅ Done |
-| Tool namespacing (watercooler.v1.*) | ✅ Done |
+| Tool namespacing (watercooler_v1_*) | ✅ Done |
 | Markdown-only output | ✅ Done |
 | Simple env-based config | ✅ Done |
 | Basic error handling | ✅ Done |
@@ -299,7 +299,7 @@ from fastmcp import Client
 from watercooler_mcp.server import mcp
 
 async with Client(mcp) as client:
-    result = await client.call_tool("watercooler.v1.say", {...})
+    result = await client.call_tool("watercooler_v1_say", {...})
 ```
 
 This simulates how real MCP clients (Claude Desktop, Cline, etc.) will interact with the server.

@@ -1,0 +1,13 @@
+{
+  "canonical": {
+    "claude": "Claude",
+    "codex": "Codex",
+    "team": "Team"
+  },
+  "counterpart": {
+    "Codex": "Claude",
+    "Claude": "Codex",
+    "Team": "Claude"
+  },
+  "default_ball": "Team"
+}

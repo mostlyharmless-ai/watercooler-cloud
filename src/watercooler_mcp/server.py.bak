@@ -11,7 +11,6 @@ Phase 1A features:
 """
 
 from fastmcp import FastMCP, Context
-import sys
 from pathlib import Path
 from watercooler import commands, fs
 from .config import get_agent_name, get_threads_dir, get_version
@@ -124,7 +123,7 @@ The **ball** indicates whose turn it is:
 # ============================================================================
 
 @mcp.tool(name="watercooler_v1_health")
-def health(ctx: Context) -> str:
+def health() -> str:
     """Check server health and configuration.
 
     Returns server version, configured agent identity, and threads directory.
@@ -138,17 +137,9 @@ def health(ctx: Context) -> str:
         Threads Dir Exists: True
     """
     try:
-        agent = get_agent_name(ctx.client_id)
+        agent = get_agent_name()
         threads_dir = get_threads_dir()
         version = get_version()
-
-        # Lightweight diagnostics to help average users verify env
-        py_exec = sys.executable or "unknown"
-        try:
-            import fastmcp as _fm
-            fm_ver = getattr(_fm, "__version__", "unknown")
-        except Exception:
-            fm_ver = "not-importable"
 
         status = (
             f"Watercooler MCP Server v{version}\n"
@@ -156,8 +147,6 @@ def health(ctx: Context) -> str:
             f"Agent: {agent}\n"
             f"Threads Dir: {threads_dir}\n"
             f"Threads Dir Exists: {threads_dir.exists()}\n"
-            f"Python: {py_exec}\n"
-            f"fastmcp: {fm_ver}\n"
         )
         return status
     except Exception as e:
@@ -176,8 +165,7 @@ def whoami(ctx: Context) -> str:
     """
     try:
         agent = get_agent_name(ctx.client_id)
-        debug_info = f"\nClient ID: {ctx.client_id or 'None'}\nSession ID: {ctx.session_id or 'None'}"
-        return f"You are: {agent}{debug_info}"
+        return f"You are: {agent}"
     except Exception as e:
         return f"Error determining identity: {str(e)}"
 
@@ -220,7 +208,7 @@ def list_threads(
             return f"Error: Phase 1A only supports format='markdown'. JSON support coming in Phase 1B."
 
         threads_dir = get_threads_dir()
-        agent = get_agent_name(ctx.client_id)
+        agent = get_agent_name()
 
         if not threads_dir.exists():
             return f"No threads directory found at: {threads_dir}\n\nCreate threads with watercooler CLI or wait for threads to be created."
@@ -390,7 +378,6 @@ def say(
 @mcp.tool(name="watercooler_v1_ack")
 def ack(
     topic: str,
-    ctx: Context,
     title: str = "",
     body: str = ""
 ) -> str:
@@ -412,7 +399,7 @@ def ack(
     """
     try:
         threads_dir = get_threads_dir()
-        agent = get_agent_name(ctx.client_id)
+        agent = get_agent_name()
 
         # Call watercooler ack command (preserves ball)
         commands.ack(
@@ -443,7 +430,6 @@ def ack(
 @mcp.tool(name="watercooler_v1_handoff")
 def handoff(
     topic: str,
-    ctx: Context,
     note: str = "",
     target_agent: str | None = None
 ) -> str:
@@ -465,7 +451,7 @@ def handoff(
     """
     try:
         threads_dir = get_threads_dir()
-        agent = get_agent_name(ctx.client_id)
+        agent = get_agent_name()
 
         if target_agent:
             # Explicit target: use set_ball to directly assign
@@ -549,7 +535,7 @@ def set_status(
 
 
 @mcp.tool(name="watercooler_v1_reindex")
-def reindex(ctx: Context) -> str:
+def reindex() -> str:
     """Generate and return the index content summarizing all threads.
 
     Creates a summary view organized by:
@@ -563,7 +549,7 @@ def reindex(ctx: Context) -> str:
     """
     try:
         threads_dir = get_threads_dir()
-        agent = get_agent_name(ctx.client_id)
+        agent = get_agent_name()
 
         if not threads_dir.exists():
             return f"No threads directory found at: {threads_dir}"

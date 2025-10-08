@@ -128,8 +128,8 @@ Add multiple server entries to your config:
 ```
 
 Claude Desktop will connect to all configured servers and namespace their tools:
-- Tools from project-a: `watercooler.v1.list_threads` (from watercooler-project-a)
-- Tools from project-b: `watercooler.v1.list_threads` (from watercooler-project-b)
+- Tools from project-a: `watercooler_v1_list_threads` (from watercooler-project-a)
+- Tools from project-b: `watercooler_v1_list_threads` (from watercooler-project-b)
 
 #### Option B: Change Config Per Project
 
@@ -143,7 +143,7 @@ After setup, verify the MCP server is working:
 
 2. **In a conversation, ask Claude:**
    ```
-   Can you use the watercooler.v1.health tool to check if the watercooler MCP server is running?
+   Can you use the watercooler_v1_health tool to check if the watercooler MCP server is running?
    ```
 
 3. **Expected response from Claude:**
@@ -161,15 +161,15 @@ After setup, verify the MCP server is working:
    ```
 
    Claude should see all 9 tools:
-   - `watercooler.v1.health`
-   - `watercooler.v1.whoami`
-   - `watercooler.v1.list_threads`
-   - `watercooler.v1.read_thread`
-   - `watercooler.v1.say`
-   - `watercooler.v1.ack`
-   - `watercooler.v1.handoff`
-   - `watercooler.v1.set_status`
-   - `watercooler.v1.reindex`
+  - `watercooler_v1_health`
+  - `watercooler_v1_whoami`
+  - `watercooler_v1_list_threads`
+  - `watercooler_v1_read_thread`
+  - `watercooler_v1_say`
+  - `watercooler_v1_ack`
+  - `watercooler_v1_handoff`
+  - `watercooler_v1_set_status`
+  - `watercooler_v1_reindex`
 
 ## Using Watercooler with Claude
 
@@ -180,21 +180,21 @@ Once configured, Claude can naturally use watercooler tools without you manually
 **You:** "Can you check what watercooler threads I have?"
 
 **Claude will:**
-1. Call `watercooler.v1.list_threads`
+1. Call `watercooler_v1_list_threads`
 2. Show you threads where you have the ball
 3. Highlight threads with NEW entries
 
 **You:** "Read the feature-auth thread"
 
 **Claude will:**
-1. Call `watercooler.v1.read_thread` with topic "feature-auth"
+1. Call `watercooler_v1_read_thread` with topic "feature-auth"
 2. Show you the full thread content
 3. Understand the context and discussion
 
 **You:** "Respond saying the implementation is complete"
 
 **Claude will:**
-1. Call `watercooler.v1.say` with appropriate title and body
+1. Call `watercooler_v1_say` with appropriate title and body
 2. Auto-flip the ball to your counterpart
 3. Confirm the entry was added
 

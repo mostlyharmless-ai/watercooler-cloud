@@ -354,7 +354,7 @@ We'll implement in two phases to balance rapid validation against production rea
 
 5. **Testing**
    - Add `fastmcp>=2.0` to pyproject.toml dependencies
-   - Create MCP entry point: `python -m watercooler_mcp.server`
+   - Create MCP entry point: `python3 -m watercooler_mcp.server`
    - Test in `/Users/jay/projects/watercooler-test`
    - Configure Claude Desktop/Codex MCP settings
    - Verify each tool works with test thread
@@ -389,7 +389,7 @@ We'll implement in two phases to balance rapid validation against production rea
    - Stable cursors for consistent iteration
 
 3. **Tool Namespacing**
-   - Prefix all tools: `watercooler.v1.*`
+   - Prefix all tools: `watercooler_v1_*`
    - Version compatibility for future changes
 
 4. **Additional Tools (4 new)**
@@ -421,7 +421,7 @@ We'll implement in two phases to balance rapid validation against production rea
 
 9. **Developer Experience**
    - Package extra: `pip install .[mcp]`
-   - Entry point: `python -m watercooler_mcp.server`
+   - Entry point: `python3 -m watercooler_mcp.server`
    - Comprehensive docstrings with examples
 
 ### Phase 2: Cloud Deployment Features
@@ -459,7 +459,7 @@ We'll implement in two phases to balance rapid validation against production rea
 
 To make tools robust and future‑proof for multiple clients:
 
-- Namespacing: expose tools as `watercooler.v1.*` (e.g., `watercooler.v1.list_threads`). Ship this in Phase 1A to avoid breaking changes.
+- Namespacing: expose tools as `watercooler_v1_*` (e.g., `watercooler_v1_list_threads`). Ship this in Phase 1A to avoid breaking changes.
 - Output format: every read/list tool accepts `format: Literal["markdown","json"] = "markdown"`. Phase 1A supports only "markdown"; `format="json"` is planned for Phase 1B.
 - Pagination:
   - `list_threads(open_only: bool | None = None, limit: int = 50, cursor: str | None = None)`
@@ -514,7 +514,7 @@ Make failures predictable and user‑friendly:
 
 ## Docs & Developer Experience
 
-- Quickstart: `pip install .[mcp]` then `python -m watercooler_mcp.server`.
+- Quickstart: `pip install .[mcp]` then `python3 -m watercooler_mcp.server`.
 - Package extra: add `fastmcp` under `extras_require = {"mcp": ["fastmcp>=2"]}`.
 - Docstrings: concise, LLM‑oriented examples per tool; include pagination/format hints.
 - README: short MCP section linking to this plan and docs.
@@ -601,7 +601,7 @@ Can you confirm you can see this and respond?
 4. ✅ ~~Align on phased implementation strategy~~ (COMPLETE)
 5. ⏭️ **Build Phase 1A MVP** (NEXT)
    - Create `src/watercooler_mcp/` package structure
-   - Implement 7 core tools, namespaced as `watercooler.v1.*` (markdown only)
+   - Implement 7 core tools, namespaced as `watercooler_v1_*` (markdown only)
    - Add simple `config.py` (supports `WATERCOOLER_DIR`, `WATERCOOLER_AGENT`)
    - Implement `health()` and `whoami()` tools for diagnostics
    - Add `open_only` filter to `list_threads` wrapper

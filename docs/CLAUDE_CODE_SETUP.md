@@ -35,13 +35,13 @@ If you prefer manual control:
 
 ```bash
 # Basic registration
-claude mcp add watercooler -- python -m watercooler_mcp
+claude mcp add watercooler -- python3 -m watercooler_mcp
 
 # With environment variables
 claude mcp add watercooler \
   -e WATERCOOLER_AGENT=Claude \
   -e WATERCOOLER_DIR=/path/to/project/.watercooler \
-  -- python -m watercooler_mcp
+  -- python3 -m watercooler_mcp
 
 # Using full Python path from conda environment
 claude mcp add watercooler \
@@ -100,7 +100,7 @@ Example with scope:
 ```bash
 claude mcp add watercooler --scope user \
   -e WATERCOOLER_AGENT=Claude \
-  -- python -m watercooler_mcp
+  -- python3 -m watercooler_mcp
 ```
 
 ## Managing Multiple Projects
@@ -114,13 +114,13 @@ Register the server with `--scope local` in each project directory:
 cd /path/to/projectA
 claude mcp add watercooler --scope local \
   -e WATERCOOLER_DIR=/path/to/projectA/.watercooler \
-  -- python -m watercooler_mcp
+  -- python3 -m watercooler_mcp
 
 # In project B
 cd /path/to/projectB
 claude mcp add watercooler --scope local \
   -e WATERCOOLER_DIR=/path/to/projectB/.watercooler \
-  -- python -m watercooler_mcp
+  -- python3 -m watercooler_mcp
 ```
 
 ### Option B: Dynamic Directory (Recommended)
@@ -130,7 +130,7 @@ Register once at user scope without specifying `WATERCOOLER_DIR`:
 ```bash
 claude mcp add watercooler --scope user \
   -e WATERCOOLER_AGENT=Claude \
-  -- python -m watercooler_mcp
+  -- python3 -m watercooler_mcp
 ```
 
 The server will use `./.watercooler` relative to where Claude Code is launched, automatically adapting to each project.
@@ -144,7 +144,7 @@ Register at user scope with a default, but override per-session:
 claude mcp add watercooler --scope user \
   -e WATERCOOLER_AGENT=Claude \
   -e WATERCOOLER_DIR=/path/to/default/.watercooler \
-  -- python -m watercooler_mcp
+  -- python3 -m watercooler_mcp
 
 # Then in your shell session, override for specific project:
 export WATERCOOLER_DIR=/path/to/special-project/.watercooler
@@ -166,7 +166,7 @@ After setup, verify the MCP server is working:
 
    Ask me (Claude):
    ```
-   Can you use the watercooler.v1.health tool?
+   Can you use the watercooler_v1_health tool?
    ```
 
    Expected response:
@@ -184,15 +184,15 @@ After setup, verify the MCP server is working:
    ```
 
    I should see all 9 tools:
-   - watercooler.v1.health
-   - watercooler.v1.whoami
-   - watercooler.v1.list_threads
-   - watercooler.v1.read_thread
-   - watercooler.v1.say
-   - watercooler.v1.ack
-   - watercooler.v1.handoff
-   - watercooler.v1.set_status
-   - watercooler.v1.reindex
+  - watercooler_v1_health
+  - watercooler_v1_whoami
+  - watercooler_v1_list_threads
+  - watercooler_v1_read_thread
+  - watercooler_v1_say
+  - watercooler_v1_ack
+  - watercooler_v1_handoff
+  - watercooler_v1_set_status
+  - watercooler_v1_reindex
 
 ## Using Watercooler with Claude Code
 
@@ -203,21 +203,21 @@ Once configured, you can ask me to use watercooler naturally:
 **You:** "List my watercooler threads"
 
 **I will:**
-- Call `watercooler.v1.list_threads`
+- Call `watercooler_v1_list_threads`
 - Show threads organized by ball ownership
 - Highlight NEW entries
 
 **You:** "Read the feature-auth thread"
 
 **I will:**
-- Call `watercooler.v1.read_thread` with topic "feature-auth"
+- Call `watercooler_v1_read_thread` with topic "feature-auth"
 - Display full thread content
 - Understand context for discussion
 
 **You:** "Respond that the implementation is done"
 
 **I will:**
-- Call `watercooler.v1.say` with appropriate title/body
+- Call `watercooler_v1_say` with appropriate title/body
 - Auto-flip ball to counterpart
 - Confirm the update
 
@@ -240,7 +240,7 @@ fastmcp install claude-code src/watercooler_mcp/server.py
 
 **Check current identity:**
 ```bash
-# Ask me (Claude) to call watercooler.v1.whoami
+# Ask me (Claude) to call watercooler_v1_whoami
 ```
 
 **If wrong, update configuration:**
@@ -251,14 +251,14 @@ claude mcp remove watercooler
 # Re-add with correct agent
 claude mcp add watercooler \
   -e WATERCOOLER_AGENT=CorrectName \
-  -- python -m watercooler_mcp
+  -- python3 -m watercooler_mcp
 ```
 
 ### Threads Not Found
 
 **Verify directory path:**
 ```bash
-# Ask me to call watercooler.v1.health
+# Ask me to call watercooler_v1_health
 ```
 
 Check the "Threads Dir" in the output.

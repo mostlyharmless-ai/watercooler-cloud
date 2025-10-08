@@ -4,7 +4,7 @@ FastMCP server that exposes watercooler-collab tools to AI agents through the Mo
 
 ## Overview
 
-The watercooler MCP server allows AI agents (like Claude, Codex, etc.) to naturally discover and use watercooler collaboration tools without manual CLI commands. All tools are namespaced as `watercooler.v1.*` for version compatibility.
+The watercooler MCP server allows AI agents (like Claude, Codex, etc.) to naturally discover and use watercooler collaboration tools without manual CLI commands. All tools are namespaced as `watercooler_v1_*` for provider compatibility.
 
 **Current Phase:** Phase 1A MVP (Markdown-only, simple configuration)
 
@@ -39,7 +39,7 @@ watercooler-mcp
 
 **Option B: Python module**
 ```bash
-python -m watercooler_mcp
+python3 -m watercooler_mcp
 ```
 
 The server runs on STDIO transport by default, which is the standard for MCP.
@@ -85,11 +85,11 @@ Add to your MCP client configuration (e.g., Claude Desktop, Cline):
 
 ## Available Tools
 
-All tools are namespaced as `watercooler.v1.*`:
+All tools are namespaced as `watercooler_v1_*`:
 
 ### Diagnostic Tools
 
-#### `watercooler.v1.health`
+#### `watercooler_v1_health`
 Check server health and configuration.
 
 **Returns:** Server version, agent identity, threads directory status
@@ -103,7 +103,7 @@ Threads Dir: /path/to/.watercooler
 Threads Dir Exists: True
 ```
 
-#### `watercooler.v1.whoami`
+#### `watercooler_v1_whoami`
 Get your resolved agent identity.
 
 **Returns:** Current agent name
@@ -115,7 +115,7 @@ You are: Codex
 
 ### Thread Management Tools
 
-#### `watercooler.v1.list_threads`
+#### `watercooler_v1_list_threads`
 List all threads with ball ownership and NEW markers.
 
 **Parameters:**
@@ -129,7 +129,7 @@ List all threads with ball ownership and NEW markers.
 - 🆕 NEW Entries - Threads with unread updates
 - ⏳ Waiting on Others - Threads where others have the ball
 
-#### `watercooler.v1.read_thread`
+#### `watercooler_v1_read_thread`
 Read complete thread content.
 
 **Parameters:**
@@ -140,7 +140,7 @@ Read complete thread content.
 
 **Returns:** Full markdown thread content with all entries
 
-#### `watercooler.v1.say`
+#### `watercooler_v1_say`
 Add your response to a thread and flip the ball to your counterpart.
 
 **Parameters:**
@@ -157,7 +157,7 @@ Add your response to a thread and flip the ball to your counterpart.
 say("feature-auth", "Implementation complete", "All tests passing. Ready for review.", role="implementer")
 ```
 
-#### `watercooler.v1.ack`
+#### `watercooler_v1_ack`
 Acknowledge a thread without flipping the ball.
 
 **Parameters:**
@@ -167,7 +167,7 @@ Acknowledge a thread without flipping the ball.
 
 **Returns:** Confirmation (ball remains with current owner)
 
-#### `watercooler.v1.handoff`
+#### `watercooler_v1_handoff`
 Hand off the ball to another agent.
 
 **Parameters:**
@@ -182,7 +182,7 @@ Hand off the ball to another agent.
 handoff("feature-auth", "Ready for your review", target_agent="Claude")
 ```
 
-#### `watercooler.v1.set_status`
+#### `watercooler_v1_set_status`
 Update thread status.
 
 **Parameters:**
@@ -191,7 +191,7 @@ Update thread status.
 
 **Returns:** Confirmation message
 
-#### `watercooler.v1.reindex`
+#### `watercooler_v1_reindex`
 Generate index summary of all threads.
 
 **Returns:** Markdown index organized by:
