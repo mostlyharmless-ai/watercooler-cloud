@@ -6,7 +6,7 @@ FastMCP server that exposes watercooler-collab tools to AI agents through the Mo
 
 The watercooler MCP server allows AI agents (like Claude, Codex, etc.) to naturally discover and use watercooler collaboration tools without manual CLI commands. All tools are namespaced as `watercooler_v1_*` for provider compatibility.
 
-**Current Phase:** Phase 1A MVP (Markdown-only, simple configuration)
+**Current Phase:** Phase 1B (Upward directory search, comprehensive documentation)
 
 ## Installation
 
@@ -20,33 +20,64 @@ This installs `fastmcp>=2.0` and creates the `watercooler-mcp` command.
 
 ## Quick Start
 
-### 1. Set Environment Variables (Optional)
+**For complete setup instructions, see [QUICKSTART.md](./QUICKSTART.md)**
 
-```bash
-# Set your agent identity (default: "Agent")
-export WATERCOOLER_AGENT="Codex"
+### Configuration Examples
 
-# Set threads directory (default: ./.watercooler)
-export WATERCOOLER_DIR="/path/to/project/.watercooler"
+**Codex (`~/.codex/config.toml`):**
+```toml
+[mcp_servers.watercooler]
+command = "python3"
+args = ["-m", "watercooler_mcp"]
+
+[mcp_servers.watercooler.env]
+WATERCOOLER_AGENT = "Codex"
 ```
 
-### 2. Run the Server
-
-**Option A: Direct command**
-```bash
-watercooler-mcp
+**Claude Desktop:**
+```json
+{
+  "mcpServers": {
+    "watercooler": {
+      "command": "python3",
+      "args": ["-m", "watercooler_mcp"],
+      "env": {
+        "WATERCOOLER_AGENT": "Claude"
+      }
+    }
+  }
+}
 ```
 
-**Option B: Python module**
-```bash
-python3 -m watercooler_mcp
+**Claude Code (`.mcp.json`):**
+```json
+{
+  "mcpServers": {
+    "watercooler": {
+      "command": "python3",
+      "args": ["-m", "watercooler_mcp"],
+      "env": {
+        "WATERCOOLER_AGENT": "Claude"
+      }
+    }
+  }
+}
 ```
 
-The server runs on STDIO transport by default, which is the standard for MCP.
+## Environment Variables
 
-### 3. Configure Your MCP Client
+### WATERCOOLER_AGENT (Required)
+Your agent identity (e.g., "Claude", "Codex"). Set in MCP config.
 
-Add to your MCP client configuration (e.g., Claude Desktop, Cline):
+### WATERCOOLER_DIR (Optional)
+Explicit threads directory override.
+
+**Resolution order (Phase 1B):**
+1. `WATERCOOLER_DIR` env var (highest priority)
+2. Upward search from CWD for existing `.watercooler/` (stops at git root or HOME)
+3. Fallback: `{CWD}/.watercooler` (for auto-creation)
+
+**The upward search is automatic** - works from any subdirectory in your repo without configuration.
 
 **Claude Desktop** (`~/Library/Application Support/Claude/claude_desktop_config.json` on macOS):
 ```json

@@ -1,10 +1,10 @@
-"""Configuration for Watercooler MCP Server - Phase 1A
+"""Configuration for Watercooler MCP Server - Phase 1B
 
-Simple environment-based configuration for agent identity and directory discovery.
-Phase 1B will add: upward .watercooler/ search to git root, git config user.name fallback.
+Environment-based configuration with upward directory search for .watercooler/
 """
 
 import os
+import subprocess
 from pathlib import Path
 
 
@@ -44,23 +44,85 @@ def get_agent_name(client_id: str | None = None) -> str:
     return "Agent"
 
 
-def get_threads_dir() -> Path:
-    """Get threads directory from WATERCOOLER_DIR environment variable.
+def _find_git_root(start_path: Path) -> Path | None:
+    """Find git repository root by looking for .git directory.
+
+    Args:
+        start_path: Directory to start searching from
 
     Returns:
-        Path to threads directory. Defaults to .watercooler in current directory.
-
-    Phase 1A precedence:
-    1. WATERCOOLER_DIR env var (if set)
-    2. Fallback: Path.cwd() / ".watercooler"
-
-    Phase 1B will add:
-    - Upward search for .watercooler/ from CWD to git root
+        Path to git root if found, None otherwise
     """
+    try:
+        result = subprocess.run(
+            ["git", "rev-parse", "--show-toplevel"],
+            cwd=start_path,
+            capture_output=True,
+            text=True,
+            timeout=1.0
+        )
+        if result.returncode == 0:
+            return Path(result.stdout.strip())
+    except (subprocess.TimeoutExpired, FileNotFoundError, OSError):
+        pass
+    return None
+
+
+def get_threads_dir() -> Path:
+    """Get threads directory with upward search.
+
+    Returns:
+        Path to threads directory.
+
+    Resolution order (Phase 1B):
+    1. WATERCOOLER_DIR env var (explicit override)
+    2. Upward search from CWD for .watercooler/ (stops at git root or HOME)
+    3. Fallback: Path.cwd() / ".watercooler" (for auto-creation)
+
+    The upward search looks for an existing .watercooler/ directory starting
+    from the current working directory and moving up the tree. It stops at:
+    - The git repository root (if in a git repo)
+    - The user's HOME directory
+    - The filesystem root (as a safety limit)
+
+    If no existing .watercooler/ is found, returns CWD/.watercooler for
+    auto-creation by watercooler commands.
+    """
+    # 1. Explicit override
     dir_str = os.getenv("WATERCOOLER_DIR")
     if dir_str:
         return Path(dir_str)
-    return Path.cwd() / ".watercooler"
+
+    # 2. Upward search for existing .watercooler/
+    cwd = Path.cwd()
+    git_root = _find_git_root(cwd)
+    home = Path.home()
+
+    # Determine search boundary (stop at git root or HOME, whichever is closer)
+    if git_root and cwd.is_relative_to(git_root):
+        search_limit = git_root
+    else:
+        search_limit = home
+
+    # Search upward from CWD to search_limit
+    current = cwd
+    while True:
+        candidate = current / ".watercooler"
+        if candidate.exists() and candidate.is_dir():
+            return candidate
+
+        # Stop if we've reached the search limit
+        if current == search_limit:
+            break
+
+        # Stop if we've reached filesystem root (safety)
+        if current == current.parent:
+            break
+
+        current = current.parent
+
+    # 3. Fallback: CWD/.watercooler (for auto-creation)
+    return cwd / ".watercooler"
 
 
 def get_version() -> str:
