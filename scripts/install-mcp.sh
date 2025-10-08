@@ -48,9 +48,28 @@ esac
 # Step 1: Ensure package (with MCP extras) is available
 info "Checking installation..."
 
-# Always use python3 as the interpreter
-PY="$(command -v python3 || true)"
-[[ -n "${PY}" ]] || error "python3 not found. Please install Python 3.9+ and ensure it is on PATH."
+# Select a Python interpreter (require 3.10+); prefer python3, else specific versions
+pick_python() {
+  local candidates=(python3 python3.12 python3.11 python3.10)
+  for c in "${candidates[@]}"; do
+    if command -v "$c" >/dev/null 2>&1; then
+      local ver
+      ver="$($c -c 'import sys; print("%d.%d.%d" % sys.version_info[:3])' 2>/dev/null)" || true
+      local major minor
+      major="${ver%%.*}"
+      minor="$(echo "$ver" | cut -d. -f2)"
+      if [[ -n "$major" && -n "$minor" ]] && (( major > 3 || (major == 3 && minor >= 10) )); then
+        command -v "$c"
+        return 0
+      fi
+    fi
+  done
+  return 1
+}
+
+PY="$(pick_python || true)"
+[[ -n "${PY}" ]] || error "Python 3.10+ not found. Install Python 3.10+ and ensure 'python3' resolves to it, or install a specific binary like python3.10. See docs/CLAUDE_CODE_SETUP.md → Using Specific Python Version."
+info "Using Python: $(${PY} --version)"
 
 if ! "${PY}" -c "import watercooler_mcp" 2>/dev/null; then
   echo "watercooler-collab[mcp] is not installed."
@@ -205,10 +224,10 @@ else
       CMD_CLAUDE="claude mcp add watercooler --scope ${SCOPE}"
       [[ -n "${AGENT_NAME_CLAUDE}" ]] && CMD_CLAUDE+=" -e WATERCOOLER_AGENT=${AGENT_NAME_CLAUDE}" || CMD_CLAUDE+=" -e WATERCOOLER_AGENT=Claude"
       [[ -n "${WATERCOOLER_DIR}" ]] && CMD_CLAUDE+=" -e WATERCOOLER_DIR=${WATERCOOLER_DIR}"
-      CMD_CLAUDE+=" -- python3 -m watercooler_mcp"
+      CMD_CLAUDE+=" -- ${PY} -m watercooler_mcp"
       ;;
     2)
-      PYTHON_PATH="python3"
+      PYTHON_PATH="${PY}"
       CMD_CLAUDE="claude mcp add watercooler --scope ${SCOPE}"
       [[ -n "${AGENT_NAME_CLAUDE}" ]] && CMD_CLAUDE+=" -e WATERCOOLER_AGENT=${AGENT_NAME_CLAUDE}" || CMD_CLAUDE+=" -e WATERCOOLER_AGENT=Claude"
       [[ -n "${WATERCOOLER_DIR}" ]] && CMD_CLAUDE+=" -e WATERCOOLER_DIR=${WATERCOOLER_DIR}"
@@ -235,7 +254,7 @@ if [[ "${CLIENT}" == "both" ]]; then
   echo ""; echo "[Codex] - Will update ~/.codex/config.toml with:"
   cat <<TOML
   [mcp_servers.watercooler]
-  command = "python3"
+  command = "${PY}"
   args = ["-m", "watercooler_mcp"]
 
   [mcp_servers.watercooler.env]
@@ -249,7 +268,7 @@ else
     echo "  Will update ~/.codex/config.toml with:"
     cat <<TOML
   [mcp_servers.watercooler]
-  command = "python3"
+  command = "${PY}"
   args = ["-m", "watercooler_mcp"]
 
   [mcp_servers.watercooler.env]
@@ -297,7 +316,7 @@ if [[ $REPLY =~ ^[Yy]$ ]]; then
 
 # Watercooler MCP server
 [mcp_servers.watercooler]
-command = "python3"
+command = "${PY}"
 args = ["-m", "watercooler_mcp"]
 
 [mcp_servers.watercooler.env]
@@ -331,7 +350,7 @@ TOML
 
 # Watercooler MCP server
 [mcp_servers.watercooler]
-command = "python3"
+command = "${PY}"
 args = ["-m", "watercooler_mcp"]
 
 [mcp_servers.watercooler.env]
@@ -372,7 +391,7 @@ else
     cat <<TOML
 
 [mcp_servers.watercooler]
-command = "python3"
+command = "${PY}"
 args = ["-m", "watercooler_mcp"]
 
 [mcp_servers.watercooler.env]

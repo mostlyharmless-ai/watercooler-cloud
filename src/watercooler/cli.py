@@ -5,6 +5,11 @@ from __future__ import annotations
 import argparse
 import sys
 
+# Fail fast on unsupported interpreter version
+if sys.version_info < (3, 10):
+    print(f"Watercooler CLI requires Python 3.10+; found {sys.version.split()[0]}", file=sys.stderr)
+    sys.exit(1)
+
 
 def main(argv: list[str] | None = None) -> None:
     ap = argparse.ArgumentParser(
