@@ -194,7 +194,7 @@ Add at least 2-3 representative thread files for testing.
 - [ ] `pip install -e .` succeeds
 - [ ] `watercooler --help` shows all commands
 - [ ] All command stubs exit cleanly with "not yet implemented" message
-- [ ] CI passes on Ubuntu + macOS, Python 3.9-3.12
+- [ ] CI passes on Ubuntu + macOS, Python 3.10-3.12
 - [ ] No dependencies added (stdlib only)
 - [ ] Code coverage >80% for extracted utilities
 

@@ -123,10 +123,13 @@ def append_entry(
         Path to updated thread file
     """
     tp = thread_path(topic, threads_dir)
+    
+    # Initialize thread if it doesn't exist (before acquiring lock)
+    if not tp.exists():
+        init_thread(topic, threads_dir=threads_dir)
+    
     lp = lock_path_for_topic(topic, threads_dir)
     with AdvisoryLock(lp, timeout=2, ttl=10, force_break=False):
-        if not tp.exists():
-            init_thread(topic, threads_dir=threads_dir)
         s = tp.read_text(encoding="utf-8")
 
         # Load entry template
@@ -169,7 +172,7 @@ def append_entry(
         # Append entry
         new_text = s.rstrip() + "\n\n" + filled_entry
         write(tp, new_text)
-    return tp
+        return tp
 
 
 def set_status(topic: str, *, threads_dir: Path, status: str) -> Path:

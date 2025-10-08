@@ -7,7 +7,7 @@ name = "watercooler-collab"
 version = "0.0.1"
 description = "File-based collaboration protocol for agentic coding projects"
 readme = "README.md"
-requires-python = ">=3.9"
+requires-python = ">=3.10"
 license = {text = "MIT"}
 authors = [
     {name = "Mostly Harmless AI", email = "hello@mostlyharmless.ai"}
@@ -17,7 +17,7 @@ classifiers = [
     "Intended Audience :: Developers",
     "License :: OSI Approved :: MIT License",
     "Programming Language :: Python :: 3",
-    "Programming Language :: Python :: 3.9",
+    # Dropping 3.9; project requires 3.10+ due to PEP 604 usage
     "Programming Language :: Python :: 3.10",
     "Programming Language :: Python :: 3.11",
     "Programming Language :: Python :: 3.12",
@@ -34,6 +34,9 @@ dev = [
     "pytest>=7.0",
     "mypy>=1.0",
 ]
+mcp = [
+    "fastmcp>=2.0",
+]
 
 [tool.setuptools.packages.find]
 where = ["src"]
@@ -43,3 +46,4 @@ watercooler = ["py.typed", "templates/*.md"]
 
 [project.scripts]
 watercooler = "watercooler.cli:main"
+watercooler-mcp = "watercooler_mcp.server:main"

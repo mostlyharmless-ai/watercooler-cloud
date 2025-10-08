@@ -1,0 +1,15 @@
+{
+  "mcpServers": {
+    "watercooler": {
+      "type": "stdio",
+      "command": "/opt/anaconda3/envs/watercooler/bin/python3",
+      "args": [
+        "-m",
+        "watercooler_mcp"
+      ],
+      "env": {
+        "WATERCOOLER_AGENT": "Claude"
+      }
+    }
+  }
+}
