@@ -36,6 +36,7 @@ dev = [
 ]
 mcp = [
     "fastmcp>=2.0",
+    "python-ulid>=2.0",
 ]
 
 [tool.setuptools.packages.find]

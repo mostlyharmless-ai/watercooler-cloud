@@ -17,8 +17,9 @@ if sys.version_info < (3, 10):
     )
 from fastmcp import FastMCP, Context
 from pathlib import Path
+from ulid import ULID
 from watercooler import commands, fs
-from .config import get_agent_name, get_threads_dir, get_version
+from .config import get_agent_name, get_threads_dir, get_version, get_git_sync_manager
 
 # Initialize FastMCP server
 mcp = FastMCP(name="Watercooler Collaboration")
@@ -319,6 +320,12 @@ def read_thread(
             return f"Error: Phase 1A only supports format='markdown'. JSON support coming in Phase 1B."
 
         threads_dir = get_threads_dir()
+        sync = get_git_sync_manager()
+
+        # Cloud mode: pull latest before reading
+        if sync:
+            sync.pull()
+
         thread_path = fs.thread_path(topic, threads_dir)
 
         if not thread_path.exists():
@@ -362,17 +369,36 @@ def say(
     try:
         threads_dir = get_threads_dir()
         agent = get_agent_name(ctx.client_id)
+        sync = get_git_sync_manager()
 
-        # Call watercooler say command (auto-flips ball)
-        commands.say(
-            topic,
-            threads_dir=threads_dir,
-            agent=agent,
-            role=role,
-            title=title,
-            entry_type=entry_type,
-            body=body,
-        )
+        # Generate unique Entry-ID for idempotency
+        entry_id = str(ULID())
+
+        # Define the append operation
+        def append_operation():
+            commands.say(
+                topic,
+                threads_dir=threads_dir,
+                agent=agent,
+                role=role,
+                title=title,
+                entry_type=entry_type,
+                body=body,
+            )
+
+        if sync:
+            # Cloud mode: sync before and after
+            # Create commit message with Entry-ID footer
+            commit_message = (
+                f"{agent}: {title} ({topic})\n"
+                f"\n"
+                f"Watercooler-Entry-ID: {entry_id}\n"
+                f"Watercooler-Topic: {topic}"
+            )
+            sync.with_sync(append_operation, commit_message)
+        else:
+            # Local mode: no sync
+            append_operation()
 
         # Get updated thread meta to show new ball owner
         thread_path = fs.thread_path(topic, threads_dir)

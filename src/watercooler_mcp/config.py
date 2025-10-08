@@ -129,3 +129,40 @@ def get_version() -> str:
     """Get the watercooler_mcp version."""
     from . import __version__
     return __version__
+
+
+def get_git_sync_manager():
+    """Get git sync manager if configured (cloud mode).
+
+    Returns:
+        GitSyncManager instance if WATERCOOLER_GIT_REPO is set, None otherwise
+
+    Environment Variables:
+        WATERCOOLER_GIT_REPO: Git repository URL (enables cloud mode)
+        WATERCOOLER_GIT_SSH_KEY: Optional path to SSH private key
+        WATERCOOLER_GIT_AUTHOR: Git commit author name (default: "Watercooler MCP")
+        WATERCOOLER_GIT_EMAIL: Git commit author email (default: "mcp@watercooler.dev")
+
+    Example:
+        sync = get_git_sync_manager()
+        if sync:
+            # Cloud mode: use git sync
+            sync.with_sync(operation, commit_message)
+        else:
+            # Local mode: no sync
+            operation()
+    """
+    repo_url = os.getenv("WATERCOOLER_GIT_REPO")
+    if not repo_url:
+        return None  # Local mode
+
+    from .git_sync import GitSyncManager
+
+    ssh_key = os.getenv("WATERCOOLER_GIT_SSH_KEY")
+    return GitSyncManager(
+        repo_url=repo_url,
+        local_path=get_threads_dir(),
+        ssh_key_path=Path(ssh_key) if ssh_key else None,
+        author_name=os.getenv("WATERCOOLER_GIT_AUTHOR", "Watercooler MCP"),
+        author_email=os.getenv("WATERCOOLER_GIT_EMAIL", "mcp@watercooler.dev")
+    )
