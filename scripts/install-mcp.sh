@@ -143,9 +143,8 @@ if [[ "${CLIENT}" == "claude" ]]; then
   read -p "Method (1-3, default: 1): " METHOD_CHOICE
   METHOD_CHOICE=${METHOD_CHOICE:-1}
 elif [[ "${CLIENT}" == "codex" ]]; then
-  echo "  4) Print VS Code (Cline) MCP config snippet"
-  echo "  5) Print generic CLI command (manual launch)"
-  read -p "Method (4-5, default: 4): " METHOD_CHOICE
+  echo "  4) Update ~/.codex/config.toml (Codex CLI)"
+  read -p "Method (4, default: 4): " METHOD_CHOICE
   METHOD_CHOICE=${METHOD_CHOICE:-4}
 else
   echo "  Claude methods:"
@@ -155,9 +154,8 @@ else
   read -p "Claude method (1-3, default: 1): " METHOD_CHOICE_CLAUDE
   METHOD_CHOICE_CLAUDE=${METHOD_CHOICE_CLAUDE:-1}
   echo "  Codex methods:"
-  echo "    4) Print VS Code (Cline) MCP config snippet"
-  echo "    5) Print generic CLI command (manual launch)"
-  read -p "Codex method (4-5, default: 4): " METHOD_CHOICE_CODEX
+  echo "    4) Update ~/.codex/config.toml (Codex CLI)"
+  read -p "Codex method (4, default: 4): " METHOD_CHOICE_CODEX
   METHOD_CHOICE_CODEX=${METHOD_CHOICE_CODEX:-4}
 fi
 
@@ -197,12 +195,7 @@ if [[ "${CLIENT}" == "claude" ]]; then
   esac
 elif [[ "${CLIENT}" == "codex" ]]; then
   case $METHOD_CHOICE in
-    4) CODEX_SNIPPET=1 ;;
-    5)
-      CMD="export WATERCOOLER_AGENT=\"${AGENT_NAME:-Codex}\"; \
-export WATERCOOLER_DIR=\"${WATERCOOLER_DIR:-.watercooler}\"; \
-python3 -m watercooler_mcp"
-      ;;
+    4) CODEX_TOML=1 ;;
     *) error "Invalid method for Codex" ;;
   esac
 else
@@ -230,12 +223,7 @@ else
   esac
   # Codex method
   case $METHOD_CHOICE_CODEX in
-    4) CODEX_SNIPPET=1 ;;
-    5)
-      CMD_CODEX="export WATERCOOLER_AGENT=\"${AGENT_NAME_CODEX:-Codex}\"; \
-export WATERCOOLER_DIR=\"${WATERCOOLER_DIR:-.watercooler}\"; \
-${PY} -m watercooler_mcp"
-      ;;
+    4) CODEX_TOML=1 ;;
     *) error "Invalid method for Codex" ;;
   esac
 fi
@@ -244,48 +232,32 @@ fi
 echo ""; echo "Command / Snippet:"
 if [[ "${CLIENT}" == "both" ]]; then
   echo ""; echo "[Claude]"; echo "  ${CMD_CLAUDE}"
-  echo ""; echo "[Codex]"
-  if [[ "${METHOD_CHOICE_CODEX}" == "5" ]]; then
-    echo "  ${CMD_CODEX}"
-  else
-    # VS Code settings snippet
-    CMD_JSON_COMMAND="python3"
-    CMD_JSON_ARGS='["-m", "watercooler_mcp"]'
-    cat <<JSON
-  # VS Code settings.json (Cline) MCP config:
-  {
-    "mcp.servers": {
-      "watercooler": {
-        "command": "${CMD_JSON_COMMAND}",
-        "args": ${CMD_JSON_ARGS},
-        "env": {
-          "WATERCOOLER_AGENT": "${AGENT_NAME_CODEX:-Codex}",
-          "WATERCOOLER_DIR": "${WATERCOOLER_DIR:-\${workspaceFolder}/.watercooler}"
-        }
-      }
-    }
-  }
-JSON
+  echo ""; echo "[Codex] - Will update ~/.codex/config.toml with:"
+  cat <<TOML
+  [mcp_servers.watercooler]
+  command = "python3"
+  args = ["-m", "watercooler_mcp"]
+
+  [mcp_servers.watercooler.env]
+  WATERCOOLER_AGENT = "${AGENT_NAME_CODEX:-Codex}"
+TOML
+  if [[ -n "${WATERCOOLER_DIR}" ]]; then
+    echo "  WATERCOOLER_DIR = \"${WATERCOOLER_DIR}\""
   fi
 else
-  if [[ "${CLIENT}" == "codex" && -n "${CODEX_SNIPPET}" ]]; then
-    CMD_JSON_COMMAND="python3"
-    CMD_JSON_ARGS='["-m", "watercooler_mcp"]'
-    cat <<JSON
-  # VS Code settings.json (Cline) MCP config:
-  {
-    "mcp.servers": {
-      "watercooler": {
-        "command": "${CMD_JSON_COMMAND}",
-        "args": ${CMD_JSON_ARGS},
-        "env": {
-          "WATERCOOLER_AGENT": "${AGENT_NAME:-Codex}",
-          "WATERCOOLER_DIR": "${WATERCOOLER_DIR:-\${workspaceFolder}/.watercooler}"
-        }
-      }
-    }
-  }
-JSON
+  if [[ "${CLIENT}" == "codex" && -n "${CODEX_TOML}" ]]; then
+    echo "  Will update ~/.codex/config.toml with:"
+    cat <<TOML
+  [mcp_servers.watercooler]
+  command = "python3"
+  args = ["-m", "watercooler_mcp"]
+
+  [mcp_servers.watercooler.env]
+  WATERCOOLER_AGENT = "${AGENT_NAME:-Codex}"
+TOML
+    if [[ -n "${WATERCOOLER_DIR}" ]]; then
+      echo "  WATERCOOLER_DIR = \"${WATERCOOLER_DIR}\""
+    fi
   else
     echo "  ${CMD}"
   fi
@@ -307,11 +279,70 @@ if [[ $REPLY =~ ^[Yy]$ ]]; then
     echo ""; echo "Next steps:"; echo "  1. Verify installation:"; echo "     claude mcp list"; echo ""
     echo "  2. In Claude Code, test with:"; echo "     'Can you use the watercooler_v1_health tool?'"
   elif [[ "${CLIENT}" == "codex" ]]; then
-    echo ""; success "Codex setup snippet/command generated. Copy into VS Code or run it."
-    echo ""; echo "Tips:"; echo "  - VS Code/Cline: put the JSON snippet in settings.json under 'mcp.servers'"; echo "  - CLI: run the exported environment + python3 -m watercooler_mcp"
+    # Write to ~/.codex/config.toml
+    CODEX_CONFIG="${HOME}/.codex/config.toml"
+    mkdir -p "${HOME}/.codex"
+
+    # Check if config exists and has watercooler section
+    if [[ -f "${CODEX_CONFIG}" ]] && grep -q "\[mcp_servers.watercooler\]" "${CODEX_CONFIG}"; then
+      info "Updating existing watercooler configuration in ${CODEX_CONFIG}"
+      # Remove existing watercooler section
+      sed -i.bak '/\[mcp_servers\.watercooler\]/,/^$/d' "${CODEX_CONFIG}"
+    else
+      info "Adding watercooler configuration to ${CODEX_CONFIG}"
+    fi
+
+    # Append new configuration
+    cat >> "${CODEX_CONFIG}" <<TOML
+
+# Watercooler MCP server
+[mcp_servers.watercooler]
+command = "python3"
+args = ["-m", "watercooler_mcp"]
+
+[mcp_servers.watercooler.env]
+WATERCOOLER_AGENT = "${AGENT_NAME:-Codex}"
+TOML
+
+    if [[ -n "${WATERCOOLER_DIR}" ]]; then
+      echo "WATERCOOLER_DIR = \"${WATERCOOLER_DIR}\"" >> "${CODEX_CONFIG}"
+    fi
+
+    success "Updated ${CODEX_CONFIG}"
+    echo ""; echo "Next steps:"
+    echo "  1. Restart Codex to load the new configuration"
+    echo "  2. Test with: watercooler_v1_health"
   else
+    # Both Claude and Codex
     eval "${CMD_CLAUDE}"; echo ""; success "Claude MCP registration completed."
-    echo ""; success "Codex setup snippet/command generated. Copy into VS Code or run it."
+
+    # Write Codex config
+    CODEX_CONFIG="${HOME}/.codex/config.toml"
+    mkdir -p "${HOME}/.codex"
+
+    if [[ -f "${CODEX_CONFIG}" ]] && grep -q "\[mcp_servers.watercooler\]" "${CODEX_CONFIG}"; then
+      info "Updating existing watercooler configuration in ${CODEX_CONFIG}"
+      sed -i.bak '/\[mcp_servers\.watercooler\]/,/^$/d' "${CODEX_CONFIG}"
+    else
+      info "Adding watercooler configuration to ${CODEX_CONFIG}"
+    fi
+
+    cat >> "${CODEX_CONFIG}" <<TOML
+
+# Watercooler MCP server
+[mcp_servers.watercooler]
+command = "python3"
+args = ["-m", "watercooler_mcp"]
+
+[mcp_servers.watercooler.env]
+WATERCOOLER_AGENT = "${AGENT_NAME_CODEX:-Codex}"
+TOML
+
+    if [[ -n "${WATERCOOLER_DIR}" ]]; then
+      echo "WATERCOOLER_DIR = \"${WATERCOOLER_DIR}\"" >> "${CODEX_CONFIG}"
+    fi
+
+    success "Updated ${CODEX_CONFIG}"
   fi
 
   echo ""; echo "Configuration:"
@@ -333,19 +364,25 @@ if [[ $REPLY =~ ^[Yy]$ ]]; then
   echo "  Scope: ${SCOPE}"
 else
   info "Installation cancelled"
-  echo "You can run or paste this manually:"
-  if [[ "${CLIENT}" == "both" ]]; then
-    echo "[Claude] ${CMD_CLAUDE}"
-    if [[ "${METHOD_CHOICE_CODEX}" == "5" ]]; then
-      echo "[Codex] ${CMD_CODEX}"
-    else
-      echo "[Codex] (see VS Code settings.json snippet above)"
+  if [[ "${CLIENT}" == "claude" ]]; then
+    echo "You can run this manually:"
+    echo "${CMD}"
+  elif [[ "${CLIENT}" == "codex" ]]; then
+    echo "You can manually add to ~/.codex/config.toml:"
+    cat <<TOML
+
+[mcp_servers.watercooler]
+command = "python3"
+args = ["-m", "watercooler_mcp"]
+
+[mcp_servers.watercooler.env]
+WATERCOOLER_AGENT = "${AGENT_NAME:-Codex}"
+TOML
+    if [[ -n "${WATERCOOLER_DIR}" ]]; then
+      echo "WATERCOOLER_DIR = \"${WATERCOOLER_DIR}\""
     fi
   else
-    if [[ "${CLIENT}" == "codex" && -n "${CODEX_SNIPPET}" ]]; then
-      echo "(see VS Code settings.json snippet above)"
-    else
-      echo "${CMD}"
-    fi
+    echo "[Claude] ${CMD_CLAUDE}"
+    echo "[Codex] Manually add to ~/.codex/config.toml (see preview above)"
   fi
 fi
