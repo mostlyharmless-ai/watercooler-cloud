@@ -238,6 +238,32 @@ FileNotFoundError: git command not found
 3. **Fallback behavior**
    If git is not available:
    - Upward search stops at HOME directory
+
+## Git Sync Issues (Cloud Mode)
+
+If you enabled cloud sync via `WATERCOOLER_GIT_REPO`, here are common problems and fixes:
+
+- Authentication failed
+  - Ensure the deploy key/token has access to the repo
+  - If using SSH: verify `WATERCOOLER_GIT_SSH_KEY` path is correct; add key to agent/known_hosts if required
+
+- Rebase in progress / cannot pull
+  - A previous `git pull --rebase` may have left the repo in an in-progress state
+  - Fix: run `git rebase --abort` in the threads repo directory, then retry
+
+- Push rejected (non-fast-forward)
+  - Another agent pushed first; this is expected under concurrency
+  - Fix: pull (`git pull --rebase --autostash`) and retry push
+
+- Staged unrelated files
+  - If the threads dir is co-located with other project files, `git add -A` may stage unrelated files
+  - Fix: restrict staging path to `.watercooler/` or use a dedicated threads repo
+
+- Stale content after Worker cache
+  - If using Cloudflare Worker + R2, ensure cache keys include a version/commit SHA and are invalidated/rotated on write
+
+- Rate limits / GitHub API
+  - Apply exponential backoff and consider short batching windows
    - All other functionality works normally
 
 ## Upward Search Not Finding .watercooler

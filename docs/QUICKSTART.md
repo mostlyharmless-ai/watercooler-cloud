@@ -194,6 +194,29 @@ WATERCOOLER_AGENT = "Codex"
 WATERCOOLER_DIR = "/Users/jay/projects/my-project/.watercooler"
 ```
 
+## Enabling Cloud Sync (Optional)
+
+Use git as the source of truth for `.watercooler/` to collaborate across machines/agents.
+
+1) Set environment variables for cloud mode
+
+```
+WATERCOOLER_GIT_REPO=git@github.com:org/watercooler-threads.git
+WATERCOOLER_GIT_SSH_KEY=/path/to/deploy/key           # optional
+WATERCOOLER_GIT_AUTHOR="Agent Name"                   # optional
+WATERCOOLER_GIT_EMAIL=agent@example.com               # optional
+```
+
+2) Behavior
+- Reads: pull-before-read in cloud mode
+- Writes: commit+push after write with safe retry
+- Local mode unchanged when `WATERCOOLER_GIT_REPO` is unset
+
+3) Recommendations
+- Prefer a dedicated threads repo for minimal diffs & simpler staging
+- If co-located, restrict staging to `.watercooler/`
+- Use Python 3.10+ (enforced by installer/entry points)
+
 ## Common Workflows
 
 ### Starting a Discussion
