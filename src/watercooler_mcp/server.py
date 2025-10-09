@@ -147,6 +147,10 @@ def health(ctx: Context) -> str:
         threads_dir = get_threads_dir()
         version = get_version()
 
+        # Create threads directory if it doesn't exist
+        if not threads_dir.exists():
+            threads_dir.mkdir(parents=True, exist_ok=True)
+
         # Lightweight diagnostics to help average users verify env
         py_exec = sys.executable or "unknown"
         try:
@@ -227,8 +231,10 @@ def list_threads(
         threads_dir = get_threads_dir()
         agent = get_agent_name(ctx.client_id)
 
+        # Create threads directory if it doesn't exist
         if not threads_dir.exists():
-            return f"No threads directory found at: {threads_dir}\n\nCreate threads with watercooler CLI or wait for threads to be created."
+            threads_dir.mkdir(parents=True, exist_ok=True)
+            return f"No threads found. Threads directory created at: {threads_dir}\n\nCreate your first thread with watercooler_v1_say."
 
         # Get thread list from commands module
         threads = commands.list_threads(threads_dir=threads_dir, open_only=open_only)
@@ -321,6 +327,10 @@ def read_thread(
 
         threads_dir = get_threads_dir()
         sync = get_git_sync_manager()
+
+        # Create threads directory if it doesn't exist
+        if not threads_dir.exists():
+            threads_dir.mkdir(parents=True, exist_ok=True)
 
         # Cloud mode: pull latest before reading
         if sync:
@@ -595,8 +605,10 @@ def reindex(ctx: Context) -> str:
         threads_dir = get_threads_dir()
         agent = get_agent_name(ctx.client_id)
 
+        # Create threads directory if it doesn't exist
         if not threads_dir.exists():
-            return f"No threads directory found at: {threads_dir}"
+            threads_dir.mkdir(parents=True, exist_ok=True)
+            return f"No threads found. Threads directory created at: {threads_dir}\n\nCreate your first thread with watercooler_v1_say."
 
         # Get all threads
         all_threads = commands.list_threads(threads_dir=threads_dir, open_only=None)
