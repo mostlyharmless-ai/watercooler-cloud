@@ -8,6 +8,9 @@ from unittest.mock import MagicMock
 
 import pytest
 
+# Skip all tests in this module if fastmcp is not available
+pytest.importorskip("fastmcp", reason="fastmcp required for MCP server tests")
+
 
 @pytest.fixture
 def temp_project_dir():
