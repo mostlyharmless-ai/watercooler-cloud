@@ -16,6 +16,90 @@ NC='\033[0m' # No Color
 error() { echo -e "${RED}Error: $1${NC}" >&2; exit 1; }
 success() { echo -e "${GREEN}✓ $1${NC}"; }
 info() { echo -e "${YELLOW}→ $1${NC}"; }
+warn() { echo -e "${YELLOW}Warning: $1${NC}"; }
+
+# Function to update Codex config.toml with error handling
+update_codex_config() {
+  local agent_name="$1"
+  local watercooler_dir="$2"
+  local python_cmd="$3"
+  
+  local codex_config="${HOME}/.codex/config.toml"
+  local codex_dir="${HOME}/.codex"
+  
+  # Check if ~/.codex directory exists and is writable
+  if [[ ! -d "${codex_dir}" ]]; then
+    info "Creating ${codex_dir} directory..."
+    if ! mkdir -p "${codex_dir}" 2>/dev/null; then
+      error "Failed to create ${codex_dir}. Check permissions."
+    fi
+  fi
+  
+  if [[ ! -w "${codex_dir}" ]]; then
+    error "Directory ${codex_dir} is not writable. Check permissions."
+  fi
+  
+  # Check if config file exists
+  if [[ -f "${codex_config}" ]]; then
+    # Check if file is writable
+    if [[ ! -w "${codex_config}" ]]; then
+      error "File ${codex_config} is not writable. Check permissions."
+    fi
+    
+    # Check if watercooler section already exists
+    if grep -q "\[mcp_servers.watercooler\]" "${codex_config}"; then
+      echo ""
+      warn "Watercooler configuration already exists in ${codex_config}"
+      read -p "Overwrite existing configuration? (y/n) " -n 1 -r; echo
+      if [[ ! $REPLY =~ ^[Yy]$ ]]; then
+        info "Skipping Codex configuration update"
+        return 0
+      fi
+      
+      info "Removing existing watercooler configuration..."
+      # Create backup before modifying
+      if ! cp "${codex_config}" "${codex_config}.backup-$(date +%Y%m%d-%H%M%S)" 2>/dev/null; then
+        error "Failed to create backup of ${codex_config}"
+      fi
+      
+      # Remove existing watercooler section
+      # This removes from [mcp_servers.watercooler] to the next section or EOF
+      if ! sed -i.tmp '/^\[mcp_servers\.watercooler\]/,/^\[/{ /^\[mcp_servers\.watercooler\]/d; /^\[/!d; }' "${codex_config}" 2>/dev/null; then
+        error "Failed to remove existing watercooler configuration"
+      fi
+      rm -f "${codex_config}.tmp"
+    else
+      info "Adding watercooler configuration to ${codex_config}..."
+    fi
+  else
+    info "Creating new config file: ${codex_config}..."
+  fi
+  
+  # Append new configuration
+  if ! cat >> "${codex_config}" <<TOML
+
+# Watercooler MCP server
+[mcp_servers.watercooler]
+command = "${python_cmd}"
+args = ["-m", "watercooler_mcp"]
+
+[mcp_servers.watercooler.env]
+WATERCOOLER_AGENT = "${agent_name}"
+TOML
+  then
+    error "Failed to write watercooler configuration to ${codex_config}"
+  fi
+  
+  # Add WATERCOOLER_DIR if specified
+  if [[ -n "${watercooler_dir}" ]]; then
+    if ! echo "WATERCOOLER_DIR = \"${watercooler_dir}\"" >> "${codex_config}"; then
+      error "Failed to add WATERCOOLER_DIR to ${codex_config}"
+    fi
+  fi
+  
+  success "Updated ${codex_config}"
+  return 0
+}
 
 # Ensure we are in repo root
 if [[ ! -f "pyproject.toml" ]] || ! grep -q "watercooler-collab" pyproject.toml 2>/dev/null; then
@@ -29,6 +113,27 @@ SERVER_PATH="${PROJECT_ROOT}/src/watercooler_mcp/server.py"
 echo "======================================"
 echo "Watercooler MCP Server Installation"
 echo "======================================"
+echo ""
+
+# Check if in a virtual environment (venv or conda)
+if [[ -n "${VIRTUAL_ENV}" ]]; then
+  success "Virtual environment detected: ${VIRTUAL_ENV}"
+elif [[ -n "${CONDA_PREFIX}" ]]; then
+  success "Conda environment detected: ${CONDA_DEFAULT_ENV} (${CONDA_PREFIX})"
+else
+  warn "No virtual environment detected!"
+  echo ""
+  echo "It's recommended to activate a virtual environment first:"
+  echo "  python3 -m venv .venv"
+  echo "  source .venv/bin/activate  # On macOS/Linux"
+  echo "  # OR: conda activate your-env"
+  echo ""
+  read -p "Continue without virtual environment? (y/n) " -n 1 -r; echo
+  if [[ ! $REPLY =~ ^[Yy]$ ]]; then
+    info "Installation cancelled. Activate your virtual environment and run again."
+    exit 0
+  fi
+fi
 echo ""
 
 # Step 0: Choose target client(s)
@@ -69,7 +174,12 @@ pick_python() {
 
 PY="$(pick_python || true)"
 [[ -n "${PY}" ]] || error "Python 3.10+ not found. Install Python 3.10+ and ensure 'python3' resolves to it, or install a specific binary like python3.10. See docs/CLAUDE_CODE_SETUP.md → Using Specific Python Version."
-info "Using Python: $(${PY} --version)"
+
+# Get the absolute path to the Python executable
+PY_PATH="$(which "${PY}" 2>/dev/null || command -v "${PY}")"
+[[ -n "${PY_PATH}" ]] || error "Failed to resolve absolute path for ${PY}"
+
+info "Using Python: $(${PY} --version) at ${PY_PATH}"
 
 if ! "${PY}" -c "import watercooler_mcp" 2>/dev/null; then
   echo "watercooler-collab[mcp] is not installed."
@@ -106,155 +216,63 @@ echo "  Leave blank to use dynamic discovery (./.watercooler)"
 echo "  Or provide an absolute path for a specific project."
 read -p "Watercooler directory (default: dynamic): " WATERCOOLER_DIR
 
-# Step 3b: Codex/Shared agent registry (optional)
-if [[ "${CLIENT}" == "codex" || "${CLIENT}" == "both" ]]; then
-  echo ""
-  info "Configure agent registry (agents.json) for counterpart mappings?"
-  echo "  Adds canonical names and counterpart flow (Codex ↔ Claude)."
-  read -p "Create/update agents.json in threads dir? (y/n, default: y): " REGISTRY_CHOICE
-  REGISTRY_CHOICE=${REGISTRY_CHOICE:-y}
-  if [[ ${REGISTRY_CHOICE} =~ ^[Yy]$ ]]; then
-    THREADS_DIR=${WATERCOOLER_DIR:-"${PROJECT_ROOT}/.watercooler"}
-    mkdir -p "${THREADS_DIR}"
-    AGENTS_FILE="${THREADS_DIR}/agents.json"
-    info "Writing ${AGENTS_FILE}"
-    cat > "${AGENTS_FILE}" <<'JSON'
-{
-  "canonical": {
-    "claude": "Claude",
-    "codex": "Codex",
-    "team": "Team"
-  },
-  "counterpart": {
-    "Codex": "Claude",
-    "Claude": "Codex",
-    "Team": "Claude"
-  },
-  "default_ball": "Team"
-}
-JSON
-    success "Agent registry configured for Codex ↔ Claude"
-  fi
+# Step 4: Set scope for Claude registration (user scope for all projects)
+if [[ "${CLIENT}" == "claude" || "${CLIENT}" == "both" ]]; then
+  SCOPE="user"
 fi
 
-# Step 4: Scope for Claude registration
+# Step 5: Prepare installation
 echo ""
-info "Choose configuration scope:"
-echo "  1) local  - Current directory only"
-echo "  2) user   - All projects (recommended for dynamic directory)"
-echo "  3) project - Specific project"
-read -p "Scope (1-3, default: 2): " SCOPE_CHOICE
-SCOPE_CHOICE=${SCOPE_CHOICE:-2}
-case $SCOPE_CHOICE in
-  1) SCOPE="local" ;;
-  2) SCOPE="user" ;;
-  3) SCOPE="project" ;;
-  *) error "Invalid scope choice" ;;
-esac
-
-# Step 5: Choose installation methods
-echo ""
-info "Choose installation method:"
-if [[ "${CLIENT}" == "claude" ]]; then
-  echo "  1) Claude MCP add with python -m (recommended)"
-  echo "  2) Claude MCP add with full Python path"
-  echo "  3) FastMCP install for Claude Code"
-  read -p "Method (1-3, default: 1): " METHOD_CHOICE
-  METHOD_CHOICE=${METHOD_CHOICE:-1}
-elif [[ "${CLIENT}" == "codex" ]]; then
-  echo "  4) Update ~/.codex/config.toml (Codex CLI)"
-  read -p "Method (4, default: 4): " METHOD_CHOICE
-  METHOD_CHOICE=${METHOD_CHOICE:-4}
-else
-  echo "  Claude methods:"
-  echo "    1) Claude MCP add with python -m (recommended)"
-  echo "    2) Claude MCP add with full Python path"
-  echo "    3) FastMCP install for Claude Code"
-  read -p "Claude method (1-3, default: 1): " METHOD_CHOICE_CLAUDE
-  METHOD_CHOICE_CLAUDE=${METHOD_CHOICE_CLAUDE:-1}
-  echo "  Codex methods:"
-  echo "    4) Update ~/.codex/config.toml (Codex CLI)"
-  read -p "Codex method (4, default: 4): " METHOD_CHOICE_CODEX
-  METHOD_CHOICE_CODEX=${METHOD_CHOICE_CODEX:-4}
-fi
+info "Preparing watercooler MCP server installation..."
 
 # Step 6: Build command(s)
-echo ""; info "Installing watercooler MCP server..."
-
 if [[ "${CLIENT}" == "claude" ]]; then
-  case $METHOD_CHOICE in
-    1)
-      if ! command -v claude >/dev/null 2>&1; then
-        error "'claude' CLI not found in PATH. Install Claude Desktop and ensure the 'claude' CLI is available, or use the VS Code/Cline snippet option. See docs/CLAUDE_DESKTOP_SETUP.md."
-      fi
-      CMD="claude mcp add watercooler --scope ${SCOPE}"
-      [[ -n "${AGENT_NAME}" ]] && CMD+=" -e WATERCOOLER_AGENT=${AGENT_NAME}"
-      [[ -n "${WATERCOOLER_DIR}" ]] && CMD+=" -e WATERCOOLER_DIR=${WATERCOOLER_DIR}"
-      CMD+=" -- ${PY} -m watercooler_mcp"
-      ;;
-    2)
-      if ! command -v claude >/dev/null 2>&1; then
-        error "'claude' CLI not found in PATH. Install Claude Desktop and ensure the 'claude' CLI is available, or use the VS Code/Cline snippet option. See docs/CLAUDE_DESKTOP_SETUP.md."
-      fi
-      PYTHON_PATH="${PY}"
-      CMD="claude mcp add watercooler --scope ${SCOPE}"
-      [[ -n "${AGENT_NAME}" ]] && CMD+=" -e WATERCOOLER_AGENT=${AGENT_NAME}"
-      [[ -n "${WATERCOOLER_DIR}" ]] && CMD+=" -e WATERCOOLER_DIR=${WATERCOOLER_DIR}"
-      CMD+=" -- ${PYTHON_PATH} -m watercooler_mcp"
-      ;;
-    3)
-      if ! command -v fastmcp >/dev/null 2>&1; then
-        error "'fastmcp' CLI not found. It is provided by the fastmcp package. Try: ${PY} -m pip install fastmcp, or use a different method."
-      fi
-      CMD="fastmcp install claude-code ${SERVER_PATH}"
-      [[ -n "${AGENT_NAME}" ]] && CMD+=" --env WATERCOOLER_AGENT=${AGENT_NAME}"
-      [[ -n "${WATERCOOLER_DIR}" ]] && CMD+=" --env WATERCOOLER_DIR=${WATERCOOLER_DIR}"
-      ;;
-    *) error "Invalid method for Claude" ;;
-  esac
+  # Check for claude CLI
+  if ! command -v claude >/dev/null 2>&1; then
+    error "'claude' CLI not found in PATH. Install Claude Desktop and ensure the 'claude' CLI is available. See docs/CLAUDE_DESKTOP_SETUP.md."
+  fi
+  
+  # Build command
+  CMD="claude mcp add watercooler --scope ${SCOPE}"
+  [[ -n "${AGENT_NAME}" ]] && CMD+=" -e WATERCOOLER_AGENT=${AGENT_NAME}"
+  [[ -n "${WATERCOOLER_DIR}" ]] && CMD+=" -e WATERCOOLER_DIR=${WATERCOOLER_DIR}"
+  CMD+=" -- ${PY_PATH} -m watercooler_mcp"
+  
 elif [[ "${CLIENT}" == "codex" ]]; then
-  case $METHOD_CHOICE in
-    4) CODEX_TOML=1 ;;
-    *) error "Invalid method for Codex" ;;
-  esac
+  # Codex uses TOML config
+  CODEX_TOML=1
+  
 else
-  # both
-  case $METHOD_CHOICE_CLAUDE in
-    1)
-      CMD_CLAUDE="claude mcp add watercooler --scope ${SCOPE}"
-      [[ -n "${AGENT_NAME_CLAUDE}" ]] && CMD_CLAUDE+=" -e WATERCOOLER_AGENT=${AGENT_NAME_CLAUDE}" || CMD_CLAUDE+=" -e WATERCOOLER_AGENT=Claude"
-      [[ -n "${WATERCOOLER_DIR}" ]] && CMD_CLAUDE+=" -e WATERCOOLER_DIR=${WATERCOOLER_DIR}"
-      CMD_CLAUDE+=" -- ${PY} -m watercooler_mcp"
-      ;;
-    2)
-      PYTHON_PATH="${PY}"
-      CMD_CLAUDE="claude mcp add watercooler --scope ${SCOPE}"
-      [[ -n "${AGENT_NAME_CLAUDE}" ]] && CMD_CLAUDE+=" -e WATERCOOLER_AGENT=${AGENT_NAME_CLAUDE}" || CMD_CLAUDE+=" -e WATERCOOLER_AGENT=Claude"
-      [[ -n "${WATERCOOLER_DIR}" ]] && CMD_CLAUDE+=" -e WATERCOOLER_DIR=${WATERCOOLER_DIR}"
-      CMD_CLAUDE+=" -- ${PYTHON_PATH} -m watercooler_mcp"
-      ;;
-    3)
-      CMD_CLAUDE="fastmcp install claude-code ${SERVER_PATH}"
-      [[ -n "${AGENT_NAME_CLAUDE}" ]] && CMD_CLAUDE+=" --env WATERCOOLER_AGENT=${AGENT_NAME_CLAUDE}" || CMD_CLAUDE+=" --env WATERCOOLER_AGENT=Claude"
-      [[ -n "${WATERCOOLER_DIR}" ]] && CMD_CLAUDE+=" --env WATERCOOLER_DIR=${WATERCOOLER_DIR}"
-      ;;
-    *) error "Invalid method for Claude" ;;
-  esac
-  # Codex method
-  case $METHOD_CHOICE_CODEX in
-    4) CODEX_TOML=1 ;;
-    *) error "Invalid method for Codex" ;;
-  esac
+  # Both Claude and Codex
+  # Check for claude CLI
+  if ! command -v claude >/dev/null 2>&1; then
+    error "'claude' CLI not found in PATH. Install Claude Desktop and ensure the 'claude' CLI is available. See docs/CLAUDE_DESKTOP_SETUP.md."
+  fi
+  
+  # Build Claude command
+  CMD_CLAUDE="claude mcp add watercooler --scope ${SCOPE}"
+  [[ -n "${AGENT_NAME_CLAUDE}" ]] && CMD_CLAUDE+=" -e WATERCOOLER_AGENT=${AGENT_NAME_CLAUDE}" || CMD_CLAUDE+=" -e WATERCOOLER_AGENT=Claude"
+  [[ -n "${WATERCOOLER_DIR}" ]] && CMD_CLAUDE+=" -e WATERCOOLER_DIR=${WATERCOOLER_DIR}"
+  CMD_CLAUDE+=" -- ${PY_PATH} -m watercooler_mcp"
+  
+  # Codex uses TOML config
+  CODEX_TOML=1
 fi
 
-# Step 7: Show commands/snippets
-echo ""; echo "Command / Snippet:"
+# Step 7: Show installation plan
+echo ""
+echo "========================================"
+echo "Ready to Install"
+echo "========================================"
+echo ""
 if [[ "${CLIENT}" == "both" ]]; then
-  echo ""; echo "[Claude]"; echo "  ${CMD_CLAUDE}"
-  echo ""; echo "[Codex] - Will update ~/.codex/config.toml with:"
+  echo "[Claude] Will execute:"
+  echo "  ${CMD_CLAUDE}"
+  echo ""
+  echo "[Codex] Will update ~/.codex/config.toml with:"
   cat <<TOML
   [mcp_servers.watercooler]
-  command = "${PY}"
+  command = "${PY_PATH}"
   args = ["-m", "watercooler_mcp"]
 
   [mcp_servers.watercooler.env]
@@ -263,23 +281,22 @@ TOML
   if [[ -n "${WATERCOOLER_DIR}" ]]; then
     echo "  WATERCOOLER_DIR = \"${WATERCOOLER_DIR}\""
   fi
-else
-  if [[ "${CLIENT}" == "codex" && -n "${CODEX_TOML}" ]]; then
-    echo "  Will update ~/.codex/config.toml with:"
-    cat <<TOML
+elif [[ "${CLIENT}" == "codex" ]]; then
+  echo "Will update ~/.codex/config.toml with:"
+  cat <<TOML
   [mcp_servers.watercooler]
-  command = "${PY}"
+  command = "${PY_PATH}"
   args = ["-m", "watercooler_mcp"]
 
   [mcp_servers.watercooler.env]
   WATERCOOLER_AGENT = "${AGENT_NAME:-Codex}"
 TOML
-    if [[ -n "${WATERCOOLER_DIR}" ]]; then
-      echo "  WATERCOOLER_DIR = \"${WATERCOOLER_DIR}\""
-    fi
-  else
-    echo "  ${CMD}"
+  if [[ -n "${WATERCOOLER_DIR}" ]]; then
+    echo "  WATERCOOLER_DIR = \"${WATERCOOLER_DIR}\""
   fi
+else
+  echo "Will execute:"
+  echo "  ${CMD}"
 fi
 
 echo ""; read -p "Proceed with installation? (y/n) " -n 1 -r; echo
@@ -298,36 +315,9 @@ if [[ $REPLY =~ ^[Yy]$ ]]; then
     echo ""; echo "Next steps:"; echo "  1. Verify installation:"; echo "     claude mcp list"; echo ""
     echo "  2. In Claude Code, test with:"; echo "     'Can you use the watercooler_v1_health tool?'"
   elif [[ "${CLIENT}" == "codex" ]]; then
-    # Write to ~/.codex/config.toml
-    CODEX_CONFIG="${HOME}/.codex/config.toml"
-    mkdir -p "${HOME}/.codex"
-
-    # Check if config exists and has watercooler section
-    if [[ -f "${CODEX_CONFIG}" ]] && grep -q "\[mcp_servers.watercooler\]" "${CODEX_CONFIG}"; then
-      info "Updating existing watercooler configuration in ${CODEX_CONFIG}"
-      # Remove existing watercooler section
-      sed -i.bak '/\[mcp_servers\.watercooler\]/,/^$/d' "${CODEX_CONFIG}"
-    else
-      info "Adding watercooler configuration to ${CODEX_CONFIG}"
-    fi
-
-    # Append new configuration
-    cat >> "${CODEX_CONFIG}" <<TOML
-
-# Watercooler MCP server
-[mcp_servers.watercooler]
-command = "${PY}"
-args = ["-m", "watercooler_mcp"]
-
-[mcp_servers.watercooler.env]
-WATERCOOLER_AGENT = "${AGENT_NAME:-Codex}"
-TOML
-
-    if [[ -n "${WATERCOOLER_DIR}" ]]; then
-      echo "WATERCOOLER_DIR = \"${WATERCOOLER_DIR}\"" >> "${CODEX_CONFIG}"
-    fi
-
-    success "Updated ${CODEX_CONFIG}"
+    # Update Codex configuration
+    update_codex_config "${AGENT_NAME:-Codex}" "${WATERCOOLER_DIR}" "${PY_PATH}"
+    
     echo ""; echo "Next steps:"
     echo "  1. Restart Codex to load the new configuration"
     echo "  2. Test with: watercooler_v1_health"
@@ -335,33 +325,8 @@ TOML
     # Both Claude and Codex
     eval "${CMD_CLAUDE}"; echo ""; success "Claude MCP registration completed."
 
-    # Write Codex config
-    CODEX_CONFIG="${HOME}/.codex/config.toml"
-    mkdir -p "${HOME}/.codex"
-
-    if [[ -f "${CODEX_CONFIG}" ]] && grep -q "\[mcp_servers.watercooler\]" "${CODEX_CONFIG}"; then
-      info "Updating existing watercooler configuration in ${CODEX_CONFIG}"
-      sed -i.bak '/\[mcp_servers\.watercooler\]/,/^$/d' "${CODEX_CONFIG}"
-    else
-      info "Adding watercooler configuration to ${CODEX_CONFIG}"
-    fi
-
-    cat >> "${CODEX_CONFIG}" <<TOML
-
-# Watercooler MCP server
-[mcp_servers.watercooler]
-command = "${PY}"
-args = ["-m", "watercooler_mcp"]
-
-[mcp_servers.watercooler.env]
-WATERCOOLER_AGENT = "${AGENT_NAME_CODEX:-Codex}"
-TOML
-
-    if [[ -n "${WATERCOOLER_DIR}" ]]; then
-      echo "WATERCOOLER_DIR = \"${WATERCOOLER_DIR}\"" >> "${CODEX_CONFIG}"
-    fi
-
-    success "Updated ${CODEX_CONFIG}"
+    # Update Codex configuration
+    update_codex_config "${AGENT_NAME_CODEX:-Codex}" "${WATERCOOLER_DIR}" "${PY_PATH}"
   fi
 
   echo ""; echo "Configuration:"
@@ -380,28 +345,10 @@ TOML
   else
     echo "  Directory: ./.watercooler (dynamic)"
   fi
-  echo "  Scope: ${SCOPE}"
+  if [[ "${CLIENT}" == "claude" || "${CLIENT}" == "both" ]]; then
+    echo "  Scope: ${SCOPE}"
+  fi
 else
   info "Installation cancelled"
-  if [[ "${CLIENT}" == "claude" ]]; then
-    echo "You can run this manually:"
-    echo "${CMD}"
-  elif [[ "${CLIENT}" == "codex" ]]; then
-    echo "You can manually add to ~/.codex/config.toml:"
-    cat <<TOML
-
-[mcp_servers.watercooler]
-command = "${PY}"
-args = ["-m", "watercooler_mcp"]
-
-[mcp_servers.watercooler.env]
-WATERCOOLER_AGENT = "${AGENT_NAME:-Codex}"
-TOML
-    if [[ -n "${WATERCOOLER_DIR}" ]]; then
-      echo "WATERCOOLER_DIR = \"${WATERCOOLER_DIR}\""
-    fi
-  else
-    echo "[Claude] ${CMD_CLAUDE}"
-    echo "[Codex] Manually add to ~/.codex/config.toml (see preview above)"
-  fi
+  echo "You can run the commands shown above manually."
 fi
