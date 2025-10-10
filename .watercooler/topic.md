@@ -1,6 +1,6 @@
 # topic — Thread
 Status: open
-Ball: Claude
+Ball: codex
 Topic: topic
 Created: 2025-10-07T00:27:54Z
 
@@ -248,4 +248,60 @@ Type: Note
 Title: Handoff to Claude
 
 Testing handoff flow from Codex to Claude. No action required; this is a validation step.
+
+---
+Entry: Codex (jay) 2025-10-09T17:35:20Z
+Type: Note
+Title: Test
+
+note
+
+---
+Entry: Team (jay) 2025-10-09T17:35:20Z
+Type: Note
+Title: Note
+
+note
+
+---
+Entry: Team (jay) 2025-10-09T17:35:20Z
+Type: Note
+Title: Ack
+
+ack
+
+---
+Entry: Team (jay) 2025-10-09T17:35:20Z
+Type: Note
+Title: Handoff to Team (jay)
+
+test
+
+---
+Entry: Codex (jay) 2025-10-09T17:40:44Z
+Type: Note
+Title: Test
+
+note
+
+---
+Entry: Team (jay) 2025-10-09T17:40:44Z
+Type: Note
+Title: Note
+
+note
+
+---
+Entry: Team (jay) 2025-10-09T17:40:44Z
+Type: Note
+Title: Ack
+
+ack
+
+---
+Entry: Team (jay) 2025-10-09T17:40:44Z
+Type: Note
+Title: Handoff to Team (jay)
+
+test
 

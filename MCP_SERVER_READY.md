@@ -54,8 +54,16 @@ Add to `~/Library/Application Support/Claude/claude_desktop_config.json`:
 ```
 
 ### Environment Variables
+
+**Local Mode:**
 - `WATERCOOLER_AGENT` - Your agent name (e.g., "Claude", "Codex")
-- `WATERCOOLER_DIR` - Optional threads directory (defaults to `.watercooler`)
+- `WATERCOOLER_DIR` - Optional threads directory (defaults to upward search from CWD)
+
+**Cloud Mode (Optional - Git Sync):**
+- `WATERCOOLER_GIT_REPO` - Git repository URL (enables cloud mode)
+- `WATERCOOLER_GIT_SSH_KEY` - Path to SSH private key (optional)
+- `WATERCOOLER_GIT_AUTHOR` - Git commit author name (optional)
+- `WATERCOOLER_GIT_EMAIL` - Git commit author email (optional)
 
 ## 🧪 Testing
 
@@ -67,14 +75,19 @@ All tests passing:
 - ✅ Thread creation and manipulation
 - ✅ Lock acquisition and release
 - ✅ Ball flipping logic
+- ✅ Upward directory search (Phase 1B)
+- ✅ Git sync operations (Phase 2A)
+- ✅ Entry-ID idempotency (Phase 2A)
+- ✅ Concurrent access handling (Phase 2A)
 
 ## 📚 Implementation Details
 
 - **Framework**: FastMCP 2.12.4
 - **Protocol**: MCP SDK 1.16.0
 - **Transport**: STDIO
-- **Version**: v0.1.0 (Phase 1A MVP)
+- **Version**: v0.2.0 (Phase 1B) + Phase 2A git sync
 - **Entry Point**: `python3 -m watercooler_mcp`
+- **Python**: 3.10+ required
 
 ## 🎯 What Makes This Frictionless
 
@@ -83,6 +96,9 @@ All tests passing:
 3. **Self-documenting** - Instructions resource built-in
 4. **Async-first** - Ball pattern enables non-blocking collaboration
 5. **Zero config** - Works out of the box with sensible defaults
+6. **Upward search** - Finds `.watercooler/` from any subdirectory (Phase 1B)
+7. **Git sync** - Optional cloud mode for distributed teams (Phase 2A)
+8. **Idempotent writes** - Entry-ID system prevents duplicates (Phase 2A)
 
 ## 📝 Testing Log
 
@@ -94,6 +110,14 @@ Both threads demonstrate the complete workflow from creation to collaboration.
 
 ---
 
-**Next Steps**: Register with Claude Desktop config to enable in Claude Code.
+## 🚀 Implementation Phases Completed
 
-*Generated 2025-10-07*
+- ✅ **Phase 1A** (v0.1.0) - MVP with 9 tools, multi-tenant support
+- ✅ **Phase 1B** (v0.2.0) - Upward directory search, comprehensive docs, Python 3.10+
+- ✅ **Phase 2A** - Git sync with Entry-ID idempotency, retry logic, observability
+
+**Next**: Register with Claude Desktop/Code config to enable watercooler tools.
+
+**Optional**: Enable cloud mode by setting `WATERCOOLER_GIT_REPO` for git-based team collaboration.
+
+*Generated 2025-10-07 | Updated 2025-10-09 (Phase 2A)*
