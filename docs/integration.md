@@ -51,9 +51,39 @@ python3 -c "import watercooler; print(watercooler.__version__)"
 
 ## Quick Start
 
-Watercooler-collab can be used two ways:
-1. **CLI** - Command-line tool for interactive use
-2. **Python Library** - Programmatic API for automation
+Watercooler-collab can be used three ways:
+1. **MCP Server** - Automated integration with AI agents (Claude, Codex) - **Recommended**
+2. **CLI** - Command-line tool for interactive use and scripts
+3. **Python Library** - Programmatic API for custom automation
+
+### MCP Server Integration (Recommended)
+
+The **Model Context Protocol (MCP) server** allows AI agents to automatically use watercooler tools without manual CLI commands.
+
+**Setup guides by client:**
+- [Claude Code Setup](./CLAUDE_CODE_SETUP.md) - Configure Claude Code CLI
+- [Claude Desktop Setup](./CLAUDE_DESKTOP_SETUP.md) - Configure Claude Desktop app
+- [Codex Setup](./QUICKSTART.md#for-codex) - Configure Codex
+
+**Benefits:**
+- ✅ AI agents automatically discover and use watercooler tools
+- ✅ Natural language interface ("Check my threads", "Respond to feature-x")
+- ✅ No manual CLI commands needed
+- ✅ Supports cloud sync for team collaboration
+
+**Example workflow:**
+
+```
+User: "Claude, what watercooler threads do I have?"
+Claude: [calls watercooler_v1_list_threads]
+        "You have 3 threads where you have the ball..."
+
+User: "Read the feature-auth thread and respond that it looks good"
+Claude: [calls watercooler_v1_read_thread, then watercooler_v1_say]
+        "✅ Entry added to 'feature-auth'"
+```
+
+See [MCP Server Guide](./mcp-server.md) for complete tool reference.
 
 ### CLI Usage
 
@@ -250,31 +280,50 @@ See [Templates Guide](TEMPLATES.md) for complete customization reference.
 
 ### Environment Variables
 
-#### General Configuration
+Watercooler supports multiple environment variables for configuration. For complete documentation, see **[ENVIRONMENT_VARS.md](./ENVIRONMENT_VARS.md)**.
 
-- `WATERCOOLER_DIR` - Default threads directory (default: `.watercooler`)
-- `WATERCOOLER_TEMPLATES` - Templates directory override
-- `WATERCOOLER_USER` - Override user name for agent tagging
+#### Key Variables
 
-#### Locking Configuration
+**Core Configuration:**
+- `WATERCOOLER_AGENT` - Agent identity (required for MCP, optional for CLI)
+- `WATERCOOLER_DIR` - Threads directory with upward search (default: `.watercooler`)
+- `WATERCOOLER_TEMPLATES` - Custom templates directory
 
+**Cloud Sync (Optional):**
+- `WATERCOOLER_GIT_REPO` - Git repository URL (enables cloud mode)
+- `WATERCOOLER_GIT_SSH_KEY` - SSH private key path
+- `WATERCOOLER_GIT_AUTHOR` - Git commit author name
+- `WATERCOOLER_GIT_EMAIL` - Git commit author email
+
+**Advanced:**
+- `WATERCOOLER_USER` - Username override for lock files (low-level, rarely needed)
+
+**Locking Configuration:**
 - `WCOOLER_LOCK_TTL` - Lock time-to-live in seconds (default: 30)
 - `WCOOLER_LOCK_POLL` - Lock polling interval in seconds (default: 0.1)
 
 **Example `.env` file:**
 
 ```bash
-# Threads configuration
-WATERCOOLER_DIR=./collaboration
+# MCP configuration
+WATERCOOLER_AGENT=Claude
+WATERCOOLER_DIR=/absolute/path/to/.watercooler
+
+# Optional: Cloud sync
+WATERCOOLER_GIT_REPO=git@github.com:org/watercooler-threads.git
+WATERCOOLER_GIT_SSH_KEY=/path/to/deploy/key
+WATERCOOLER_GIT_AUTHOR="Agent Name"
+WATERCOOLER_GIT_EMAIL=agent@example.com
+
+# Optional: Custom templates
 WATERCOOLER_TEMPLATES=./templates/watercooler
 
-# User identity
-WATERCOOLER_USER=jay
-
-# Lock tuning
+# Optional: Lock tuning
 WCOOLER_LOCK_TTL=60
 WCOOLER_LOCK_POLL=0.2
 ```
+
+See **[ENVIRONMENT_VARS.md](./ENVIRONMENT_VARS.md)** for detailed documentation and troubleshooting.
 
 ---
 
@@ -422,6 +471,54 @@ git config core.hooksPath .githooks
 This ensures append-only semantics - last writer wins.
 
 See [Git Setup Guide](../.github/WATERCOOLER_SETUP.md) for detailed configuration.
+
+---
+
+## Cloud Sync for Team Collaboration
+
+Watercooler supports **git-based cloud sync** for distributed team collaboration. When enabled, the MCP server automatically pulls before reads and commits+pushes after writes.
+
+### Quick Setup
+
+1. **Create a git repository for threads:**
+   ```bash
+   # Option A: Dedicated repo (recommended)
+   git init watercooler-threads
+   cd watercooler-threads
+   git remote add origin git@github.com:org/watercooler-threads.git
+
+   # Option B: Use existing project repo
+   # (threads will be in .watercooler/ subdirectory)
+   ```
+
+2. **Configure environment variables:**
+   ```bash
+   export WATERCOOLER_GIT_REPO=git@github.com:org/watercooler-threads.git
+   export WATERCOOLER_GIT_SSH_KEY=/path/to/deploy/key
+   export WATERCOOLER_GIT_AUTHOR="Agent Name"
+   export WATERCOOLER_GIT_EMAIL=agent@example.com
+   ```
+
+3. **Restart your MCP client** (Claude Code, Claude Desktop, etc.)
+
+### How It Works
+
+**Local Mode (default):**
+- Reads/writes directly to local `.watercooler/` directory
+- No network operations
+- Fast and simple
+
+**Cloud Mode (when `WATERCOOLER_GIT_REPO` is set):**
+- **Reads**: `git pull` before returning thread content
+- **Writes**: Append entry, `git commit`, `git push`
+- **Conflicts**: Automatic retry with fresh pull (3 attempts)
+- **Latency**: ~500ms-1s per operation
+
+### Documentation
+
+- **[Cloud Sync Guide](./CLOUD_SYNC_GUIDE.md)** - 5-minute setup walkthrough
+- **[Cloud Sync Strategy](./CLOUD_SYNC_STRATEGY.md)** - Decision rationale and trade-offs
+- **[Cloud Sync Architecture](./CLOUD_SYNC_ARCHITECTURE.md)** - Technical implementation details
 
 ---
 
@@ -622,10 +719,28 @@ CONFLICT (content): Merge conflict in .watercooler/thread.md
 
 ## See Also
 
-- [API Reference](api.md) - Complete Python API documentation
-- [Use Cases Guide](USE_CASES.md) - Real-world integration examples
-- [Templates Guide](TEMPLATES.md) - Template customization reference
+### Getting Started
+- [Quickstart Guide](./QUICKSTART.md) - 5-minute setup for MCP server
+- [Claude Code Setup](./CLAUDE_CODE_SETUP.md) - Configure Claude Code
+- [Claude Desktop Setup](./CLAUDE_DESKTOP_SETUP.md) - Configure Claude Desktop
+
+### Configuration
+- [Environment Variables](./ENVIRONMENT_VARS.md) - Complete configuration reference
 - [Agent Registry](AGENT_REGISTRY.md) - Agent configuration guide
-- [Migration Guide](MIGRATION.md) - Migrating from acpmonkey
+- [Templates Guide](TEMPLATES.md) - Template customization reference
+
+### Cloud Sync
+- [Cloud Sync Guide](./CLOUD_SYNC_GUIDE.md) - User-facing setup walkthrough
+- [Cloud Sync Strategy](./CLOUD_SYNC_STRATEGY.md) - Decision rationale
+- [Cloud Sync Architecture](./CLOUD_SYNC_ARCHITECTURE.md) - Technical details
+
+### Reference
+- [MCP Server Guide](./mcp-server.md) - MCP tool documentation
+- [API Reference](api.md) - Python API documentation
+- [Troubleshooting](./TROUBLESHOOTING.md) - Common issues and solutions
+- [Roadmap](../ROADMAP.md) - Project status and future plans
+
+### Community
+- [Use Cases Guide](USE_CASES.md) - Real-world examples
 - [FAQ](FAQ.md) - Frequently asked questions
 - [GitHub Repository](https://github.com/mostlyharmless-ai/watercooler-collab)
