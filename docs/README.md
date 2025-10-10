@@ -1,100 +1,175 @@
-# Watercooler Documentation Hub
+# Watercooler-Collab Documentation
 
-Complete documentation for the watercooler-collab file-based collaboration protocol.
+**Status:** Production Ready | **Latest Version:** 0.0.1 | **Phases Complete:** 1A/1B/2A
 
-## Getting Started
+File-based collaboration protocol for agentic coding projects with CLI tools and AI agent integration.
 
-### Quick Start
-- **[Main README](../README.md)** - Installation, quick examples, and command reference
-- **[Claude Collaboration Workflow](claude-collab.md)** - Practical patterns for working with Claude
+---
 
-### Installation & Setup
-- **[MCP Server Guide](mcp-server.md)** - AI agent integration via Model Context Protocol
-- **[Claude Code Setup](CLAUDE_CODE_SETUP.md)** - Register watercooler with Claude Code CLI
-- **[Claude Desktop Setup](CLAUDE_DESKTOP_SETUP.md)** - Register watercooler with Claude Desktop app
-- **[Git Configuration](../.github/WATERCOOLER_SETUP.md)** - Required git merge strategies and pre-commit hooks for team collaboration
+## 🚀 Quick Start (Choose Your Path)
 
-## Workflows & Use Cases
+### I want to use watercooler with AI agents (Claude, Codex)
+**→ [MCP Server Guide](mcp-server.md)** - 5-minute overview
+**→ [Claude Code Setup](CLAUDE_CODE_SETUP.md)** - Step-by-step MCP installation
+**→ [Claude Desktop Setup](CLAUDE_DESKTOP_SETUP.md)** - Desktop app configuration
+**→ [Troubleshooting](TROUBLESHOOTING.md)** - MCP setup issues
 
-### **[Use Cases Guide](USE_CASES.md)** - Comprehensive practical examples
-1. **Multi-Agent Collaboration** - Coordinate multiple AI agents with role-based specialization
-2. **Extended Context for LLMs** - Persistent memory across session boundaries
-3. **Handoff Workflows** - Developer-to-reviewer, human-to-agent, agent-to-agent transitions
-4. **Async Team Collaboration** - Cross-timezone coordination with git-versioned threads
-5. **Decision Tracking** - Architectural decision records with evolution history
-6. **PR Review Workflow** - Structured pre-PR discussion through merge and deployment
+**Why MCP?** AI agents automatically discover watercooler tools - no manual commands needed.
 
-## Configuration Guides
+### I want to use watercooler CLI commands
+**→ [QUICKSTART](QUICKSTART.md)** - 5-minute intro to CLI
+**→ [Main README](../README.md)** - Installation and command reference
+**→ [Claude Collaboration (CLI)](claude-collab.md)** - Manual CLI workflows
 
-### Entry Format & Agents
-- **[Structured Entries](STRUCTURED_ENTRIES.md)** - Entry format, 6 agent roles, 5 entry types, ball auto-flip behavior
-- **[Agent Registry](AGENT_REGISTRY.md)** - Agent configuration, canonical names, counterpart mappings for multi-agent chains
+**When to use CLI:** Manual control, scripting, or when MCP isn't available.
+
+### I want to integrate watercooler in my Python project
+**→ [Integration Guide](integration.md)** - Library usage and configuration
+**→ [API Reference](api.md)** - Complete Python API documentation
+
+---
+
+## 📚 Core Concepts
+
+### What is Watercooler?
+**File-based collaboration protocol** for:
+- **Thread-based discussions** with explicit ball ownership ("whose turn is it?")
+- **Structured entries** with roles (planner, critic, implementer, tester, pm, scribe)
+- **Multi-agent coordination** with automatic ball flipping
+- **Git-friendly markdown** for versioning and async collaboration
+
+### Key Features
+- **Ball ownership** - Explicit "next action" tracking
+- **Agent roles** - Specialized entry types for different tasks
+- **Structured entries** - Metadata (timestamp, author, role, type, title)
+- **Template system** - Customizable thread and entry formats
+- **Advisory locking** - Safe concurrent access
+- **MCP integration** - AI agents discover tools automatically
+- **Cloud sync** - Git-based team collaboration (Phase 2A)
+
+### When to Use Watercooler
+**✅ Great for:**
+- AI agent collaboration (Claude, Codex working together)
+- Extended context across LLM sessions
+- Async team coordination across timezones
+- Decision tracking and architectural records
+- Handoff workflows (dev→reviewer, human→agent)
+
+**❌ Not ideal for:**
+- Real-time chat (use Slack/Discord)
+- Large group discussions (>5 participants)
+- Ad-hoc brainstorming without structure
+
+**→ See [Use Cases Guide](USE_CASES.md)** for detailed examples
+
+---
+
+## 🎯 Common Tasks
+
+### Getting Started
+- [Install watercooler](QUICKSTART.md#installation) - CLI or MCP setup
+- [Create your first thread](QUICKSTART.md#creating-threads) - Initialize and add entries
+- [Set up for AI agents](CLAUDE_CODE_SETUP.md) - MCP configuration
+
+### Multi-Agent Collaboration
+- [Configure agent registry](AGENT_REGISTRY.md) - Define agents and counterparts
+- [Set up ball flipping](STRUCTURED_ENTRIES.md#ball-auto-flip) - Automatic handoffs
+- [Multi-agent use case](USE_CASES.md#multi-agent-collaboration) - Complete example
+
+### Team Collaboration
+- [Enable cloud sync](CLOUD_SYNC_STRATEGY.md) - Git-based team mode (Phase 2A)
+- [Configure git merge strategy](../.github/WATERCOOLER_SETUP.md) - Required setup
+- [Async collaboration use case](USE_CASES.md#async-team-collaboration) - Cross-timezone example
 
 ### Customization
-- **[Templates](TEMPLATES.md)** - Template syntax, placeholder reference, customization, discovery hierarchy
+- [Customize templates](TEMPLATES.md) - Thread and entry formatting
+- [Configure environment variables](integration.md#environment-variables) - WATERCOOLER_* vars
+- [Set up pre-commit hooks](../.github/WATERCOOLER_SETUP.md) - Enforce append-only
 
-## Migration & Reference
+---
 
-- **[Migration Guide](MIGRATION.md)** - Migrating from acpmonkey to watercooler-collab
-- **[FAQ](FAQ.md)** - Frequently asked questions and troubleshooting
+## 📖 Complete Documentation Index
 
-## Documentation by User Goal
+### Getting Started
+- **[QUICKSTART](QUICKSTART.md)** - 5-minute intro to watercooler CLI
+- **[Main README](../README.md)** - Installation, examples, command reference
+- **[FAQ](FAQ.md)** - Common questions and troubleshooting
 
-### "I want to..."
+### MCP Server (AI Agent Integration)
+- **[MCP Server Guide](mcp-server.md)** - Tool reference and architecture
+- **[Claude Code Setup](CLAUDE_CODE_SETUP.md)** - Register with Claude Code CLI
+- **[Claude Desktop Setup](CLAUDE_DESKTOP_SETUP.md)** - Register with Claude Desktop app
+- **[Troubleshooting](TROUBLESHOOTING.md)** - MCP setup issues and solutions
+- **[Claude Collaboration (CLI)](claude-collab.md)** - Manual CLI workflows (legacy)
 
-**...get started quickly**
-→ [Main README](../README.md) → [Quick Examples](../README.md#quick-examples)
+### Guides & Workflows
+- **[Use Cases Guide](USE_CASES.md)** ⭐ - 6 comprehensive practical examples:
+  1. Multi-Agent Collaboration
+  2. Extended Context for LLMs
+  3. Handoff Workflows
+  4. Async Team Collaboration
+  5. Decision Tracking
+  6. PR Review Workflow
+- **[Integration Guide](integration.md)** - Python library usage and configuration
 
-**...understand use cases and workflows**
-→ [Use Cases Guide](USE_CASES.md) → Pick your scenario
+### Reference Documentation
+- **[API Reference](api.md)** - Complete Python library API
+- **[Structured Entries](STRUCTURED_ENTRIES.md)** - Entry format, 6 roles, 5 types
+- **[Agent Registry](AGENT_REGISTRY.md)** - Agent configuration and counterparts
+- **[Templates](TEMPLATES.md)** - Template syntax and customization
 
-**...work with Claude or other AI agents**
-→ [MCP Server Setup](CLAUDE_CODE_SETUP.md) → [Claude Collaboration](claude-collab.md) → [Multi-Agent Use Case](USE_CASES.md#multi-agent-collaboration)
+### Advanced Topics
+- **[Cloud Sync Strategy](CLOUD_SYNC_STRATEGY.md)** - Git-based cloud sync (Phase 2A)
+- **[Git Configuration](../.github/WATERCOOLER_SETUP.md)** - Merge strategies and pre-commit hooks
 
-**...set up multi-user collaboration**
-→ [Git Configuration](../.github/WATERCOOLER_SETUP.md) → [Async Team Collaboration Use Case](USE_CASES.md#async-team-collaboration)
+### Migration & History
+- **[Migration Guide](MIGRATION.md)** - Moving from acpmonkey to watercooler-collab
+- **[Testing Results](TESTING_RESULTS.md)** - Phase 1A validation (historical)
 
-**...understand structured entries and roles**
-→ [Structured Entries](STRUCTURED_ENTRIES.md)
+---
 
-**...configure agent behavior**
-→ [Agent Registry](AGENT_REGISTRY.md)
+## 🗺️ Project Status & Roadmap
 
-**...customize templates**
-→ [Templates Guide](TEMPLATES.md)
+See **[ROADMAP.md](ROADMAP.md)** for detailed phase status.
 
-**...migrate from acpmonkey**
-→ [Migration Guide](MIGRATION.md)
+### Completed Phases ✅
+- **Phase 1A (v0.1.0)** - MVP MCP server with 9 tools, multi-tenant support
+- **Phase 1B (v0.2.0)** - Upward directory search, comprehensive docs, Python 3.10+
+- **Phase 2A** - Git-based cloud sync with idempotency, retry logic, observability
 
-**...troubleshoot issues**
-→ [FAQ](FAQ.md) → [Git Setup Troubleshooting](../.github/WATERCOOLER_SETUP.md#troubleshooting)
+### Current Status
+- **Production ready** for local and git-based cloud sync
+- 56 passing tests covering all features
+- Full feature parity with acpmonkey
 
-## Documentation Structure
+### Planned (Evaluate based on usage)
+- JSON format support for MCP tools (deferred from Phase 1B)
+- Pagination for large result sets (deferred from Phase 1B)
+- Additional tools: search_threads, create_thread, list_updates (deferred from Phase 1B)
+- Managed cloud deployment with OAuth (Phase 2B/3)
 
-```
-watercooler-collab/
-├── README.md                       # Main project overview
-├── AGENTS.md                       # Agent documentation
-├── .github/
-│   └── WATERCOOLER_SETUP.md       # Git configuration guide
-├── scripts/
-│   └── install-mcp.sh             # Interactive MCP server setup
-└── docs/
-    ├── README.md                   # This file - documentation hub
-    ├── USE_CASES.md               # Comprehensive practical examples (600+ lines)
-    ├── claude-collab.md           # Claude-specific workflows
-    ├── mcp-server.md              # MCP server tool reference
-    ├── CLAUDE_CODE_SETUP.md       # Claude Code MCP registration
-    ├── CLAUDE_DESKTOP_SETUP.md    # Claude Desktop MCP registration
-    ├── TESTING_RESULTS.md         # Phase 1A validation results
-    ├── STRUCTURED_ENTRIES.md      # Entry format and roles reference
-    ├── AGENT_REGISTRY.md          # Agent configuration guide
-    ├── TEMPLATES.md               # Template customization guide
-    ├── MIGRATION.md               # Migration from acpmonkey
-    └── FAQ.md                     # Frequently asked questions
-```
+---
 
-## Quick Command Reference
+## 🎓 Learning Path
+
+### Beginner
+1. Read [QUICKSTART](QUICKSTART.md) - Get basic understanding
+2. Follow [First Thread Tutorial](QUICKSTART.md#creating-threads) - Hands-on practice
+3. Try [Claude Code Setup](CLAUDE_CODE_SETUP.md) - Enable AI agent tools
+
+### Intermediate
+4. Explore [Use Cases Guide](USE_CASES.md) - See real-world patterns
+5. Configure [Agent Registry](AGENT_REGISTRY.md) - Set up multi-agent workflows
+6. Customize [Templates](TEMPLATES.md) - Make threads your own
+
+### Advanced
+7. Enable [Cloud Sync](CLOUD_SYNC_STRATEGY.md) - Team collaboration
+8. Study [API Reference](api.md) - Python library integration
+9. Read [Architecture](CLOUD_SYNC_STRATEGY.md) - Implementation deep-dive
+
+---
+
+## 🛠️ Quick Command Reference
 
 ```bash
 # Thread Management
@@ -108,7 +183,7 @@ watercooler ack <topic>                  # Acknowledge without ball flip
 watercooler handoff <topic> --note <msg> # Explicit handoff
 
 # Status & Ball
-watercooler set-status <topic> <status>  # Update status
+watercooler set-status <topic> <status>  # Update status (OPEN, IN_REVIEW, CLOSED)
 watercooler set-ball <topic> <agent>     # Update ball owner
 
 # Export & Index
@@ -119,17 +194,27 @@ watercooler web-export                   # Generate HTML index
 watercooler unlock <topic> [--force]     # Clear stuck lock
 ```
 
-For complete command reference and examples, see [Main README](../README.md).
+For complete command reference, see [Main README](../README.md).
 
-## Contributing to Documentation
+---
+
+## 🤝 Contributing to Documentation
 
 Documentation improvements welcome! Please:
 1. Follow existing structure and tone
 2. Include practical examples
 3. Cross-reference related guides
 4. Add entries to this hub for new documents
+5. Mark audience level: [Beginner] [Intermediate] [Advanced] [Reference]
 
-## See Also
+---
+
+## 📞 Support & Community
 
 - **Repository**: https://github.com/mostlyharmless-ai/watercooler-collab
 - **Issues**: https://github.com/mostlyharmless-ai/watercooler-collab/issues
+- **Discussions**: Use watercooler threads in your project!
+
+---
+
+*Last updated: 2025-10-09 | Documentation version: 1.0*

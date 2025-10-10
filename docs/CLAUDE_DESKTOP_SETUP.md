@@ -2,6 +2,11 @@
 
 This guide shows you how to configure Claude Desktop to automatically launch and connect to the watercooler MCP server.
 
+**Looking for other clients?**
+- [Claude Code Setup](./CLAUDE_CODE_SETUP.md) - Configuration for Claude Code CLI
+- [Codex Setup](./QUICKSTART.md#for-codex) - Configuration for Codex
+- [CLI Workflows](./claude-collab.md) - Manual CLI usage (for scripts and automation)
+
 ## Prerequisites
 
 1. **Claude Desktop installed** (macOS, Windows, or Linux)

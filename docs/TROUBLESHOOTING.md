@@ -2,6 +2,98 @@
 
 Common issues and solutions for the watercooler MCP server.
 
+## Table of Contents
+
+- [Quick Diagnostic Flowchart](#quick-diagnostic-flowchart)
+- [Quick Health Check](#quick-health-check)
+- [Common Issues](#common-issues)
+  - [Server Not Loading](#server-not-loading)
+  - [Wrong Agent Identity](#wrong-agent-identity)
+  - [Threads Directory Not Found](#threads-directory-not-found)
+  - [Permission Errors](#permission-errors)
+  - [Client ID is None](#client-id-is-none)
+  - [Tools Not Working](#tools-not-working)
+  - [Git Not Found](#git-not-found)
+  - [Git Sync Issues (Cloud Mode)](#git-sync-issues-cloud-mode)
+  - [Upward Search Not Finding .watercooler](#upward-search-not-finding-watercooler)
+  - [Ball Not Flipping](#ball-not-flipping)
+  - [Server Crashes or Hangs](#server-crashes-or-hangs)
+  - [Format Parameter Errors](#format-parameter-errors)
+- [Getting More Help](#getting-more-help)
+
+---
+
+## Quick Diagnostic Flowchart
+
+Use this decision tree to quickly find the solution to your problem:
+
+```mermaid
+graph TD
+    Start[What's the problem?] --> Q1{Are tools<br/>appearing in<br/>your client?}
+
+    Q1 -->|No| ServerNotLoading[<b>Server Not Loading</b><br/>Jump to section below]
+    Q1 -->|Yes| Q2{Are tools<br/>working when<br/>called?}
+
+    Q2 -->|No| Q3{What error<br/>do you see?}
+    Q2 -->|Yes| Q4{What specific<br/>issue?}
+
+    Q3 -->|"format not supported"| FormatError[<b>Format Parameter Errors</b><br/>Jump to section below]
+    Q3 -->|"directory not found"| DirNotFound[<b>Threads Directory Not Found</b><br/>Jump to section below]
+    Q3 -->|"permission denied"| PermError[<b>Permission Errors</b><br/>Jump to section below]
+    Q3 -->|"git command not found"| GitNotFound[<b>Git Not Found</b><br/>Jump to section below]
+    Q3 -->|Git sync errors| GitSync[<b>Git Sync Issues</b><br/>Jump to section below]
+    Q3 -->|Other errors| ToolError[<b>Tools Not Working</b><br/>Jump to section below]
+
+    Q4 -->|Wrong agent name| WrongAgent[<b>Wrong Agent Identity</b><br/>Jump to section below]
+    Q4 -->|Ball not flipping| BallNotFlip[<b>Ball Not Flipping</b><br/>Jump to section below]
+    Q4 -->|Can't find threads| UpwardSearch[<b>Upward Search Issues</b><br/>Jump to section below]
+    Q4 -->|Server crashes| Crashes[<b>Server Crashes or Hangs</b><br/>Jump to section below]
+    Q4 -->|"Client ID is None"| ClientIDNone[<b>Client ID is None</b><br/>Jump to section below]
+
+    style ServerNotLoading fill:#ffcccc
+    style FormatError fill:#ffcccc
+    style DirNotFound fill:#ffcccc
+    style PermError fill:#ffcccc
+    style GitNotFound fill:#ffcccc
+    style GitSync fill:#ffcccc
+    style ToolError fill:#ffcccc
+    style WrongAgent fill:#ffffcc
+    style BallNotFlip fill:#ffffcc
+    style UpwardSearch fill:#ffffcc
+    style Crashes fill:#ffcccc
+    style ClientIDNone fill:#ccffcc
+```
+
+**Legend:**
+- 🔴 Red boxes: Critical issues preventing basic functionality
+- 🟡 Yellow boxes: Configuration issues affecting behavior
+- 🟢 Green boxes: Informational (not actually a problem)
+
+---
+
+## Quick Health Check
+
+Before diving into specific issues, always start with the health check:
+
+```bash
+# In your MCP client, call:
+watercooler_v1_health
+```
+
+This returns:
+- ✅ Server version
+- ✅ Agent identity
+- ✅ Threads directory location
+- ✅ Directory existence status
+- ✅ Python version
+- ✅ FastMCP version
+
+**Use this output when reporting issues!**
+
+---
+
+## Common Issues
+
 ## Server Not Loading
 
 ### Symptom
@@ -80,7 +172,7 @@ No threads directory found at: /some/path/.watercooler
 
 ### Solutions
 
-1. **Understand resolution order (Phase 1B)**
+1. **Understand resolution order**
    1. `WATERCOOLER_DIR` env var (explicit override)
    2. Upward search from CWD for existing `.watercooler/`
    3. Fallback: `{CWD}/.watercooler` (for auto-creation)
@@ -358,11 +450,11 @@ MCP server stops responding or crashes.
 
 ### Symptom
 ```
-Error: Phase 1A only supports format='markdown'
+Error: Only format='markdown' is currently supported
 ```
 
 ### Explanation
-Phase 1A only supports markdown output. JSON support is planned for Phase 1B.
+Currently only markdown output is supported. JSON support is a deferred feature (see [ROADMAP.md](../ROADMAP.md)).
 
 ### Solutions
 
@@ -373,28 +465,30 @@ Phase 1A only supports markdown output. JSON support is planned for Phase 1B.
    watercooler_v1_list_threads(format="markdown")
    ```
 
-2. **Wait for Phase 1B**
-   JSON support coming in future release.
+2. **Check ROADMAP.md for status**
+   JSON support will be implemented if real-world usage demonstrates the need.
 
 ## Getting More Help
 
-### Debug with Health Check
+### 1. Run Diagnostic Tools
 
-```
+**Health Check:**
+```bash
+# In your MCP client:
 watercooler_v1_health
 ```
 
 Returns comprehensive diagnostics:
-- Server version
-- Agent identity
-- Threads directory location
-- Directory existence
-- Python executable
-- FastMCP version
+- ✅ Server version
+- ✅ Agent identity
+- ✅ Threads directory location
+- ✅ Directory existence
+- ✅ Python executable
+- ✅ FastMCP version
 
-### Debug with Whoami
-
-```
+**Identity Check:**
+```bash
+# In your MCP client:
 watercooler_v1_whoami
 ```
 
@@ -403,25 +497,63 @@ Returns:
 - Client ID (if available)
 - Session ID
 
-### Enable Verbose Logging
+### 2. Enable Verbose Logging
 
 Run server directly to see detailed output:
+
 ```bash
+# Test server startup
 python3 -m watercooler_mcp
+
+# Should display:
+# ===== FastMCP Server =====
+# Server: watercooler-mcp
+# ...
 ```
 
-### Report Issues
+### 3. Check Documentation
 
-If you encounter a bug:
-1. Run `watercooler_v1_health` and include output
-2. Include your MCP configuration (redact sensitive data)
-3. Include error messages and stack traces
-4. Open an issue on GitHub
+Still stuck? Review these guides:
+
+- **[Quickstart Guide](./QUICKSTART.md)** - Step-by-step setup instructions
+- **[Environment Variables](./ENVIRONMENT_VARS.md)** - Complete configuration reference
+- **[Cloud Sync Guide](./CLOUD_SYNC_GUIDE.md)** - Git sync setup and troubleshooting
+- **[MCP Server Guide](./mcp-server.md)** - Tool reference and usage examples
+- **[Claude Code Setup](./CLAUDE_CODE_SETUP.md)** - Claude Code specific configuration
+- **[Claude Desktop Setup](./CLAUDE_DESKTOP_SETUP.md)** - Claude Desktop specific configuration
+
+### 4. Report Issues
+
+If you encounter a bug, open an issue with:
+
+**Required Information:**
+1. ✅ Output from `watercooler_v1_health`
+2. ✅ Your MCP configuration (sanitized - remove secrets!)
+3. ✅ Error messages and stack traces
+4. ✅ Steps to reproduce
+
+**Optional but Helpful:**
+- Operating system and version
+- Python version (`python3 --version`)
+- FastMCP version (`pip show fastmcp`)
+- Whether using local or cloud mode
+
+**Where to Report:**
+- GitHub Issues: https://github.com/mostlyharmless-ai/watercooler-collab/issues
 
 ---
 
-**Still having trouble?** Open an issue with:
-- Output from `watercooler_v1_health`
-- Your configuration (sanitized)
-- Error messages
-- Steps to reproduce
+## Quick Reference: Diagnostic Commands
+
+| Problem | Command | What to Look For |
+|---------|---------|-----------------|
+| Server not loading | `python3 -m watercooler_mcp` | FastMCP banner appears? |
+| Wrong agent | `watercooler_v1_whoami` | Agent name matches config? |
+| Wrong directory | `watercooler_v1_health` | Threads Dir path correct? |
+| Git issues | `which git && git --version` | Git installed and in PATH? |
+| Python issues | `python3 --version` | Python 3.10 or later? |
+| Package issues | `pip list \| grep -E "(fastmcp\|mcp)"` | fastmcp>=2.0 installed? |
+
+---
+
+**Still having trouble?** Open an issue with the diagnostic information above. We're here to help!
