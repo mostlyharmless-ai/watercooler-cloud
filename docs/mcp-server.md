@@ -6,7 +6,8 @@ FastMCP server that exposes watercooler-collab tools to AI agents through the Mo
 
 The watercooler MCP server allows AI agents (like Claude, Codex, etc.) to naturally discover and use watercooler collaboration tools without manual CLI commands. All tools are namespaced as `watercooler_v1_*` for provider compatibility.
 
-**Current Phase:** Phase 1B (Upward directory search, comprehensive documentation)
+**Current Status:** Production Ready (Phase 1A/1B/2A complete)
+**Version:** v0.2.0 + Phase 2A git sync
 
 ## Installation
 
@@ -151,9 +152,9 @@ List all threads with ball ownership and NEW markers.
 
 **Parameters:**
 - `open_only` (bool | None): Filter by status (True=open only, False=closed only, None=all)
-- `limit` (int): Max threads (Phase 1A: ignored)
-- `cursor` (str | None): Pagination cursor (Phase 1A: ignored)
-- `format` (str): Output format - "markdown" only in Phase 1A
+- `limit` (int): Max threads (not yet implemented - returns all)
+- `cursor` (str | None): Pagination cursor (not yet implemented)
+- `format` (str): Output format - "markdown" (json support deferred)
 
 **Returns:** Formatted thread list organized by:
 - 🎾 Your Turn - Threads where you have the ball
@@ -165,9 +166,9 @@ Read complete thread content.
 
 **Parameters:**
 - `topic` (str): Thread topic identifier (e.g., "feature-auth")
-- `from_entry` (int): Starting entry index (Phase 1A: ignored)
-- `limit` (int): Max entries (Phase 1A: ignored)
-- `format` (str): Output format - "markdown" only in Phase 1A
+- `from_entry` (int): Starting entry index (not yet implemented - returns from start)
+- `limit` (int): Max entries (not yet implemented - returns all)
+- `format` (str): Output format - "markdown" (json support deferred)
 
 **Returns:** Full markdown thread content with all entries
 
@@ -243,14 +244,14 @@ Generate index summary of all threads.
   - Can be absolute or relative path
   - Server auto-creates if it doesn't exist
 
-### Phase 1A Limitations
+### Deferred Features
 
-Current MVP limitations (to be addressed in Phase 1B):
+Some features are available as parameters but deferred for future implementation (see [ROADMAP.md](../ROADMAP.md) for details):
 
-- **Markdown only**: `format` parameter accepts "json" but only "markdown" is supported
-- **No pagination**: `limit` and `cursor` parameters are accepted but ignored
-- **Simple discovery**: Only checks env var and CWD (no upward search to git root)
-- **Basic agent identity**: Only reads from env var (no git config fallback)
+- **JSON format**: `format` parameter accepts "json" but currently only "markdown" is supported
+- **Pagination**: `limit` and `cursor` parameters are accepted but not yet implemented (returns all results)
+
+These features will be implemented if real-world usage demonstrates the need.
 
 ## Usage Examples
 
@@ -356,14 +357,14 @@ export WATERCOOLER_DIR="/full/path/to/.watercooler"
 
 ### Format Not Supported Error
 
-In Phase 1A, only `format="markdown"` is supported:
+Currently, only `format="markdown"` is supported (JSON support is deferred):
 
 ```python
 # This works:
 list_threads(format="markdown")
 
-# This will error in Phase 1A:
-list_threads(format="json")  # Error: Phase 1A only supports format='markdown'
+# This will error:
+list_threads(format="json")  # Error: Only format='markdown' is currently supported
 ```
 
 ## Development
@@ -394,25 +395,23 @@ async def show_tools():
 asyncio.run(show_tools())
 ```
 
-## Roadmap
+## Project Status
 
-### Phase 1B - Production Enhancements
+**See [ROADMAP.md](../ROADMAP.md) for complete phase history and future plans.**
 
-Planned features (not yet implemented):
+### Completed ✅
+- **Phase 1A (v0.1.0)**: MVP MCP server with 9 tools + 1 resource
+- **Phase 1B (v0.2.0)**: Upward directory search, comprehensive documentation, Python 3.10+
+- **Phase 2A**: Git-based cloud sync with Entry-ID idempotency and retry logic
 
+### Deferred Features (Evaluate Based on Usage)
 - **JSON format support**: Structured output for programmatic clients
 - **Pagination**: Handle large thread counts efficiently
-- **Enhanced discovery**: Upward search for `.watercooler/` to git root
 - **Additional tools**: `search_threads`, `create_thread`, `list_updates`, `break_lock`
-- **Validation helpers**: `list_statuses()`, `list_roles()` enumeration tools
-- **Error classes**: Structured error types (NOT_FOUND, INVALID_INPUT, etc.)
-- **Comprehensive tests**: Full integration test suite
+- **Enhanced validation**: Error classes, enumeration helpers
 
-### Phase 2 - Cloud Deployment (Optional)
-
-- Git integration for remote collaboration
-- Multi-user authentication
-- Cloud platform deployment (fastmcp cloud vs. containerized HTTP)
+### Planned (When Needed)
+- **Managed cloud deployment**: OAuth authentication, multi-tenant hosting (Phase 2B/3)
 
 ## See Also
 

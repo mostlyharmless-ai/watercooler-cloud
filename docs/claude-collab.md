@@ -1,6 +1,10 @@
-# Claude Collaboration Workflow
+# Claude Collaboration Workflow (CLI)
 
-This guide shows practical patterns for collaborating with Claude using the watercooler CLI.
+**Note:** This guide covers **manual CLI workflows** using the `watercooler` command-line tool. For **automated MCP server integration** (where Claude automatically uses watercooler tools), see:
+- [Claude Code Setup](./CLAUDE_CODE_SETUP.md) - For Claude Code CLI
+- [Claude Desktop Setup](./CLAUDE_DESKTOP_SETUP.md) - For Claude Desktop app
+
+This guide shows practical patterns for collaborating with Claude using the watercooler CLI **manually** (useful for automation scripts, legacy workflows, or understanding the underlying commands).
 
 ## Table of Contents
 

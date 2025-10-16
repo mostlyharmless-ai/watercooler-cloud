@@ -2,6 +2,8 @@
 
 Complete reference for using watercooler-collab as a Python library.
 
+**Note:** For MCP server integration (AI agents automatically using watercooler tools), see [MCP Server Guide](./mcp-server.md). This document covers the **Python library API** for programmatic usage in scripts and custom applications.
+
 ## Table of Contents
 
 - [Installation](#installation)
@@ -447,7 +449,22 @@ with AdvisoryLock(Path(".lock"), timeout=5) as lock:
 
 ## See Also
 
-- [Integration Guide](integration.md) - Step-by-step integration tutorial
-- [Use Cases](USE_CASES.md) - Real-world usage patterns
+### Core Documentation
+- [Integration Guide](./integration.md) - Complete integration tutorial with MCP, CLI, and Python API patterns
+- [MCP Server Guide](./mcp-server.md) - MCP tool reference for AI agent integration
+- [Environment Variables](./ENVIRONMENT_VARS.md) - Configuration reference
+
+### Getting Started
+- [Quickstart Guide](./QUICKSTART.md) - 5-minute setup
+- [Claude Code Setup](./CLAUDE_CODE_SETUP.md) - Configure Claude Code
+- [Claude Desktop Setup](./CLAUDE_DESKTOP_SETUP.md) - Configure Claude Desktop
+
+### Reference
 - [CLI Reference](../README.md) - Command-line interface documentation
+- [Use Cases](USE_CASES.md) - Real-world usage patterns
+- [Troubleshooting](./TROUBLESHOOTING.md) - Common issues and solutions
+- [Contributing](./CONTRIBUTING.md) - Contribution guidelines
+
+### Project
+- [Roadmap](../ROADMAP.md) - Project status and future plans
 - [GitHub Repository](https://github.com/mostlyharmless-ai/watercooler-collab)

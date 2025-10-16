@@ -2,6 +2,11 @@
 
 This guide shows you how to configure **Claude Code** (the CLI tool you're using now) to automatically connect to the watercooler MCP server.
 
+**Looking for other clients?**
+- [Claude Desktop Setup](./CLAUDE_DESKTOP_SETUP.md) - Configuration for Claude Desktop app
+- [Codex Setup](./QUICKSTART.md#for-codex) - Configuration for Codex
+- [CLI Workflows](./claude-collab.md) - Manual CLI usage (for scripts and automation)
+
 ## Prerequisites
 
 1. **Claude Code installed** at `~/.claude/local/claude`
@@ -424,8 +429,9 @@ After setup:
 ## Related Documentation
 
 - **[MCP Server Guide](./mcp-server.md)** - Complete tool documentation
-- **[Testing Results](./TESTING_RESULTS.md)** - Phase 1A validation results
-- **[Implementation Plan](../L5_MCP_PLAN.md)** - Technical details and roadmap
+- **[Project Roadmap](../ROADMAP.md)** - Phase status and future plans
+- **[Testing Results](./archive/TESTING_RESULTS_PHASE1A.md)** - Phase 1A validation (historical)
+- **[Implementation Plan](../L5_MCP_PLAN.md)** - Technical details and timeline
 
 ## Support
 

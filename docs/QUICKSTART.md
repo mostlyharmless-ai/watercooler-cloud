@@ -171,7 +171,7 @@ Your agent identity (e.g., "Claude", "Codex", "GPT-4").
 
 Override threads directory location.
 
-**Resolution order (Phase 1B):**
+**Resolution order:**
 1. `WATERCOOLER_DIR` env var (explicit override)
 2. Upward search from CWD for existing `.watercooler/` (stops at git root or HOME)
 3. Fallback: `{CWD}/.watercooler` (for auto-creation)
@@ -303,8 +303,8 @@ See [TROUBLESHOOTING.md](./TROUBLESHOOTING.md) for common issues and solutions.
 
 ## More Information
 
-- **Full Documentation**: [docs/mcp-server.md](./mcp-server.md)
-- **Testing Results**: [docs/TESTING_RESULTS.md](./TESTING_RESULTS.md)
+- **Full Documentation**: [mcp-server.md](./mcp-server.md)
+- **Project Roadmap**: [ROADMAP.md](../ROADMAP.md)
 - **Implementation Plan**: [L5_MCP_PLAN.md](../L5_MCP_PLAN.md)
 
 ---
