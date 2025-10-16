@@ -12,6 +12,10 @@ license = {text = "MIT"}
 authors = [
     {name = "Mostly Harmless AI", email = "hello@mostlyharmless.ai"}
 ]
+dependencies = [
+    "fastmcp>=2.0",
+    "python-ulid>=2.0",
+]
 classifiers = [
     "Development Status :: 2 - Pre-Alpha",
     "Intended Audience :: Developers",
