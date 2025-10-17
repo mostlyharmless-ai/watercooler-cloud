@@ -1,12 +1,16 @@
 /**
  * Cloudflare Worker - Remote MCP with OAuth and Project Authorization
  *
- * This worker provides:
- * - GitHub OAuth authentication
- * - Per-user/per-project authorization via KV
- * - SSE/Streamable HTTP transport for Remote MCP
- * - Proxying to Python backend with identity headers
+ * Implements Remote MCP server using @modelcontextprotocol/sdk
+ * Maps each MCP tool to backend JSON endpoints with identity headers
  */
+
+import { Server } from '@modelcontextprotocol/sdk/server/index.js';
+import { SSEServerTransport } from '@modelcontextprotocol/sdk/server/sse.js';
+import {
+  CallToolRequestSchema,
+  ListToolsRequestSchema,
+} from '@modelcontextprotocol/sdk/types.js';
 
 interface Env {
   BACKEND_URL: string;
@@ -23,6 +27,11 @@ interface ProjectACL {
   projects: string[];
 }
 
+interface SessionData {
+  github_login: string;
+  github_id: number;
+}
+
 /**
  * Main request handler
  */
@@ -30,26 +39,25 @@ export default {
   async fetch(request: Request, env: Env): Promise<Response> {
     const url = new URL(request.url);
 
-    // CORS headers for all responses
+    // CORS headers
     const corsHeaders = {
       'Access-Control-Allow-Origin': '*',
       'Access-Control-Allow-Methods': 'GET, POST, OPTIONS',
       'Access-Control-Allow-Headers': 'Content-Type, Authorization',
     };
 
-    // Handle CORS preflight
     if (request.method === 'OPTIONS') {
       return new Response(null, { headers: corsHeaders });
     }
 
-    // OAuth callback handler (GitHub OAuth flow)
+    // OAuth callback
     if (url.pathname === '/auth/callback') {
       return handleOAuthCallback(request, env, corsHeaders);
     }
 
     // SSE endpoint for Remote MCP
     if (url.pathname === '/sse') {
-      return handleSSE(request, env, corsHeaders);
+      return handleMCP(request, env, corsHeaders);
     }
 
     // Health check
@@ -116,15 +124,22 @@ async function handleOAuthCallback(
 
     const userData = await userResponse.json() as { login?: string; id?: number };
 
-    // Store session (simplified - in production use encrypted cookies or session store)
-    const sessionToken = crypto.randomUUID();
+    if (!userData.login || !userData.id) {
+      throw new Error('Failed to get user info from GitHub');
+    }
 
-    // TODO: Store session in KV with expiry
-    // await env.KV_PROJECTS.put(`session:${sessionToken}`, JSON.stringify({
-    //   github_login: userData.login,
-    //   github_id: userData.id,
-    //   access_token: tokenData.access_token,
-    // }), { expirationTtl: 86400 }); // 24 hours
+    // Store session in KV with 24-hour expiry
+    const sessionToken = crypto.randomUUID();
+    const sessionData: SessionData = {
+      github_login: userData.login,
+      github_id: userData.id,
+    };
+
+    await env.KV_PROJECTS.put(
+      `session:${sessionToken}`,
+      JSON.stringify(sessionData),
+      { expirationTtl: 86400 } // 24 hours
+    );
 
     return new Response('OAuth successful! You can close this window.', {
       headers: {
@@ -141,9 +156,9 @@ async function handleOAuthCallback(
 }
 
 /**
- * Handle SSE endpoint for Remote MCP
+ * Handle MCP requests via SSE transport
  */
-async function handleSSE(
+async function handleMCP(
   request: Request,
   env: Env,
   corsHeaders: Record<string, string>
@@ -151,9 +166,8 @@ async function handleSSE(
   const url = new URL(request.url);
   const projectId = url.searchParams.get('project');
 
-  // Extract session from cookie or Authorization header
+  // Extract and validate session
   const sessionToken = extractSessionToken(request);
-
   if (!sessionToken) {
     return new Response('Unauthorized - No session', {
       status: 401,
@@ -161,15 +175,19 @@ async function handleSSE(
     });
   }
 
-  // TODO: Validate session and get user identity from KV
-  // For now, use placeholder identity
-  const userId = 'gh:placeholder'; // Should come from session validation
-  const agentName = env.DEFAULT_AGENT; // Should be derived from GitHub login
+  // Resolve identity from session (with dev mode support)
+  const identity = await resolveIdentity(sessionToken, env);
+  if (!identity) {
+    return new Response('Unauthorized - Invalid session', {
+      status: 401,
+      headers: corsHeaders
+    });
+  }
 
-  // Get user's project ACL from KV
+  // Get user's project ACL
   let userACL: ProjectACL | null = null;
   try {
-    const aclData = await env.KV_PROJECTS.get(userId);
+    const aclData = await env.KV_PROJECTS.get(identity.userId);
     if (aclData) {
       userACL = JSON.parse(aclData);
     }
@@ -183,7 +201,6 @@ async function handleSSE(
     selectedProject = userACL.default;
   }
 
-  // Validate project access
   if (!selectedProject) {
     return new Response('Error: No project specified and no default project configured', {
       status: 400,
@@ -191,6 +208,7 @@ async function handleSSE(
     });
   }
 
+  // Validate project access
   if (userACL && !userACL.projects.includes(selectedProject)) {
     return new Response(`Error: Access denied to project '${selectedProject}'`, {
       status: 403,
@@ -198,37 +216,213 @@ async function handleSSE(
     });
   }
 
-  // Forward request to Python backend with identity headers
-  const backendUrl = `${env.BACKEND_URL}/mcp/sse`;
-
-  const backendHeaders = new Headers(request.headers);
-  backendHeaders.set('X-User-Id', userId);
-  backendHeaders.set('X-Agent-Name', agentName);
-  backendHeaders.set('X-Project-Id', selectedProject);
-  backendHeaders.set('X-Internal-Auth', env.INTERNAL_AUTH_SECRET);
-
-  try {
-    const backendResponse = await fetch(backendUrl, {
-      method: request.method,
-      headers: backendHeaders,
-      body: request.method === 'POST' ? request.body : undefined,
-    });
-
-    // Stream response from backend
-    return new Response(backendResponse.body, {
-      status: backendResponse.status,
-      headers: {
-        ...corsHeaders,
-        'Content-Type': backendResponse.headers.get('Content-Type') || 'text/event-stream',
-        'Cache-Control': 'no-cache',
-        'Connection': 'keep-alive',
+  // Create MCP server
+  const server = new Server(
+    {
+      name: 'watercooler-remote',
+      version: '0.1.0',
+    },
+    {
+      capabilities: {
+        tools: {},
       },
-    });
+    }
+  );
+
+  // Tool definitions
+  const TOOLS = [
+    {
+      name: 'watercooler_v1_health',
+      description: 'Check server health and configuration',
+      inputSchema: { type: 'object', properties: {}, additionalProperties: false },
+    },
+    {
+      name: 'watercooler_v1_whoami',
+      description: 'Get your resolved agent identity',
+      inputSchema: { type: 'object', properties: {}, additionalProperties: false },
+    },
+    {
+      name: 'watercooler_v1_list_threads',
+      description: 'List all watercooler threads',
+      inputSchema: {
+        type: 'object',
+        properties: {
+          open_only: { type: 'boolean', description: 'Filter by open status' },
+          limit: { type: 'number', default: 50 },
+          cursor: { type: 'string' },
+          format: { type: 'string', default: 'markdown' },
+        },
+        additionalProperties: false,
+      },
+    },
+    {
+      name: 'watercooler_v1_read_thread',
+      description: 'Read the complete content of a watercooler thread',
+      inputSchema: {
+        type: 'object',
+        properties: {
+          topic: { type: 'string', description: 'Thread topic identifier' },
+          from_entry: { type: 'number', default: 0 },
+          limit: { type: 'number', default: 100 },
+          format: { type: 'string', default: 'markdown' },
+        },
+        required: ['topic'],
+        additionalProperties: false,
+      },
+    },
+    {
+      name: 'watercooler_v1_say',
+      description: 'Add your response to a thread and flip the ball',
+      inputSchema: {
+        type: 'object',
+        properties: {
+          topic: { type: 'string', description: 'Thread topic identifier' },
+          title: { type: 'string', description: 'Entry title' },
+          body: { type: 'string', description: 'Full entry content' },
+          role: { type: 'string', default: 'implementer' },
+          entry_type: { type: 'string', default: 'Note' },
+        },
+        required: ['topic', 'title', 'body'],
+        additionalProperties: false,
+      },
+    },
+    {
+      name: 'watercooler_v1_ack',
+      description: 'Acknowledge a thread without flipping the ball',
+      inputSchema: {
+        type: 'object',
+        properties: {
+          topic: { type: 'string', description: 'Thread topic identifier' },
+          title: { type: 'string', default: '' },
+          body: { type: 'string', default: '' },
+        },
+        required: ['topic'],
+        additionalProperties: false,
+      },
+    },
+    {
+      name: 'watercooler_v1_handoff',
+      description: 'Hand off the ball to another agent',
+      inputSchema: {
+        type: 'object',
+        properties: {
+          topic: { type: 'string', description: 'Thread topic identifier' },
+          note: { type: 'string', default: '' },
+          target_agent: { type: 'string' },
+        },
+        required: ['topic'],
+        additionalProperties: false,
+      },
+    },
+    {
+      name: 'watercooler_v1_set_status',
+      description: 'Update the status of a thread',
+      inputSchema: {
+        type: 'object',
+        properties: {
+          topic: { type: 'string', description: 'Thread topic identifier' },
+          status: { type: 'string', description: 'New status value' },
+        },
+        required: ['topic', 'status'],
+        additionalProperties: false,
+      },
+    },
+    {
+      name: 'watercooler_v1_reindex',
+      description: 'Generate and return the index content',
+      inputSchema: { type: 'object', properties: {}, additionalProperties: false },
+    },
+  ];
+
+  // Register tool handlers
+  server.setRequestHandler(ListToolsRequestSchema, async () => ({
+    tools: TOOLS,
+  }));
+
+  server.setRequestHandler(CallToolRequestSchema, async (request) => {
+    const { name, arguments: args } = request.params;
+
+    try {
+      // Call backend JSON endpoint
+      const backendUrl = `${env.BACKEND_URL}/mcp/${name}`;
+      const backendResponse = await fetch(backendUrl, {
+        method: 'POST',
+        headers: {
+          'Content-Type': 'application/json',
+          'X-User-Id': identity.userId,
+          'X-Agent-Name': identity.agentName,
+          'X-Project-Id': selectedProject,
+          'X-Internal-Auth': env.INTERNAL_AUTH_SECRET,
+        },
+        body: JSON.stringify(args || {}),
+      });
+
+      if (!backendResponse.ok) {
+        const errorText = await backendResponse.text();
+        throw new Error(`Backend error: ${backendResponse.status} - ${errorText}`);
+      }
+
+      const result = await backendResponse.json();
+
+      return {
+        content: [
+          {
+            type: 'text',
+            text: result.content || JSON.stringify(result),
+          },
+        ],
+      };
+    } catch (error) {
+      return {
+        content: [
+          {
+            type: 'text',
+            text: `Error calling ${name}: ${error}`,
+          },
+        ],
+        isError: true,
+      };
+    }
+  });
+
+  // Create SSE transport
+  const transport = new SSEServerTransport('/sse', request);
+
+  await server.connect(transport);
+
+  return transport.getResponse();
+}
+
+/**
+ * Resolve identity from session token
+ */
+async function resolveIdentity(
+  sessionToken: string,
+  env: Env
+): Promise<{ userId: string; agentName: string } | null> {
+  // Dev mode: allow session=dev for local testing
+  if (sessionToken === 'dev') {
+    return {
+      userId: 'gh:dev',
+      agentName: 'Dev',
+    };
+  }
+
+  // Look up session in KV
+  try {
+    const sessionData = await env.KV_PROJECTS.get(`session:${sessionToken}`);
+    if (!sessionData) {
+      return null;
+    }
+
+    const session: SessionData = JSON.parse(sessionData);
+    return {
+      userId: `gh:${session.github_login}`,
+      agentName: session.github_login,
+    };
   } catch (error) {
-    return new Response(`Backend error: ${error}`, {
-      status: 502,
-      headers: corsHeaders,
-    });
+    console.error('Error resolving identity:', error);
+    return null;
   }
 }
 
@@ -239,7 +433,7 @@ function extractSessionToken(request: Request): string | null {
   // Try cookie first
   const cookieHeader = request.headers.get('Cookie');
   if (cookieHeader) {
-    const cookies = cookieHeader.split(';').map(c => c.trim());
+    const cookies = cookieHeader.split(';').map((c) => c.trim());
     for (const cookie of cookies) {
       if (cookie.startsWith('session=')) {
         return cookie.substring('session='.length);
