@@ -1,0 +1,38 @@
+{
+  "description": "Sample KV entries for user/project ACLs",
+  "entries": [
+    {
+      "key": "gh:caleb",
+      "value": {
+        "user_id": "gh:caleb",
+        "default": "watercooler-collab",
+        "projects": [
+          "watercooler-collab",
+          "proj-alpha",
+          "proj-beta"
+        ]
+      }
+    },
+    {
+      "key": "gh:jay",
+      "value": {
+        "user_id": "gh:jay",
+        "default": "watercooler-collab",
+        "projects": [
+          "watercooler-collab",
+          "proj-alpha"
+        ]
+      }
+    },
+    {
+      "key": "gh:octocat",
+      "value": {
+        "user_id": "gh:octocat",
+        "default": "demo-project",
+        "projects": [
+          "demo-project"
+        ]
+      }
+    }
+  ]
+}
