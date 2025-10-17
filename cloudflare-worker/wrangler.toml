@@ -1,0 +1,17 @@
+name = "mharmless-remote-mcp"
+main = "src/index.ts"
+compatibility_date = "2025-01-01"
+
+[vars]
+BACKEND_URL = "https://backend.internal.example"
+DEFAULT_AGENT = "Agent"
+
+# KV namespace for per-user project ACLs and defaults
+[[kv_namespaces]]
+binding = "KV_PROJECTS"
+# id will be set after KV namespace is created via: wrangler kv:namespace create KV_PROJECTS
+id = "placeholder_kv_id"
+
+# Optional placement configuration for smart routing
+# [placement]
+# mode = "smart"
