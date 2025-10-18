@@ -205,3 +205,26 @@ cython_debug/
 marimo/_static/
 marimo/_lsp/
 __marimo__/
+
+# Local dev threads (facade tests)
+.wc-cloud/
+
+# Additional coverage artifacts
+coverage/
+
+# OS/IDE/editor files
+.DS_Store
+Thumbs.db
+.idea/
+*.swp
+*.swo
+
+# Node/Worker artifacts
+node_modules/
+**/node_modules/
+cloudflare-worker/.wrangler/
+cloudflare-worker/.mf/
+cloudflare-worker/.dev.vars
+cloudflare-worker/dist/
+cloudflare-worker/.parcel-cache/
+cloudflare-worker/.cache/
