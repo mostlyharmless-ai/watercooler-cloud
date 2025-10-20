@@ -1,17 +1,34 @@
 name = "mharmless-remote-mcp"
 main = "src/index.ts"
 compatibility_date = "2025-01-01"
+compatibility_flags = ["nodejs_compat"]
+workers_dev = true
+preview_urls = true
 
+# Default configuration (production)
 [vars]
-BACKEND_URL = "https://backend.internal.example"
+BACKEND_URL = "https://watercooler-collab.onrender.com"
 DEFAULT_AGENT = "Agent"
+# ALLOW_DEV_SESSION not set - defaults to false in production
 
 # KV namespace for per-user project ACLs and defaults
 [[kv_namespaces]]
 binding = "KV_PROJECTS"
-# id will be set after KV namespace is created via: wrangler kv:namespace create KV_PROJECTS
-id = "placeholder_kv_id"
+id = "d9af191397d44b1e8e94f9ca10ecd6e7"
+
+# Staging environment configuration
+[env.staging]
+name = "mharmless-remote-mcp-staging"
+vars = { ALLOW_DEV_SESSION = "true" }
+
+# Production environment configuration (explicit, inherits defaults)
+[env.production]
+name = "mharmless-remote-mcp"
+# Inherits all default vars except ALLOW_DEV_SESSION (not set = false)
 
 # Optional placement configuration for smart routing
 # [placement]
 # mode = "smart"
+
+[triggers]
+crons = ["*/15 * * * *"]
