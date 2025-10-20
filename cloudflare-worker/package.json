@@ -9,7 +9,7 @@
   },
   "devDependencies": {
     "@cloudflare/workers-types": "^4.20250110.0",
-    "wrangler": "^3.98.0"
+    "wrangler": "^4.43.0"
   },
   "dependencies": {
     "@modelcontextprotocol/sdk": "^1.0.4"

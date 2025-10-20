@@ -279,7 +279,49 @@ async function handleOAuthCallback(
       });
     }
 
-    const tokenData = await tokenResponse.json() as { access_token?: string; error?: string };
+    // Log that we're about to process the response
+    console.log(JSON.stringify({
+      event: 'oauth_processing_token_response',
+      status: tokenResponse.status,
+      contentType: tokenResponse.headers.get('content-type'),
+      ip: clientIP,
+      timestamp: new Date().toISOString(),
+    }));
+
+    // Get response text first so we can log it if parsing fails
+    const responseText = await tokenResponse.text();
+
+    console.log(JSON.stringify({
+      event: 'oauth_got_response_text',
+      textLength: responseText.length,
+      textPreview: responseText.slice(0, 100),
+      ip: clientIP,
+      timestamp: new Date().toISOString(),
+    }));
+
+    let tokenData: { access_token?: string; error?: string };
+    try {
+      tokenData = JSON.parse(responseText);
+      console.log(JSON.stringify({
+        event: 'oauth_json_parse_success',
+        hasAccessToken: !!tokenData.access_token,
+        hasError: !!tokenData.error,
+        ip: clientIP,
+        timestamp: new Date().toISOString(),
+      }));
+    } catch (parseError) {
+      // Log the raw response if JSON parsing fails
+      console.log(JSON.stringify({
+        event: 'oauth_json_parse_error',
+        error: String(parseError),
+        status: tokenResponse.status,
+        contentType: tokenResponse.headers.get('content-type'),
+        bodyPreview: responseText.slice(0, 500),
+        ip: clientIP,
+        timestamp: new Date().toISOString(),
+      }));
+      throw new Error(`GitHub returned non-JSON response: ${responseText.slice(0, 200)}`);
+    }
 
     if (tokenData.error || !tokenData.access_token) {
       console.log(JSON.stringify({
@@ -296,10 +338,42 @@ async function handleOAuthCallback(
       headers: {
         'Authorization': `Bearer ${tokenData.access_token}`,
         'Accept': 'application/json',
+        'User-Agent': 'Watercooler-Remote-MCP/1.0',
       },
     });
 
-    const userData = await userResponse.json() as { login?: string; id?: number };
+    console.log(JSON.stringify({
+      event: 'oauth_fetched_user_info',
+      status: userResponse.status,
+      contentType: userResponse.headers.get('content-type'),
+      ip: clientIP,
+      timestamp: new Date().toISOString(),
+    }));
+
+    const userResponseText = await userResponse.text();
+    console.log(JSON.stringify({
+      event: 'oauth_user_response_text',
+      textLength: userResponseText.length,
+      textPreview: userResponseText.slice(0, 200),
+      ip: clientIP,
+      timestamp: new Date().toISOString(),
+    }));
+
+    let userData: { login?: string; id?: number };
+    try {
+      userData = JSON.parse(userResponseText);
+    } catch (parseError) {
+      console.log(JSON.stringify({
+        event: 'oauth_user_json_parse_error',
+        error: String(parseError),
+        status: userResponse.status,
+        contentType: userResponse.headers.get('content-type'),
+        bodyPreview: userResponseText.slice(0, 500),
+        ip: clientIP,
+        timestamp: new Date().toISOString(),
+      }));
+      throw new Error(`GitHub /user API returned non-JSON: ${userResponseText.slice(0, 200)}`);
+    }
 
     if (!userData.login || !userData.id) {
       console.log(JSON.stringify({
