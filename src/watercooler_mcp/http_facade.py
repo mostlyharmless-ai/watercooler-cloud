@@ -28,6 +28,41 @@ app = FastAPI(title="Watercooler HTTP Facade")
 
 
 # ============================================================================
+# Startup Validation (H5: Production Security Check)
+# ============================================================================
+
+@app.on_event("startup")
+async def validate_production_config():
+    """H5: Fail-fast if INTERNAL_AUTH_SECRET missing in production.
+
+    Detects production environment and ensures critical security
+    configuration is present before accepting any requests.
+    """
+    # Detect production environment
+    is_production = (
+        os.environ.get("RENDER") == "true" or  # Render deployment
+        os.environ.get("ENV") == "production" or
+        os.environ.get("ENVIRONMENT") == "production" or
+        not os.environ.get("ALLOW_DEV_MODE")  # No explicit dev mode flag
+    )
+
+    if is_production:
+        secret = os.environ.get("INTERNAL_AUTH_SECRET", "")
+        if not secret:
+            error_msg = (
+                "FATAL: INTERNAL_AUTH_SECRET is required in production but not set.\n"
+                "This is a critical security misconfiguration.\n"
+                "Set INTERNAL_AUTH_SECRET environment variable or set ALLOW_DEV_MODE=true for development."
+            )
+            print(f"\n{'='*80}\n{error_msg}\n{'='*80}\n", file=sys.stderr)
+            sys.exit(1)
+
+        print("✅ Production config validated: INTERNAL_AUTH_SECRET is set", file=sys.stderr)
+    else:
+        print("⚠️  Running in development mode - INTERNAL_AUTH_SECRET not enforced", file=sys.stderr)
+
+
+# ============================================================================
 # Request/Response Models
 # ============================================================================
 
