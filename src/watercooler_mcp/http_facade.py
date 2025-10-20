@@ -108,8 +108,10 @@ def derive_threads_dir(user_id: str, project_id: str) -> Path:
 @app.middleware("http")
 async def extract_identity_headers(request: Request, call_next):
     """Extract and validate identity headers from Worker."""
-    # Skip auth check for health endpoint
-    if request.url.path == "/health":
+    # Skip auth check for non-sensitive probes and metadata
+    if request.method in {"HEAD", "OPTIONS"}:
+        return await call_next(request)
+    if request.url.path in {"/", "/health", "/openapi.json", "/docs"}:
         return await call_next(request)
 
     # Extract headers
@@ -478,6 +480,36 @@ async def mcp_reindex(request: Request):
     output.append(f"\n---\n*Threads directory: {threads_dir}*")
 
     return {"content": "\n".join(output)}
+
+
+@app.post("/admin/sync")
+async def admin_sync(request: Request):
+    """Trigger a periodic git sync if configured.
+
+    Requires X-Internal-Auth to match INTERNAL_AUTH_SECRET when set.
+    No-op when git sync is not configured.
+    """
+    # Verify internal auth via middleware-like check
+    expected = os.environ.get("INTERNAL_AUTH_SECRET")
+    provided = request.headers.get("X-Internal-Auth")
+    if expected and provided != expected:
+        raise HTTPException(status_code=403, detail="Invalid internal authentication")
+
+    sync = get_git_sync_manager()
+    if not sync:
+        return {"status": "ok", "git": "disabled"}
+
+    # Pull latest then commit and push any local changes
+    try:
+        try:
+            sync.pull()
+        except Exception:
+            # ignore pull errors here; commit may still succeed on initial clone
+            pass
+        pushed = sync.commit_and_push("Periodic sync")
+        return {"status": "ok", "git": "enabled", "pushed": bool(pushed)}
+    except Exception as e:
+        raise HTTPException(status_code=500, detail=f"Sync failed: {e}")
 
 
 # ============================================================================

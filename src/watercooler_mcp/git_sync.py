@@ -24,6 +24,7 @@ Usage:
 """
 
 import os
+import re
 import subprocess
 from pathlib import Path
 from typing import Callable, TypeVar
@@ -244,11 +245,33 @@ class GitSyncManager:
                 return True
 
             except subprocess.CalledProcessError as e:
+                stderr = (e.stderr or "") + "\n" + (e.stdout or "")
+                # Handle missing upstream / no configured push destination / empty ref
+                if (
+                    "has no upstream branch" in stderr
+                    or "No configured push destination" in stderr
+                    or "does not match any" in stderr  # e.g., src refspec does not match any
+                ):
+                    try:
+                        subprocess.run(
+                            ["git", "push", "-u", "origin", "HEAD"],
+                            cwd=self.local_path,
+                            env=self._env,
+                            check=True,
+                            capture_output=True,
+                            text=True,
+                        )
+                        return True
+                    except subprocess.CalledProcessError:
+                        # Fall through to normal retry flow
+                        pass
+
                 if attempt < max_retries - 1:
                     # Push rejected - pull and retry
                     if not self.pull():
-                        # Pull failed (rebase conflict)
-                        return False
+                        # Pull failed (rebase conflict or no upstream yet)
+                        # Give one more chance on next loop iteration
+                        continue
                     continue
                 # Max retries exceeded
                 return False
@@ -284,9 +307,9 @@ class GitSyncManager:
                 "Agent: Added planning entry (feature-x)"
             )
         """
-        # Pull latest before operation
-        if not self.pull():
-            raise GitPullError("Failed to pull latest changes before operation")
+        # Pull latest before operation. If pull fails (e.g., first write before upstream),
+        # proceed anyway and establish upstream during push.
+        self.pull()
 
         # Execute operation
         result = operation()
