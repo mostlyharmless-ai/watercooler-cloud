@@ -46,5 +46,35 @@ id = "d9af191397d44b1e8e94f9ca10ecd6e7"
 # [placement]
 # mode = "smart"
 
+# Durable Objects configuration (default/production)
+[durable_objects]
+bindings = [
+  { name = "SESSION_MANAGER", class_name = "SessionManager" }
+]
+
+[[migrations]]
+tag = "v1-session"
+new_sqlite_classes = ["SessionManager"]
+
+# Durable Objects for staging
+[env.staging.durable_objects]
+bindings = [
+  { name = "SESSION_MANAGER", class_name = "SessionManager" }
+]
+
+[[env.staging.migrations]]
+tag = "v1-session"
+new_sqlite_classes = ["SessionManager"]
+
+# Durable Objects for production
+[env.production.durable_objects]
+bindings = [
+  { name = "SESSION_MANAGER", class_name = "SessionManager" }
+]
+
+[[env.production.migrations]]
+tag = "v1-session"
+new_sqlite_classes = ["SessionManager"]
+
 [triggers]
 crons = ["*/15 * * * *"]

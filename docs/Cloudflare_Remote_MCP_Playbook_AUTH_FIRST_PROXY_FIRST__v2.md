@@ -216,6 +216,30 @@ npx wrangler secret put BACKEND_URL
 
 ---
 
+## 6a) Hosting & Persistence (Render + Disk + Git Backup)
+
+Backend hosting (Render)
+- Service: Render Web Service (Python)
+- Build: `pip install -U pip setuptools wheel && pip install '.[http]'`
+- Start: `uvicorn src/watercooler_mcp/http_facade:app --host 0.0.0.0 --port $PORT`
+- Env:
+  - `BASE_THREADS_ROOT=/data/wc-cloud`
+  - `INTERNAL_AUTH_SECRET=<strong-random>` (Worker must use same secret)
+  - Optional (Git sync ON): `WATERCOOLER_GIT_REPO`, `WATERCOOLER_GIT_AUTHOR`, `WATERCOOLER_GIT_EMAIL`, `WATERCOOLER_GIT_SSH_KEY`
+- Disk: attach persistent disk (e.g., wc-cloud) mounted at `/data` (≥ 1 GB). Without a Disk, storage is ephemeral.
+
+Worker pointing to Render
+- `BACKEND_URL` in `wrangler.toml` → Render URL (e.g., `https://app.onrender.com`)
+- `INTERNAL_AUTH_SECRET` in Worker secrets → must equal Render secret
+- Deploy: `npx wrangler deploy`
+
+Hybrid mode (best of both)
+- Primary store: Render Disk under `/data/wc-cloud` (fast, shared, durable)
+- Periodic Git backup: Enable `WATERCOOLER_GIT_REPO` and use a scheduled sync from the Worker to the backend
+  - Backend: `POST /admin/sync` (requires `X-Internal-Auth`) pulls and commit+pushes pending changes
+  - Worker cron: call `/admin/sync` every 15 minutes (`[triggers] crons = ["*/15 * * * *"]`)
+
+---
 ## 7) Client setup (`mcp-remote`)
 
 **Claude Desktop `settings.json`**

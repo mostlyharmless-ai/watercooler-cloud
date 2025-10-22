@@ -17,6 +17,7 @@ interface Env {
   GITHUB_CLIENT_SECRET: string;
   INTERNAL_AUTH_SECRET: string;
   ALLOW_DEV_SESSION?: string; // "true" to enable dev mode
+  SESSION_MANAGER: DurableObjectNamespace;
 }
 
 interface ProjectACL {
@@ -28,6 +29,291 @@ interface ProjectACL {
 interface SessionData {
   github_login: string;
   github_id: number;
+}
+
+interface TokenData {
+  userId: string;
+  createdAt: number;
+  expiresAt: number;
+  note?: string;
+}
+
+/**
+ * Map MCP method to backend endpoint
+ */
+function mapMethodToEndpoint(method: string): string {
+  if (method === 'tools/call') {
+    return '/mcp/'; // Will be appended with tool name
+  }
+  // For other methods, return base path (not used in current implementation)
+  return '/mcp';
+}
+
+/**
+ * Tool definitions for tools/list
+ */
+const TOOL_DEFS = [
+  { name: 'watercooler_v1_health', description: 'Check server health and configuration', inputSchema: { type: 'object', properties: {}, additionalProperties: false } },
+  { name: 'watercooler_v1_whoami', description: 'Get your resolved agent identity', inputSchema: { type: 'object', properties: {}, additionalProperties: false } },
+  { name: 'watercooler_v1_list_threads', description: 'List all watercooler threads', inputSchema: { type: 'object', properties: { open_only: { type: 'boolean' }, limit: { type: 'number' }, cursor: { type: 'string' }, format: { type: 'string', enum: ['markdown'] } }, additionalProperties: false } },
+  { name: 'watercooler_v1_read_thread', description: 'Read full thread content', inputSchema: { type: 'object', properties: { topic: { type: 'string' }, from_entry: { type: 'number' }, limit: { type: 'number' }, format: { type: 'string', enum: ['markdown'] } }, required: ['topic'], additionalProperties: false } },
+  { name: 'watercooler_v1_say', description: 'Add entry and flip ball', inputSchema: { type: 'object', properties: { topic: { type: 'string' }, title: { type: 'string' }, body: { type: 'string' }, role: { type: 'string' }, entry_type: { type: 'string' } }, required: ['topic', 'title', 'body'], additionalProperties: false } },
+  { name: 'watercooler_v1_ack', description: 'Acknowledge thread', inputSchema: { type: 'object', properties: { topic: { type: 'string' }, title: { type: 'string' }, body: { type: 'string' } }, required: ['topic'], additionalProperties: false } },
+  { name: 'watercooler_v1_handoff', description: 'Hand off ball to another agent', inputSchema: { type: 'object', properties: { topic: { type: 'string' }, note: { type: 'string' }, target_agent: { type: 'string' } }, required: ['topic'], additionalProperties: false } },
+  { name: 'watercooler_v1_set_status', description: 'Update thread status', inputSchema: { type: 'object', properties: { topic: { type: 'string' }, status: { type: 'string' } }, required: ['topic', 'status'], additionalProperties: false } },
+  { name: 'watercooler_v1_reindex', description: 'Generate and return the index content', inputSchema: { type: 'object', properties: {}, additionalProperties: false } },
+  { name: 'watercooler_v1_set_project', description: 'Bind this session to a project', inputSchema: { type: 'object', properties: { project: { type: 'string' } }, required: ['project'], additionalProperties: false } },
+  { name: 'watercooler_v1_list_projects', description: 'List allowed projects for the current user', inputSchema: { type: 'object', properties: {}, additionalProperties: false } },
+];
+
+/**
+ * SessionManager Durable Object
+ * Holds per-session state: identity, project, SSE controller
+ */
+export class SessionManager {
+  state: DurableObjectState;
+  env: Env;
+  controller: ReadableStreamDefaultController<Uint8Array> | null = null;
+  identity: { userId: string; agentName: string } | null = null;
+  projectId: string | null = null;
+  lastSeen: number = Date.now();
+
+  constructor(state: DurableObjectState, env: Env) {
+    this.state = state;
+    this.env = env;
+  }
+
+  async fetch(request: Request): Promise<Response> {
+    const url = new URL(request.url);
+    console.log(JSON.stringify({ event: 'do_fetch_called', pathname: url.pathname, method: request.method }));
+
+    const corsHeaders = {
+      'Access-Control-Allow-Origin': '*',
+      'Access-Control-Allow-Methods': 'GET, POST, OPTIONS',
+      'Access-Control-Allow-Headers': 'Content-Type, Authorization, X-User-Id, X-Agent-Name, X-Project-Id, X-Internal-Auth',
+    };
+
+    if (request.method === 'OPTIONS') {
+      return new Response(null, { headers: corsHeaders });
+    }
+
+    // Simple ping to positively verify DO execution path and logging
+    if (url.pathname === '/do/ping') {
+      console.log(JSON.stringify({ event: 'do_ping' }));
+      return new Response('pong', { status: 200, headers: { ...corsHeaders, 'Content-Type': 'text/plain' } });
+    }
+
+    if (url.pathname === '/do/sse') {
+      console.log(JSON.stringify({ event: 'do_routing_to_sse' }));
+      return this.handleSSE(request, corsHeaders);
+    }
+
+    if (url.pathname === '/do/messages') {
+      return this.handleMessages(request, corsHeaders);
+    }
+
+    console.log(JSON.stringify({ event: 'do_path_not_found', pathname: url.pathname }));
+    return new Response('Not Found', { status: 404, headers: corsHeaders });
+  }
+
+  async handleSSE(request: Request, corsHeaders: Record<string, string>): Promise<Response> {
+    // Extract identity from headers (set by Worker after auth)
+    const userId = request.headers.get('X-User-Id') || '';
+    const agentName = request.headers.get('X-Agent-Name') || this.env.DEFAULT_AGENT;
+    const projectId = request.headers.get('X-Project-Id') || '';
+
+    if (!userId || !projectId) {
+      return new Response('Missing identity headers', { status: 400, headers: corsHeaders });
+    }
+
+    this.identity = { userId, agentName };
+    this.projectId = projectId;
+    this.lastSeen = Date.now();
+
+    const sessionId = new URL(request.url).searchParams.get('sessionId') || '';
+    console.log(JSON.stringify({ event: 'session_open', sessionId, user: userId, project: projectId }));
+
+    const encoder = new TextEncoder();
+    const stream = new ReadableStream<Uint8Array>({
+      start: (controller) => {
+        this.controller = controller;
+        // Send endpoint event
+        controller.enqueue(encoder.encode(`event: endpoint\ndata: /messages?sessionId=${sessionId}\n\n`));
+        console.log(JSON.stringify({ event: 'endpoint_sent', sessionId }));
+
+        // Heartbeat to keep connection alive
+        const heartbeat = setInterval(() => {
+          try {
+            controller.enqueue(encoder.encode(': keep-alive\n\n'));
+            this.lastSeen = Date.now();
+          } catch (e) {
+            clearInterval(heartbeat);
+          }
+        }, 15000);
+
+        // Clean up on close
+        this.state.waitUntil((async () => {
+          await new Promise(resolve => setTimeout(resolve, 3600000)); // 1 hour max
+          clearInterval(heartbeat);
+        })());
+      },
+      cancel: () => {
+        this.controller = null;
+        console.log(JSON.stringify({ event: 'session_close', sessionId, user: userId }));
+      }
+    });
+
+    return new Response(stream, {
+      headers: {
+        ...corsHeaders,
+        'Content-Type': 'text/event-stream',
+        'Cache-Control': 'no-cache',
+        'Connection': 'keep-alive',
+      },
+    });
+  }
+
+  async handleMessages(request: Request, corsHeaders: Record<string, string>): Promise<Response> {
+    if (!this.controller || !this.identity || !this.projectId) {
+      return new Response('Invalid session', { status: 400, headers: corsHeaders });
+    }
+
+    this.lastSeen = Date.now();
+
+    let payload: any;
+    try {
+      payload = await request.json();
+    } catch {
+      return new Response('Invalid JSON', { status: 400, headers: corsHeaders });
+    }
+
+    const messages = Array.isArray(payload) ? payload : [payload];
+    for (const msg of messages) {
+      await this.handleJsonRpc(msg);
+    }
+
+    return new Response('Accepted', { status: 202, headers: corsHeaders });
+  }
+
+  async handleJsonRpc(message: any) {
+    const encoder = new TextEncoder();
+    const send = (obj: any) => {
+      if (this.controller) {
+        const chunk = `event: message\ndata: ${JSON.stringify(obj)}\n\n`;
+        this.controller.enqueue(encoder.encode(chunk));
+      }
+    };
+
+    const id = message.id;
+    const method = message.method;
+    const params = message.params || {};
+
+    // Handle initialize
+    if (method === 'initialize') {
+      return send({
+        jsonrpc: '2.0',
+        id,
+        result: {
+          protocolVersion: '2025-03-26',
+          capabilities: { tools: {} },
+          serverInfo: { name: 'watercooler-remote', version: '0.1.0' },
+        },
+      });
+    }
+
+    // Handle tools/list
+    if (method === 'tools/list') {
+      return send({ jsonrpc: '2.0', id, result: { tools: TOOL_DEFS } });
+    }
+
+    // Handle tools/call
+    if (method === 'tools/call') {
+      const name = params.name as string;
+      const args = (params.arguments as Record<string, unknown>) || {};
+      // Local tool: set project context within this session (no backend call)
+      if (name === 'watercooler_v1_set_project') {
+        try {
+          const requested = String(args['project'] || '').trim();
+          if (!requested) {
+            return send({ jsonrpc: '2.0', id, error: { code: -32602, message: 'Missing project' } });
+          }
+          // Load ACL for current user
+          let allowed: string[] = [];
+          try {
+            const aclKey = `user:${this.identity!.userId}`;
+            const aclData = await this.env.KV_PROJECTS.get(aclKey);
+            if (aclData) {
+              const acl = JSON.parse(aclData) as { projects?: string[] };
+              allowed = Array.isArray(acl.projects) ? acl.projects : [];
+            }
+          } catch {}
+          if (!allowed.includes(requested)) {
+            console.log(JSON.stringify({ event: 'acl_denied', reason: 'project_not_in_allowlist', user: this.identity!.userId, project: requested }));
+            return send({ jsonrpc: '2.0', id, error: { code: -32000, message: 'Access denied for project' } });
+          }
+          this.projectId = requested;
+          console.log(JSON.stringify({ event: 'session_project_set', user: this.identity!.userId, project: requested }));
+          return send({ jsonrpc: '2.0', id, result: { project: requested, message: 'Project context set for this session' } });
+        } catch (err: any) {
+          return send({ jsonrpc: '2.0', id, error: { code: -32603, message: 'Failed to set project', data: String(err?.message || err) } });
+        }
+      }
+
+      if (name === 'watercooler_v1_list_projects') {
+        try {
+          const aclKey = `user:${this.identity!.userId}`;
+          const aclData = await this.env.KV_PROJECTS.get(aclKey);
+          let result = { default: null as string | null, projects: [] as string[] };
+          if (aclData) {
+            const acl = JSON.parse(aclData) as ProjectACL;
+            result = {
+              default: acl.default || null,
+              projects: Array.isArray(acl.projects) ? acl.projects : [],
+            };
+          }
+          return send({ jsonrpc: '2.0', id, result });
+        } catch (err: any) {
+          return send({ jsonrpc: '2.0', id, error: { code: -32603, message: 'Failed to list projects', data: String(err?.message || err) } });
+        }
+      }
+
+      try {
+        if (!this.projectId) {
+          return send({ jsonrpc: '2.0', id, error: { code: -32001, message: 'Project not set. Call watercooler_v1_set_project first.' } });
+        }
+        const response = await fetch(`${this.env.BACKEND_URL}/mcp/${name}`, {
+          method: 'POST',
+          headers: {
+            'Content-Type': 'application/json',
+            'X-Internal-Auth': this.env.INTERNAL_AUTH_SECRET,
+            'X-User-Id': this.identity!.userId,
+            'X-Agent-Name': this.identity!.agentName,
+            'X-Project-Id': this.projectId!,
+          },
+          body: JSON.stringify(args),
+        });
+
+        const result = await response.json();
+
+        if (response.ok) {
+          console.log(JSON.stringify({ event: 'do_dispatch_ok', method, tool: name, user: this.identity!.userId }));
+          // Normalize to MCP tool result shape: content must be an array of typed items.
+          const normalized = normalizeMcpResult(result);
+          send({ jsonrpc: '2.0', id, result: normalized });
+        } else {
+          console.log(JSON.stringify({ event: 'do_dispatch_err', method, tool: name, status: response.status, user: this.identity!.userId }));
+          send({ jsonrpc: '2.0', id, error: { code: -32603, message: 'Tool call failed', data: result } });
+        }
+      } catch (err: any) {
+        console.log(JSON.stringify({ event: 'do_dispatch_err', method, tool: name, error: err.message, user: this.identity!.userId }));
+        send({ jsonrpc: '2.0', id, error: { code: -32603, message: 'Internal error', data: err.message } });
+      }
+      return;
+    }
+
+    // Unknown method
+    return send({ jsonrpc: '2.0', id, error: { code: -32601, message: `Method not found: ${method}` } });
+  }
 }
 
 /**
@@ -58,16 +344,71 @@ export default {
       'Access-Control-Allow-Headers': 'Content-Type, Authorization',
     };
     if (request.method === 'OPTIONS') return new Response(null, { headers: corsHeaders });
+    // OAuth/OIDC Well-known discovery endpoints (for mcp-remote http-first)
+    if (url.pathname === '/.well-known/oauth-protected-resource') return handleWellKnownResource(request, env, corsHeaders);
+    if (url.pathname === '/.well-known/oauth-authorization-server' || url.pathname.endsWith('/.well-known/oauth-authorization-server')) return handleWellKnownOAuthAS(request, env, corsHeaders);
+    if (url.pathname === '/.well-known/openid-configuration' || url.pathname.endsWith('/.well-known/openid-configuration')) return handleWellKnownOIDC(request, env, corsHeaders);
+    // OAuth Dynamic Client Registration / Token / Authorize
+    if (url.pathname === '/register') return handleOAuthRegister(request, env, corsHeaders);
+    if (url.pathname === '/authorize') return handleOAuthAuthorize(request, env, corsHeaders);
+    if (url.pathname === '/token') return handleOAuthToken(request, env, corsHeaders);
     if (url.pathname === '/auth/login') return handleAuthLogin(request, env, corsHeaders);
     if (url.pathname === '/auth/callback') return handleOAuthCallback(request, env, corsHeaders);
+    // JSON auth preflight stubs for clients that expect status/registration
+    if (url.pathname === '/auth/status') return handleAuthStatus(request, env, corsHeaders);
+    if (url.pathname === '/auth/register') return handleAuthRegister(request, env, corsHeaders);
+    // Generic /auth and /auth/* preflight handlers (avoid 404 from clients expecting JSON)
+    if (url.pathname === '/auth') return handleAuthStatus(request, env, corsHeaders);
+    if (url.pathname.startsWith('/auth/')) {
+      // Allow unknown subpaths by returning status for GET/head and register for POST
+      if (request.method === 'GET' || request.method === 'HEAD') {
+        return handleAuthStatus(request, env, corsHeaders);
+      }
+      if (request.method === 'POST') {
+        return handleAuthRegister(request, env, corsHeaders);
+      }
+      return new Response(JSON.stringify({ error: 'Method Not Allowed' }), { status: 405, headers: { ...corsHeaders, 'Content-Type': 'application/json' } });
+    }
+    // Generic /oauth and /oauth/* preflight (some clients use this base path)
+    if (url.pathname === '/oauth') return handleAuthStatus(request, env, corsHeaders);
+    if (url.pathname.startsWith('/oauth/')) {
+      if (request.method === 'GET' || request.method === 'HEAD') {
+        return handleAuthStatus(request, env, corsHeaders);
+      }
+      if (request.method === 'POST') {
+        return handleAuthRegister(request, env, corsHeaders);
+      }
+      return new Response(JSON.stringify({ error: 'Method Not Allowed' }), { status: 405, headers: { ...corsHeaders, 'Content-Type': 'application/json' } });
+    }
+    if (url.pathname === '/tokens/issue') return handleTokenIssue(request, env, corsHeaders);
+    if (url.pathname === '/tokens/revoke') return handleTokenRevoke(request, env, corsHeaders);
+    if (url.pathname === '/console') return handleConsole(request, env, corsHeaders);
+    // Debug: DO liveness probe
+    if (url.pathname === '/do-ping') {
+      const id = env.SESSION_MANAGER.idFromName('ping');
+      const stub = env.SESSION_MANAGER.get(id);
+      const resp = await stub.fetch(`${url.origin}/do/ping`);
+      return resp;
+    }
     if (url.pathname === '/sse') return handleMCP(request, env, corsHeaders);
     if (url.pathname === '/messages') return handleMessages(request, env, corsHeaders);
+    if (url.pathname === '/debug/last-sse') {
+      const ip = request.headers.get('CF-Connecting-IP') || 'unknown';
+      try {
+        const dbg = await env.KV_PROJECTS.get(`debug:last_sse:${ip}`);
+        const body = dbg ? dbg : JSON.stringify({});
+        return new Response(body, { status: 200, headers: { ...corsHeaders, 'Content-Type': 'application/json' } });
+      } catch {
+        return new Response(JSON.stringify({}), { status: 200, headers: { ...corsHeaders, 'Content-Type': 'application/json' } });
+      }
+    }
     if (url.pathname === '/health') {
       return new Response(JSON.stringify({ status: 'ok', service: 'mharmless-remote-mcp', backend: env.BACKEND_URL }), {
         headers: { ...corsHeaders, 'Content-Type': 'application/json' },
       });
     }
-    return new Response('Not Found', { status: 404, headers: corsHeaders });
+    console.log(JSON.stringify({ event: 'route_not_found', path: url.pathname, method: request.method }));
+    return new Response(JSON.stringify({ error: 'Not Found', path: url.pathname }), { status: 404, headers: { ...corsHeaders, 'Content-Type': 'application/json' } });
   },
 };
 
@@ -76,6 +417,56 @@ export default {
  */
 function generateStateId(): string {
   return `${Date.now()}_${crypto.randomUUID()}`;
+}
+
+/**
+ * Minimal JSON endpoints to satisfy clients that perform an auth preflight
+ * before opening SSE. These do not change auth semantics; they simply return
+ * JSON 200 when the existing Bearer token or cookie session is valid.
+ */
+async function handleAuthStatus(
+  request: Request,
+  env: Env,
+  corsHeaders: Record<string, string>
+): Promise<Response> {
+  // Return 200 JSON regardless of auth to satisfy clients' preflight checks.
+  // Include identity hints when available, but do NOT change data-plane auth.
+  const clientIP = request.headers.get('CF-Connecting-IP') || 'unknown';
+  let detail: any = { authenticated: false, method: 'none' };
+  const bearerToken = extractBearerToken(request);
+  if (bearerToken) {
+    const id = await resolveTokenIdentity(bearerToken, env, clientIP);
+    if (id) detail = { authenticated: true, userId: id.userId, method: 'bearer' };
+  } else {
+    const sessionToken = extractSessionToken(request);
+    if (sessionToken) {
+      const sess = await resolveIdentity(sessionToken, env);
+      if (sess) detail = { authenticated: true, userId: sess.userId, method: 'cookie' };
+    }
+  }
+  return new Response(JSON.stringify(detail), { status: 200, headers: { ...corsHeaders, 'Content-Type': 'application/json' } });
+}
+
+async function handleAuthRegister(
+  request: Request,
+  env: Env,
+  corsHeaders: Record<string, string>
+): Promise<Response> {
+  // Always return 200 JSON so clients proceed to SSE; include user when available
+  const clientIP = request.headers.get('CF-Connecting-IP') || 'unknown';
+  let body: any = { status: 'ok' };
+  const bearerToken = extractBearerToken(request);
+  if (bearerToken) {
+    const id = await resolveTokenIdentity(bearerToken, env, clientIP);
+    if (id) body.userId = id.userId;
+  } else {
+    const sessionToken = extractSessionToken(request);
+    if (sessionToken) {
+      const sess = await resolveIdentity(sessionToken, env);
+      if (sess) body.userId = sess.userId;
+    }
+  }
+  return new Response(JSON.stringify(body), { status: 200, headers: { ...corsHeaders, 'Content-Type': 'application/json' } });
 }
 
 /**
@@ -429,12 +820,428 @@ async function handleOAuthCallback(
   }
 }
 
-// Simple in-memory session registry (sufficient for dev/local)
-const sessionRegistry: Record<string, {
-  controller: ReadableStreamDefaultController<Uint8Array>;
-  identity: { userId: string; agentName: string };
-  projectId: string;
-}> = {};
+/**
+ * Handle token issuance - create CLI token for authenticated user
+ */
+async function handleTokenIssue(
+  request: Request,
+  env: Env,
+  corsHeaders: Record<string, string>
+): Promise<Response> {
+  if (request.method !== 'POST') {
+    return new Response('Method not allowed', { status: 405, headers: corsHeaders });
+  }
+
+  const clientIP = request.headers.get('CF-Connecting-IP') || 'unknown';
+
+  // Require OAuth session
+  const sessionToken = extractSessionToken(request);
+  if (!sessionToken) {
+    return new Response('Unauthorized - OAuth session required', {
+      status: 401,
+      headers: corsHeaders
+    });
+  }
+
+  const identity = await resolveIdentity(sessionToken, env);
+  if (!identity) {
+    return new Response('Unauthorized - Invalid session', {
+      status: 401,
+      headers: corsHeaders
+    });
+  }
+
+  // Rate limiting - 3 tokens per hour per user
+  const rateLimitAllowed = await checkRateLimit(env, `token:issue:${identity.userId}`, 3, 3600);
+  if (!rateLimitAllowed) {
+    console.log(JSON.stringify({
+      event: 'rate_limit_exceeded',
+      endpoint: '/tokens/issue',
+      user: identity.userId,
+      ip: clientIP,
+      timestamp: new Date().toISOString(),
+    }));
+    return new Response('Too many tokens created. Try again later.', {
+      status: 429,
+      headers: { ...corsHeaders, 'Retry-After': '3600' }
+    });
+  }
+
+  // Parse request body
+  let body: { note?: string; ttlSeconds?: number } = {};
+  try {
+    const contentType = request.headers.get('Content-Type') || '';
+    if (contentType.includes('application/json')) {
+      body = await request.json();
+    }
+  } catch (error) {
+    return new Response('Invalid JSON', { status: 400, headers: corsHeaders });
+  }
+
+  // Generate token
+  const tokenId = crypto.randomUUID();
+  const ttl = body.ttlSeconds || 86400; // Default 24 hours
+  const now = Date.now();
+
+  const tokenData: TokenData = {
+    userId: identity.userId,
+    createdAt: now,
+    expiresAt: now + (ttl * 1000),
+    note: body.note,
+  };
+
+  // Store in KV
+  await env.KV_PROJECTS.put(
+    `token:${tokenId}`,
+    JSON.stringify(tokenData),
+    { expirationTtl: ttl }
+  );
+
+  // Log token issuance
+  console.log(JSON.stringify({
+    event: 'token_issue',
+    user: identity.userId,
+    token_id: tokenId.substring(0, 16),
+    ttl,
+    note: body.note || '',
+    ip: clientIP,
+    timestamp: new Date().toISOString(),
+  }));
+
+  // Return token (only shown once)
+  return new Response(JSON.stringify({ token: tokenId, expiresAt: tokenData.expiresAt }), {
+    headers: { ...corsHeaders, 'Content-Type': 'application/json' },
+  });
+}
+
+/**
+ * Handle token revocation
+ */
+async function handleTokenRevoke(
+  request: Request,
+  env: Env,
+  corsHeaders: Record<string, string>
+): Promise<Response> {
+  if (request.method !== 'POST') {
+    return new Response('Method not allowed', { status: 405, headers: corsHeaders });
+  }
+
+  const clientIP = request.headers.get('CF-Connecting-IP') || 'unknown';
+
+  // Require OAuth session
+  const sessionToken = extractSessionToken(request);
+  if (!sessionToken) {
+    return new Response('Unauthorized - OAuth session required', {
+      status: 401,
+      headers: corsHeaders
+    });
+  }
+
+  const identity = await resolveIdentity(sessionToken, env);
+  if (!identity) {
+    return new Response('Unauthorized - Invalid session', {
+      status: 401,
+      headers: corsHeaders
+    });
+  }
+
+  // Rate limiting - prevent abuse
+  const rateLimitAllowed = await checkRateLimit(env, `token:revoke:${identity.userId}`, 10, 3600);
+  if (!rateLimitAllowed) {
+    console.log(JSON.stringify({
+      event: 'rate_limit_exceeded',
+      endpoint: '/tokens/revoke',
+      user: identity.userId,
+      ip: clientIP,
+      timestamp: new Date().toISOString(),
+    }));
+    return new Response('Too many revocation requests. Try again later.', {
+      status: 429,
+      headers: { ...corsHeaders, 'Retry-After': '3600' }
+    });
+  }
+
+  // Parse request body
+  let body: { tokenId?: string } = {};
+  try {
+    body = await request.json();
+  } catch (error) {
+    return new Response('Invalid JSON', { status: 400, headers: corsHeaders });
+  }
+
+  if (!body.tokenId) {
+    return new Response('Missing tokenId', { status: 400, headers: corsHeaders });
+  }
+
+  // Verify token belongs to user before deleting
+  const tokenData = await env.KV_PROJECTS.get(`token:${body.tokenId}`);
+  if (tokenData) {
+    const parsed: TokenData = JSON.parse(tokenData);
+    if (parsed.userId !== identity.userId) {
+      return new Response('Unauthorized - Token does not belong to you', {
+        status: 403,
+        headers: corsHeaders
+      });
+    }
+  }
+
+  // Delete token
+  await env.KV_PROJECTS.delete(`token:${body.tokenId}`);
+
+  // Log token revocation
+  console.log(JSON.stringify({
+    event: 'token_revoke',
+    user: identity.userId,
+    token_id: body.tokenId.substring(0, 16),
+    ip: clientIP,
+    timestamp: new Date().toISOString(),
+  }));
+
+  return new Response(JSON.stringify({ success: true }), {
+    headers: { ...corsHeaders, 'Content-Type': 'application/json' },
+  });
+}
+
+/**
+ * Handle console page - token management UI
+ */
+async function handleConsole(
+  request: Request,
+  env: Env,
+  corsHeaders: Record<string, string>
+): Promise<Response> {
+  const clientIP = request.headers.get('CF-Connecting-IP') || 'unknown';
+
+  // Require OAuth session
+  const sessionToken = extractSessionToken(request);
+  if (!sessionToken) {
+    return new Response(
+      'Unauthorized - Please login at /auth/login first',
+      { status: 401, headers: corsHeaders }
+    );
+  }
+
+  const identity = await resolveIdentity(sessionToken, env);
+  if (!identity) {
+    return new Response(
+      'Unauthorized - Invalid session. Please login at /auth/login',
+      { status: 401, headers: corsHeaders }
+    );
+  }
+
+  // Get user's ACL
+  let allowedProjects: string[] = [];
+  try {
+    const aclKey = `user:${identity.userId}`;
+    const aclData = await env.KV_PROJECTS.get(aclKey);
+    if (aclData) {
+      const userACL: ProjectACL = JSON.parse(aclData);
+      allowedProjects = userACL.projects || [];
+    }
+  } catch (error) {
+    console.error('Error loading ACL:', error);
+  }
+
+  // Log console access
+  console.log(JSON.stringify({
+    event: 'console_view',
+    user: identity.userId,
+    ip: clientIP,
+    timestamp: new Date().toISOString(),
+  }));
+
+  // Generate HTML
+  const html = `<!DOCTYPE html>
+<html lang="en">
+<head>
+  <meta charset="UTF-8">
+  <meta name="viewport" content="width=device-width, initial-scale=1.0">
+  <title>Watercooler MCP Console</title>
+  <style>
+    body {
+      font-family: system-ui, -apple-system, sans-serif;
+      max-width: 800px;
+      margin: 40px auto;
+      padding: 0 20px;
+      line-height: 1.6;
+      color: #333;
+    }
+    h1 { color: #2563eb; }
+    h2 { color: #1e40af; margin-top: 32px; }
+    .info-box {
+      background: #f3f4f6;
+      border-left: 4px solid #2563eb;
+      padding: 16px;
+      margin: 16px 0;
+    }
+    .form-group {
+      margin: 16px 0;
+    }
+    label {
+      display: block;
+      font-weight: 600;
+      margin-bottom: 4px;
+    }
+    input, textarea {
+      width: 100%;
+      padding: 8px;
+      border: 1px solid #d1d5db;
+      border-radius: 4px;
+      font-family: inherit;
+    }
+    button {
+      background: #2563eb;
+      color: white;
+      padding: 10px 20px;
+      border: none;
+      border-radius: 4px;
+      cursor: pointer;
+      font-size: 14px;
+      font-weight: 600;
+    }
+    button:hover { background: #1e40af; }
+    .token-result {
+      background: #fef3c7;
+      border: 1px solid #f59e0b;
+      padding: 16px;
+      margin: 16px 0;
+      border-radius: 4px;
+      word-break: break-all;
+    }
+    .error {
+      background: #fee2e2;
+      border: 1px solid #ef4444;
+      padding: 16px;
+      margin: 16px 0;
+      border-radius: 4px;
+    }
+    .success {
+      background: #d1fae5;
+      border: 1px solid #10b981;
+      padding: 16px;
+      margin: 16px 0;
+      border-radius: 4px;
+    }
+    code {
+      background: #f3f4f6;
+      padding: 2px 6px;
+      border-radius: 3px;
+      font-family: 'Monaco', 'Menlo', monospace;
+    }
+  </style>
+</head>
+<body>
+  <h1>🌊 Watercooler MCP Console</h1>
+
+  <div class="info-box">
+    <strong>User:</strong> ${identity.userId}<br>
+    <strong>Agent Name:</strong> ${identity.agentName}<br>
+    <strong>Allowed Projects:</strong> ${allowedProjects.length > 0 ? allowedProjects.join(', ') : 'None (contact admin)'}
+  </div>
+
+  <h2>Create CLI Token</h2>
+  <p>Generate a Personal MCP Token for CLI access. Token will be shown once - save it securely!</p>
+  <p><strong>Rate limit:</strong> 3 tokens per hour</p>
+
+  <div class="form-group">
+    <label for="note">Note (optional)</label>
+    <input type="text" id="note" placeholder="e.g., 'My dev laptop'">
+  </div>
+
+  <div class="form-group">
+    <label for="ttl">TTL (seconds)</label>
+    <input type="number" id="ttl" value="86400" placeholder="86400 (24 hours)">
+  </div>
+
+  <button onclick="createToken()">Create Token</button>
+
+  <div id="tokenResult"></div>
+
+  <h2>Revoke Token</h2>
+  <p>Revoke a token by its ID. Once revoked, it cannot be used.</p>
+
+  <div class="form-group">
+    <label for="revokeId">Token ID</label>
+    <input type="text" id="revokeId" placeholder="Enter full token UUID">
+  </div>
+
+  <button onclick="revokeToken()">Revoke Token</button>
+
+  <div id="revokeResult"></div>
+
+  <h2>Using Tokens</h2>
+  <p>Configure your CLI client with:</p>
+  <code>Authorization: Bearer &lt;your-token&gt;</code>
+
+  <p>Example for mcp-remote:</p>
+  <code>npx -y mcp-remote "https://mharmless-remote-mcp.mostlyharmless-ai.workers.dev/sse?project=proj-alpha" --header "Authorization: Bearer YOUR_TOKEN"</code>
+
+  <script>
+    async function createToken() {
+      const note = document.getElementById('note').value;
+      const ttl = parseInt(document.getElementById('ttl').value) || 86400;
+      const resultDiv = document.getElementById('tokenResult');
+
+      try {
+        const response = await fetch('/tokens/issue', {
+          method: 'POST',
+          headers: { 'Content-Type': 'application/json' },
+          body: JSON.stringify({ note, ttlSeconds: ttl }),
+        });
+
+        const data = await response.json();
+
+        if (response.ok) {
+          resultDiv.innerHTML = \`
+            <div class="token-result">
+              <strong>⚠️ Token created! Save this - it won't be shown again:</strong><br><br>
+              <code>\${data.token}</code><br><br>
+              <strong>Expires:</strong> \${new Date(data.expiresAt).toLocaleString()}
+            </div>
+          \`;
+        } else {
+          resultDiv.innerHTML = \`<div class="error">Error: \${response.status} - \${response.statusText}</div>\`;
+        }
+      } catch (error) {
+        resultDiv.innerHTML = \`<div class="error">Error: \${error.message}</div>\`;
+      }
+    }
+
+    async function revokeToken() {
+      const tokenId = document.getElementById('revokeId').value.trim();
+      const resultDiv = document.getElementById('revokeResult');
+
+      if (!tokenId) {
+        resultDiv.innerHTML = '<div class="error">Please enter a token ID</div>';
+        return;
+      }
+
+      try {
+        const response = await fetch('/tokens/revoke', {
+          method: 'POST',
+          headers: { 'Content-Type': 'application/json' },
+          body: JSON.stringify({ tokenId }),
+        });
+
+        if (response.ok) {
+          resultDiv.innerHTML = '<div class="success">✓ Token revoked successfully</div>';
+          document.getElementById('revokeId').value = '';
+        } else {
+          const text = await response.text();
+          resultDiv.innerHTML = \`<div class="error">Error: \${response.status} - \${text}</div>\`;
+        }
+      } catch (error) {
+        resultDiv.innerHTML = \`<div class="error">Error: \${error.message}</div>\`;
+      }
+    }
+  </script>
+</body>
+</html>`;
+
+  return new Response(html, {
+    headers: { ...corsHeaders, 'Content-Type': 'text/html; charset=utf-8' },
+  });
+}
 
 // Handle POSTed JSON-RPC messages and stream responses via SSE
 async function handleMessages(
@@ -444,100 +1251,24 @@ async function handleMessages(
 ): Promise<Response> {
   const url = new URL(request.url);
   const sessionId = url.searchParams.get('sessionId') || '';
-  const session = sessionRegistry[sessionId];
-  if (!session) return new Response('Invalid session', { status: 400, headers: corsHeaders });
 
-  let payload: any;
-  try {
-    payload = await request.json();
-  } catch {
-    return new Response('Invalid JSON', { status: 400, headers: corsHeaders });
+  if (!sessionId) {
+    return new Response('Missing sessionId', { status: 400, headers: corsHeaders });
   }
 
-  const messages = Array.isArray(payload) ? payload : [payload];
-  for (const msg of messages) {
-    await handleJsonRpc(msg, session, env);
-  }
-  return new Response('Accepted', { status: 202, headers: corsHeaders });
+  // Delegate to Durable Object
+  const durableObjectId = env.SESSION_MANAGER.idFromName(sessionId);
+  const stub = env.SESSION_MANAGER.get(durableObjectId);
+
+  // Forward request to Durable Object
+  const doRequest = new Request(`${url.origin}/do/messages?sessionId=${sessionId}`, {
+    method: 'POST',
+    headers: request.headers,
+    body: request.body,
+  });
+
+  return await stub.fetch(doRequest);
 }
-
-async function handleJsonRpc(
-  message: any,
-  session: { controller: ReadableStreamDefaultController<Uint8Array>; identity: { userId: string; agentName: string }; projectId: string },
-  env: Env
-) {
-  const encoder = new TextEncoder();
-  const send = (obj: any) => {
-    const chunk = `event: message\ndata: ${JSON.stringify(obj)}\n\n`;
-    session.controller.enqueue(encoder.encode(chunk));
-  };
-
-  const id = message.id;
-  const method = message.method;
-  const params = message.params || {};
-
-  if (method === 'initialize') {
-    return send({
-      jsonrpc: '2.0',
-      id,
-      result: {
-        protocolVersion: '2025-03-26',
-        capabilities: { tools: {} },
-        serverInfo: { name: 'watercooler-remote', version: '0.1.0' },
-      },
-    });
-  }
-
-  if (method === 'tools/list') {
-    return send({ jsonrpc: '2.0', id, result: { tools: TOOL_DEFS } });
-  }
-
-  if (method === 'tools/call') {
-    const name = params.name as string;
-    const args = (params.arguments as Record<string, unknown>) || {};
-    try {
-      const resp = await fetch(`${env.BACKEND_URL}/mcp/${name}`, {
-        method: 'POST',
-        headers: {
-          'Content-Type': 'application/json',
-          'X-User-Id': session.identity.userId,
-          'X-Agent-Name': session.identity.agentName,
-          'X-Project-Id': session.projectId,
-          'X-Internal-Auth': env.INTERNAL_AUTH_SECRET,
-        },
-        body: JSON.stringify(args),
-      });
-      if (!resp.ok) {
-        const text = await resp.text();
-        return send({ jsonrpc: '2.0', id, error: { code: -32000, message: `Backend error ${resp.status}`, data: text } });
-      }
-      const data = await resp.json();
-      const text = typeof data?.content === 'string' ? data.content : JSON.stringify(data);
-      return send({ jsonrpc: '2.0', id, result: { content: [{ type: 'text', text }] } });
-    } catch (e: any) {
-      return send({ jsonrpc: '2.0', id, error: { code: -32000, message: String(e?.message || e) } });
-    }
-  }
-
-  if (method === 'ping') {
-    return send({ jsonrpc: '2.0', id, result: {} });
-  }
-
-  return send({ jsonrpc: '2.0', id, error: { code: -32601, message: `Method not found: ${method}` } });
-}
-
-// Tool definitions used by tools/list
-const TOOL_DEFS = [
-  { name: 'watercooler_v1_health', description: 'Check server health and configuration', inputSchema: { type: 'object', properties: {}, additionalProperties: false } },
-  { name: 'watercooler_v1_whoami', description: 'Get your resolved agent identity', inputSchema: { type: 'object', properties: {}, additionalProperties: false } },
-  { name: 'watercooler_v1_list_threads', description: 'List all watercooler threads', inputSchema: { type: 'object', properties: { open_only: { type: 'boolean' }, limit: { type: 'number' }, cursor: { type: 'string' }, format: { type: 'string', enum: ['markdown'] } }, additionalProperties: false } },
-  { name: 'watercooler_v1_read_thread', description: 'Read full thread content', inputSchema: { type: 'object', properties: { topic: { type: 'string' }, from_entry: { type: 'number' }, limit: { type: 'number' }, format: { type: 'string', enum: ['markdown'] } }, required: ['topic'], additionalProperties: false } },
-  { name: 'watercooler_v1_say', description: 'Add entry and flip ball', inputSchema: { type: 'object', properties: { topic: { type: 'string' }, title: { type: 'string' }, body: { type: 'string' }, role: { type: 'string' }, entry_type: { type: 'string' } }, required: ['topic', 'title', 'body'], additionalProperties: false } },
-  { name: 'watercooler_v1_ack', description: 'Acknowledge thread', inputSchema: { type: 'object', properties: { topic: { type: 'string' }, title: { type: 'string' }, body: { type: 'string' } }, required: ['topic'], additionalProperties: false } },
-  { name: 'watercooler_v1_handoff', description: 'Hand off ball to another agent', inputSchema: { type: 'object', properties: { topic: { type: 'string' }, note: { type: 'string' }, target_agent: { type: 'string' } }, required: ['topic'], additionalProperties: false } },
-  { name: 'watercooler_v1_set_status', description: 'Update thread status', inputSchema: { type: 'object', properties: { topic: { type: 'string' }, status: { type: 'string' } }, required: ['topic', 'status'], additionalProperties: false } },
-  { name: 'watercooler_v1_reindex', description: 'Generate and return the index content', inputSchema: { type: 'object', properties: {}, additionalProperties: false } },
-];
 
 /**
  * Handle MCP requests via SSE transport
@@ -551,70 +1282,107 @@ async function handleMCP(
   const projectId = url.searchParams.get('project');
   const clientIP = request.headers.get('CF-Connecting-IP') || 'unknown';
 
-  // Require proper SSE accept header to avoid browser preview hangs
-  const accept = request.headers.get('Accept') || '';
-  if (!accept.includes('text/event-stream')) {
-    return new Response(
-      'SSE endpoint. Use an MCP client or set Accept: text/event-stream',
-      { status: 406, headers: { ...corsHeaders, 'Content-Type': 'text/plain' } }
-    );
-  }
+  // Log basic request auth signals for diagnostics (no secrets).
+  const authHeader = request.headers.get('Authorization') || '';
+  const hasBearer = authHeader.startsWith('Bearer ');
+  const hasCookie = !!request.headers.get('Cookie');
+  console.log(JSON.stringify({
+    event: 'sse_request',
+    has_bearer: hasBearer,
+    has_cookie: hasCookie,
+    project: projectId,
+    ip: clientIP,
+    timestamp: new Date().toISOString(),
+  }));
+  // Persist last SSE request signals by caller IP for quick debugging
+  try {
+    const dbgKey = `debug:last_sse:${clientIP}`;
+    const dbgPayload = {
+      event: 'sse_request',
+      has_bearer: hasBearer,
+      has_cookie: hasCookie,
+      project: projectId,
+      timestamp: new Date().toISOString(),
+    } as any;
+    await env.KV_PROJECTS.put(dbgKey, JSON.stringify(dbgPayload), { expirationTtl: 600 });
+  } catch {}
 
-  // C2: Extract session from cookie only (no query param except dev mode)
-  let sessionToken = extractSessionToken(request);
+  // Removed strict Accept header requirement to improve client compatibility.
 
-  // H1: Allow dev session ONLY when explicitly enabled
-  const sessionParam = url.searchParams.get('session');
-  if (!sessionToken && sessionParam === 'dev') {
-    if (env.ALLOW_DEV_SESSION === 'true') {
-      console.log(JSON.stringify({
-        event: 'dev_session_used',
-        ip: clientIP,
-        timestamp: new Date().toISOString(),
-        warning: 'Dev mode enabled - not for production',
-      }));
-      sessionToken = 'dev';
+  // Authentication: Prefer Bearer token over cookie session
+  let identity: { userId: string; agentName: string } | null = null;
+
+  // Try Bearer token first (for CLI clients)
+  const bearerToken = extractBearerToken(request);
+  if (bearerToken) {
+    const tokenIdentity = await resolveTokenIdentity(bearerToken, env, clientIP);
+    if (tokenIdentity) {
+      identity = { userId: tokenIdentity.userId, agentName: tokenIdentity.agentName };
     } else {
-      console.log(JSON.stringify({
-        event: 'dev_session_rejected',
-        ip: clientIP,
-        timestamp: new Date().toISOString(),
-        reason: 'ALLOW_DEV_SESSION not enabled',
-      }));
-      return new Response('Unauthorized - Dev session not allowed', {
+      return new Response('Unauthorized - Invalid or expired token', {
         status: 401,
         headers: corsHeaders
       });
     }
   }
 
-  if (!sessionToken) {
-    console.log(JSON.stringify({
-      event: 'auth_failed',
-      reason: 'no_session',
-      ip: clientIP,
-      timestamp: new Date().toISOString(),
-    }));
-    return new Response('Unauthorized - No session cookie', {
-      status: 401,
-      headers: corsHeaders
-    });
-  }
-
-  // Resolve identity from session (with dev mode support)
-  const identity = await resolveIdentity(sessionToken, env);
+  // Fall back to cookie session (for Desktop clients)
   if (!identity) {
-    console.log(JSON.stringify({
-      event: 'auth_failed',
-      reason: 'invalid_session',
-      session_id: sessionToken.substring(0, 16),
-      ip: clientIP,
-      timestamp: new Date().toISOString(),
-    }));
-    return new Response('Unauthorized - Invalid session', {
-      status: 401,
-      headers: corsHeaders
-    });
+    let sessionToken = extractSessionToken(request);
+
+    // H1: Allow dev session ONLY when explicitly enabled
+    const sessionParam = url.searchParams.get('session');
+    if (!sessionToken && sessionParam === 'dev') {
+      if (env.ALLOW_DEV_SESSION === 'true') {
+        console.log(JSON.stringify({
+          event: 'dev_session_used',
+          ip: clientIP,
+          timestamp: new Date().toISOString(),
+          warning: 'Dev mode enabled - not for production',
+        }));
+        sessionToken = 'dev';
+      } else {
+        console.log(JSON.stringify({
+          event: 'dev_session_rejected',
+          ip: clientIP,
+          timestamp: new Date().toISOString(),
+          reason: 'ALLOW_DEV_SESSION not enabled',
+        }));
+        return new Response('Unauthorized - Dev session not allowed', {
+          status: 401,
+          headers: corsHeaders
+        });
+      }
+    }
+
+    if (!sessionToken) {
+      console.log(JSON.stringify({
+        event: 'auth_failed',
+        reason: 'no_auth',
+        ip: clientIP,
+        timestamp: new Date().toISOString(),
+      }));
+      return new Response('Unauthorized - No session cookie or Bearer token', {
+        status: 401,
+        headers: corsHeaders
+      });
+    }
+
+    // Resolve identity from session (with dev mode support)
+    identity = await resolveIdentity(sessionToken, env);
+    if (!identity) {
+      console.log(JSON.stringify({
+        event: 'auth_failed',
+        reason: 'invalid_session',
+        session_id: sessionToken.substring(0, 16),
+        ip: clientIP,
+        timestamp: new Date().toISOString(),
+      }));
+      return new Response('Unauthorized - Invalid session', {
+        status: 401,
+        headers: corsHeaders
+      });
+    }
   }
 
   // H2: ACL Default-Deny - Require explicit ACL entry
@@ -692,37 +1460,47 @@ async function handleMCP(
     ip: clientIP,
     timestamp: new Date().toISOString(),
   }));
+  // Update debug doc with validation results
+  try {
+    const dbgKey = `debug:last_sse:${clientIP}`;
+    const existing = await env.KV_PROJECTS.get(dbgKey);
+    const base = existing ? JSON.parse(existing) : {};
+    base.validated = true;
+    base.user = identity.userId;
+    base.project = selectedProject;
+    base.timestamp = new Date().toISOString();
+    await env.KV_PROJECTS.put(dbgKey, JSON.stringify(base), { expirationTtl: 600 });
+  } catch {}
 
-  // Worker-native SSE stream + session registration
-  const encoder = new TextEncoder();
+  // Delegate to Durable Object for session management
   const sessionId = crypto.randomUUID();
+  console.log(JSON.stringify({ event: 'creating_do_stub', sessionId: sessionId.substring(0, 16), user: identity.userId }));
 
-  let hb: number | undefined;
-  const stream = new ReadableStream<Uint8Array>({
-    start(controller) {
-      // store identity & project for this session
-      sessionRegistry[sessionId] = { controller, identity, projectId: selectedProject };
-      // emit endpoint event immediately
-      controller.enqueue(encoder.encode(`event: endpoint\ndata: /messages?sessionId=${sessionId}\n\n`));
-      // heartbeat to keep SSE open under dev
-      hb = setInterval(() => {
-        try { controller.enqueue(encoder.encode(`: keep-alive\n\n`)); } catch {}
-      }, 15000) as unknown as number;
-    },
-    cancel() {
-      if (hb !== undefined) clearInterval(hb as unknown as number);
-      delete sessionRegistry[sessionId];
-    }
-  });
+  const durableObjectId = env.SESSION_MANAGER.idFromName(sessionId);
+  const stub = env.SESSION_MANAGER.get(durableObjectId);
 
-  return new Response(stream, {
+  // Forward request to Durable Object with identity headers
+  const doRequest = new Request(`${url.origin}/do/sse?sessionId=${sessionId}`, {
+    method: 'GET',
     headers: {
-      ...corsHeaders,
-      'Content-Type': 'text/event-stream; charset=utf-8',
-      'Cache-Control': 'no-cache, no-transform',
-      Connection: 'keep-alive',
+      'Accept': 'text/event-stream',
+      'X-User-Id': identity.userId,
+      'X-Agent-Name': identity.agentName,
+      'X-Project-Id': selectedProject,
+      'X-Internal-Auth': env.INTERNAL_AUTH_SECRET,
     },
   });
+
+  console.log(JSON.stringify({ event: 'forwarding_to_do', sessionId: sessionId.substring(0, 16), url: doRequest.url }));
+
+  try {
+    const response = await stub.fetch(doRequest);
+    console.log(JSON.stringify({ event: 'do_response_received', sessionId: sessionId.substring(0, 16), status: response.status }));
+    return response;
+  } catch (error) {
+    console.log(JSON.stringify({ event: 'do_fetch_error', sessionId: sessionId.substring(0, 16), error: String(error) }));
+    return new Response(`Durable Object error: ${error}`, { status: 500, headers: corsHeaders });
+  }
 }
 
 /**
@@ -762,10 +1540,75 @@ async function resolveIdentity(
 }
 
 /**
- * Extract session token from cookie or Authorization header
+ * Validate and resolve identity from Bearer token
+ */
+async function resolveTokenIdentity(
+  token: string,
+  env: Env,
+  clientIP: string
+): Promise<{ userId: string; agentName: string; tokenId: string } | null> {
+  try {
+    const tokenData = await env.KV_PROJECTS.get(`token:${token}`);
+    if (!tokenData) {
+      console.log(JSON.stringify({
+        event: 'token_auth_failure',
+        reason: 'token_not_found',
+        token_id: token.substring(0, 16),
+        ip: clientIP,
+        timestamp: new Date().toISOString(),
+      }));
+      return null;
+    }
+
+    const parsed: TokenData = JSON.parse(tokenData);
+
+    // Check expiration
+    if (Date.now() > parsed.expiresAt) {
+      console.log(JSON.stringify({
+        event: 'token_auth_failure',
+        reason: 'token_expired',
+        token_id: token.substring(0, 16),
+        user: parsed.userId,
+        ip: clientIP,
+        timestamp: new Date().toISOString(),
+      }));
+      return null;
+    }
+
+    // Extract agentName from userId (gh:username -> username)
+    const agentName = parsed.userId.startsWith('gh:')
+      ? parsed.userId.substring(3)
+      : parsed.userId;
+
+    console.log(JSON.stringify({
+      event: 'token_auth_success',
+      user: parsed.userId,
+      token_id: token.substring(0, 16),
+      ip: clientIP,
+      timestamp: new Date().toISOString(),
+    }));
+
+    return {
+      userId: parsed.userId,
+      agentName,
+      tokenId: token,
+    };
+  } catch (error) {
+    console.log(JSON.stringify({
+      event: 'token_auth_failure',
+      reason: 'parse_error',
+      error: String(error),
+      ip: clientIP,
+      timestamp: new Date().toISOString(),
+    }));
+    return null;
+  }
+}
+
+/**
+ * Extract session token from cookie
  */
 function extractSessionToken(request: Request): string | null {
-  // Try cookie first
   const cookieHeader = request.headers.get('Cookie');
   if (cookieHeader) {
     const cookies = cookieHeader.split(';').map((c) => c.trim());
@@ -775,12 +1618,246 @@ function extractSessionToken(request: Request): string | null {
       }
     }
   }
+  return null;
+}
 
-  // Try Authorization header
+/**
+ * Extract Bearer token from Authorization header
+ */
+function extractBearerToken(request: Request): string | null {
   const authHeader = request.headers.get('Authorization');
   if (authHeader?.startsWith('Bearer ')) {
     return authHeader.substring('Bearer '.length);
   }
-
   return null;
+}
+
+/**
+ * Normalize arbitrary backend tool responses to MCP-compatible tool result shape.
+ * Ensures `content` is always an array of typed items.
+ */
+function normalizeMcpResult(result: any): any {
+  try {
+    if (result && typeof result === 'object' && 'content' in result) {
+      const c = (result as any).content;
+      if (Array.isArray(c)) return result;
+      if (typeof c === 'string') return { ...result, content: [{ type: 'text', text: c }] };
+      if (c == null) return { ...result, content: [] };
+      // Unknown content shape: stringify
+      return { ...result, content: [{ type: 'text', text: JSON.stringify(c) }] };
+    }
+    // No `content` field
+    if (typeof result === 'string') return { content: [{ type: 'text', text: result }] };
+    return { content: [{ type: 'text', text: JSON.stringify(result) }] };
+  } catch (_e) {
+    // Defensive fallback
+    const text = typeof result === 'string' ? result : JSON.stringify(result);
+    return { content: [{ type: 'text', text }] };
+  }
+}
+
+/**
+ * OAuth/OIDC support for mcp-remote http-first
+ */
+function originFromRequest(request: Request): string {
+  try {
+    const u = new URL(request.url);
+    return `${u.protocol}//${u.host}`;
+  } catch {
+    return '';
+  }
+}
+
+async function handleWellKnownResource(request: Request, env: Env, corsHeaders: Record<string, string>): Promise<Response> {
+  const origin = originFromRequest(request);
+  const body = {
+    resource: origin,
+    authorization_servers: [origin],
+  };
+  return new Response(JSON.stringify(body), { status: 200, headers: { ...corsHeaders, 'Content-Type': 'application/json' } });
+}
+
+function buildOAuthMetadata(request: Request) {
+  const origin = originFromRequest(request);
+  return {
+    issuer: origin,
+    authorization_endpoint: `${origin}/authorize`,
+    token_endpoint: `${origin}/token`,
+    registration_endpoint: `${origin}/register`,
+    response_types_supported: ['code'],
+    grant_types_supported: ['authorization_code', 'refresh_token'],
+    code_challenge_methods_supported: ['S256'],
+    token_endpoint_auth_methods_supported: ['none'],
+  };
+}
+
+async function handleWellKnownOAuthAS(request: Request, env: Env, corsHeaders: Record<string, string>): Promise<Response> {
+  const body = buildOAuthMetadata(request);
+  return new Response(JSON.stringify(body), { status: 200, headers: { ...corsHeaders, 'Content-Type': 'application/json' } });
+}
+
+async function handleWellKnownOIDC(request: Request, env: Env, corsHeaders: Record<string, string>): Promise<Response> {
+  // Provide a minimal OIDC-compatible configuration mirroring OAuth metadata
+  const meta = buildOAuthMetadata(request);
+  const body = {
+    issuer: meta.issuer,
+    authorization_endpoint: meta.authorization_endpoint,
+    token_endpoint: meta.token_endpoint,
+    registration_endpoint: meta.registration_endpoint,
+    response_types_supported: meta.response_types_supported,
+    grant_types_supported: meta.grant_types_supported,
+    code_challenge_methods_supported: meta.code_challenge_methods_supported,
+  };
+  return new Response(JSON.stringify(body), { status: 200, headers: { ...corsHeaders, 'Content-Type': 'application/json' } });
+}
+
+function b64url(bytes: ArrayBuffer): string {
+  let str = '';
+  const arr = new Uint8Array(bytes);
+  for (let i = 0; i < arr.length; i++) str += String.fromCharCode(arr[i]);
+  return btoa(str).replace(/\+/g, '-').replace(/\//g, '_').replace(/=+$/g, '');
+}
+
+async function sha256(input: string): Promise<string> {
+  const enc = new TextEncoder();
+  const data = enc.encode(input);
+  const digest = await crypto.subtle.digest('SHA-256', data);
+  return b64url(digest);
+}
+
+interface OAuthClientInfo { client_id: string; client_id_issued_at: number; token_endpoint_auth_method?: string }
+
+async function handleOAuthRegister(request: Request, env: Env, corsHeaders: Record<string, string>): Promise<Response> {
+  // Parse incoming client metadata and echo required fields in response
+  let metadata: any = {};
+  try {
+    metadata = await request.json();
+  } catch {
+    metadata = {};
+  }
+  const redirect_uris = Array.isArray(metadata.redirect_uris) ? metadata.redirect_uris : [];
+  if (redirect_uris.length === 0) {
+    // Return OAuth error JSON that the client can parse
+    const err = { error: 'invalid_client_metadata', error_description: 'redirect_uris is required' };
+    return new Response(JSON.stringify(err), { status: 400, headers: { ...corsHeaders, 'Content-Type': 'application/json' } });
+  }
+
+  const client_id = crypto.randomUUID();
+  const issued_at = Math.floor(Date.now() / 1000);
+  const info = {
+    client_id,
+    client_id_issued_at: issued_at,
+    token_endpoint_auth_method: 'none',
+    redirect_uris,
+    grant_types: Array.isArray(metadata.grant_types) ? metadata.grant_types : ['authorization_code', 'refresh_token'],
+    response_types: Array.isArray(metadata.response_types) ? metadata.response_types : ['code'],
+    application_type: metadata.application_type || 'native',
+    client_name: metadata.client_name || 'mcp-remote',
+    // Optional echoes to satisfy strict parsers
+    scope: typeof metadata.scope === 'string' ? metadata.scope : undefined,
+    client_secret_expires_at: 0,
+  };
+  // Optionally persist client metadata
+  // await env.KV_PROJECTS.put(`oauth:client:${client_id}`, JSON.stringify(info));
+  return new Response(JSON.stringify(info), { status: 200, headers: { ...corsHeaders, 'Content-Type': 'application/json' } });
+}
+
+async function handleOAuthAuthorize(request: Request, env: Env, corsHeaders: Record<string, string>): Promise<Response> {
+  const url = new URL(request.url);
+  const redirect_uri = url.searchParams.get('redirect_uri');
+  const state = url.searchParams.get('state') || '';
+  const code_challenge = url.searchParams.get('code_challenge');
+  const code_challenge_method = url.searchParams.get('code_challenge_method') || 'S256';
+
+  if (!redirect_uri || !code_challenge || code_challenge_method !== 'S256') {
+    return new Response(JSON.stringify({ error: 'invalid_request' }), { status: 400, headers: { ...corsHeaders, 'Content-Type': 'application/json' } });
+  }
+
+  // Resolve identity: prefer Bearer; else cookie session; else require GitHub OAuth
+  const clientIP = request.headers.get('CF-Connecting-IP') || 'unknown';
+  const bearer = extractBearerToken(request);
+  let userId: string | null = null;
+  if (bearer) {
+    const id = await resolveTokenIdentity(bearer, env, clientIP);
+    if (id) userId = id.userId;
+  }
+  if (!userId) {
+    const sessionToken = extractSessionToken(request);
+    if (sessionToken) {
+      const sess = await resolveIdentity(sessionToken, env);
+      if (sess) userId = sess.userId;
+    }
+  }
+  if (!userId) {
+    // If not authenticated, kick off GitHub OAuth
+    return handleAuthLogin(request, env, corsHeaders);
+  }
+
+  // Issue authorization code and store PKCE data
+  const code = crypto.randomUUID();
+  const payload = { userId, code_challenge, redirect_uri, expiresAt: Date.now() + 10 * 60 * 1000 };
+  await env.KV_PROJECTS.put(`oauth:code:${code}`, JSON.stringify(payload), { expirationTtl: 600 });
+  const redirect = new URL(redirect_uri);
+  redirect.searchParams.set('code', code);
+  if (state) redirect.searchParams.set('state', state);
+  return new Response(null, { status: 302, headers: { ...corsHeaders, Location: redirect.toString() } });
+}
+
+async function handleOAuthToken(request: Request, env: Env, corsHeaders: Record<string, string>): Promise<Response> {
+  const contentType = request.headers.get('Content-Type') || '';
+  let params: URLSearchParams;
+  if (contentType.includes('application/x-www-form-urlencoded')) {
+    const bodyText = await request.text();
+    params = new URLSearchParams(bodyText);
+  } else {
+    // Try JSON for robustness
+    try {
+      const data = await request.json();
+      params = new URLSearchParams();
+      for (const [k, v] of Object.entries(data)) params.set(k, String(v));
+    } catch {
+      return new Response(JSON.stringify({ error: 'invalid_request' }), { status: 400, headers: { ...corsHeaders, 'Content-Type': 'application/json' } });
+    }
+  }
+
+  const grant_type = params.get('grant_type') || '';
+  if (grant_type === 'authorization_code') {
+    const code = params.get('code') || '';
+    const code_verifier = params.get('code_verifier') || '';
+    const redirect_uri = params.get('redirect_uri') || '';
+    const rec = await env.KV_PROJECTS.get(`oauth:code:${code}`);
+    if (!rec) return new Response(JSON.stringify({ error: 'invalid_grant' }), { status: 400, headers: { ...corsHeaders, 'Content-Type': 'application/json' } });
+    const payload = JSON.parse(rec) as { userId: string; code_challenge: string; redirect_uri: string; expiresAt: number };
+    if (Date.now() > payload.expiresAt) return new Response(JSON.stringify({ error: 'invalid_grant' }), { status: 400, headers: { ...corsHeaders, 'Content-Type': 'application/json' } });
+    if (redirect_uri && payload.redirect_uri && redirect_uri !== payload.redirect_uri) return new Response(JSON.stringify({ error: 'invalid_request' }), { status: 400, headers: { ...corsHeaders, 'Content-Type': 'application/json' } });
+    const expected = await sha256(code_verifier);
+    if (expected !== payload.code_challenge) return new Response(JSON.stringify({ error: 'invalid_grant' }), { status: 400, headers: { ...corsHeaders, 'Content-Type': 'application/json' } });
+
+    // Issue access + refresh tokens; store access token in same namespace as CLI tokens so data-plane accepts it
+    const access = crypto.randomUUID();
+    const refresh = crypto.randomUUID();
+    const now = Date.now();
+    const ttl = 3600; // 1h access token
+    const accessData: TokenData = { userId: payload.userId, createdAt: now, expiresAt: now + ttl * 1000 };
+    await env.KV_PROJECTS.put(`token:${access}`, JSON.stringify(accessData), { expirationTtl: ttl });
+    await env.KV_PROJECTS.put(`oauth:refresh:${refresh}`, JSON.stringify({ userId: payload.userId }), { expirationTtl: 30 * 24 * 3600 });
+    // Invalidate code
+    await env.KV_PROJECTS.delete(`oauth:code:${code}`);
+    const body = { access_token: access, token_type: 'Bearer', expires_in: ttl, refresh_token: refresh };
+    return new Response(JSON.stringify(body), { status: 200, headers: { ...corsHeaders, 'Content-Type': 'application/json' } });
+  }
+  if (grant_type === 'refresh_token') {
+    const refresh = params.get('refresh_token') || '';
+    const rec = await env.KV_PROJECTS.get(`oauth:refresh:${refresh}`);
+    if (!rec) return new Response(JSON.stringify({ error: 'invalid_grant' }), { status: 400, headers: { ...corsHeaders, 'Content-Type': 'application/json' } });
+    const data = JSON.parse(rec) as { userId: string };
+    const access = crypto.randomUUID();
+    const now = Date.now();
+    const ttl = 3600;
+    const accessData: TokenData = { userId: data.userId, createdAt: now, expiresAt: now + ttl * 1000 };
+    await env.KV_PROJECTS.put(`token:${access}`, JSON.stringify(accessData), { expirationTtl: ttl });
+    const body = { access_token: access, token_type: 'Bearer', expires_in: ttl, refresh_token: refresh };
+    return new Response(JSON.stringify(body), { status: 200, headers: { ...corsHeaders, 'Content-Type': 'application/json' } });
+  }
+  return new Response(JSON.stringify({ error: 'unsupported_grant_type' }), { status: 400, headers: { ...corsHeaders, 'Content-Type': 'application/json' } });
 }
