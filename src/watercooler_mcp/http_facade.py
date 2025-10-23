@@ -448,8 +448,21 @@ async def mcp_handoff(req: HandoffRequest, request: Request):
 async def mcp_set_status(req: SetStatusRequest, request: Request):
     """Update thread status."""
     threads_dir = derive_threads_dir(request.state.user_id, request.state.project_id)
+    agent = request.state.agent_name
+    sync = get_git_sync_manager()
 
-    commands.set_status(req.topic, threads_dir=threads_dir, status=req.status)
+    def set_status_operation():
+        commands.set_status(req.topic, threads_dir=threads_dir, status=req.status)
+
+    if sync:
+        commit_message = (
+            f"{agent}: Status changed to {req.status} ({req.topic})\n"
+            f"\n"
+            f"Watercooler-Topic: {req.topic}"
+        )
+        sync.with_sync(set_status_operation, commit_message)
+    else:
+        set_status_operation()
 
     return {
         "content": (

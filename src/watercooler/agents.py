@@ -115,6 +115,12 @@ def _counterpart_of(agent: str, registry: dict | None = None) -> str:
     For simple 2-agent flips (A→B, B→A), returns B when given A.
     For multi-agent chains (A→B→C), follows the chain until end or cycle.
     The user tag, if any, is then reattached in the form " (tag)".
+
+    NOTE: In multi-agent scenarios, any agent can manually set the ball to any other
+    agent using handoff() or explicit ball= parameter. This could lead to collision
+    situations if multiple agents respond simultaneously, but this is expected to be
+    rare and non-critical. Future enhancement: Add optimistic locking or conflict
+    resolution if collision issues arise.
     """
     # Default counterpart mapping uses canonical (capitalized) keys to match _canonical_agent output
     counterpart_map = (registry or {}).get("counterpart", {"Codex": "Claude", "Claude": "Codex"})
