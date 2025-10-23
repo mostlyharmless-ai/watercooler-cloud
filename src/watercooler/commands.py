@@ -17,7 +17,7 @@ def init_thread(
     *,
     threads_dir: Path,
     title: Optional[str] = None,
-    status: str = "open",
+    status: str = "OPEN",
     ball: str = "codex",
     body: str | None = None,
     owner: str | None = None,
@@ -30,7 +30,7 @@ def init_thread(
         topic: Thread topic identifier
         threads_dir: Directory containing threads
         title: Optional title override
-        status: Initial status (default: "open")
+        status: Initial status (default: "OPEN")
         ball: Initial ball owner (default: "codex")
         body: Optional initial body text
         owner: Thread owner (default: "Team")
@@ -56,7 +56,7 @@ def init_thread(
             now = utcnow_iso()
             content = (
                 f"Title: {hdr_title}\n"
-                f"Status: {status}\n"
+                f"Status: {status.upper()}\n"
                 f"Ball: {ball}\n"
                 f"Updated: {now}\n\n"
                 f"# {hdr_title}\n"
@@ -78,7 +78,7 @@ def init_thread(
             "NOWUTC": now,
             "UTC": now,
             "BALL": ball,
-            "STATUS": status.upper(),  # Add status to mapping
+            "STATUS": status.upper(),  # Always uppercase for consistency
         }
         content = _fill_template(template, mapping)
 
@@ -182,7 +182,8 @@ def set_status(topic: str, *, threads_dir: Path, status: str) -> Path:
     lp = lock_path_for_topic(topic, threads_dir)
     with AdvisoryLock(lp, timeout=2, ttl=10, force_break=False):
         s = tp.read_text(encoding="utf-8") if tp.exists() else ""
-        s = bump_header(s, status=status)
+        # Normalize status to uppercase for consistency
+        s = bump_header(s, status=status.upper())
         write(tp, s)
     return tp
 
