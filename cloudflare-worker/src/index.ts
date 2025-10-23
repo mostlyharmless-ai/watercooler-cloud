@@ -17,6 +17,11 @@ interface Env {
   GITHUB_CLIENT_SECRET: string;
   INTERNAL_AUTH_SECRET: string;
   ALLOW_DEV_SESSION?: string; // "true" to enable dev mode
+  // When "true", allow watercooler_v1_set_project to automatically add
+  // the requested project to the caller's ACL if it doesn't exist yet.
+  // This is useful during development or when you want on-demand project creation
+  // without out-of-band ACL seeding.
+  AUTO_ENROLL_PROJECTS?: string;
   SESSION_MANAGER: DurableObjectNamespace;
 }
 
@@ -55,13 +60,13 @@ function mapMethodToEndpoint(method: string): string {
 const TOOL_DEFS = [
   { name: 'watercooler_v1_health', description: 'Check server health and configuration', inputSchema: { type: 'object', properties: {}, additionalProperties: false } },
   { name: 'watercooler_v1_whoami', description: 'Get your resolved agent identity', inputSchema: { type: 'object', properties: {}, additionalProperties: false } },
-  { name: 'watercooler_v1_list_threads', description: 'List all watercooler threads', inputSchema: { type: 'object', properties: { open_only: { type: 'boolean' }, limit: { type: 'number' }, cursor: { type: 'string' }, format: { type: 'string', enum: ['markdown'] } }, additionalProperties: false } },
-  { name: 'watercooler_v1_read_thread', description: 'Read full thread content', inputSchema: { type: 'object', properties: { topic: { type: 'string' }, from_entry: { type: 'number' }, limit: { type: 'number' }, format: { type: 'string', enum: ['markdown'] } }, required: ['topic'], additionalProperties: false } },
-  { name: 'watercooler_v1_say', description: 'Add entry and flip ball', inputSchema: { type: 'object', properties: { topic: { type: 'string' }, title: { type: 'string' }, body: { type: 'string' }, role: { type: 'string' }, entry_type: { type: 'string' } }, required: ['topic', 'title', 'body'], additionalProperties: false } },
-  { name: 'watercooler_v1_ack', description: 'Acknowledge thread', inputSchema: { type: 'object', properties: { topic: { type: 'string' }, title: { type: 'string' }, body: { type: 'string' } }, required: ['topic'], additionalProperties: false } },
-  { name: 'watercooler_v1_handoff', description: 'Hand off ball to another agent', inputSchema: { type: 'object', properties: { topic: { type: 'string' }, note: { type: 'string' }, target_agent: { type: 'string' } }, required: ['topic'], additionalProperties: false } },
-  { name: 'watercooler_v1_set_status', description: 'Update thread status', inputSchema: { type: 'object', properties: { topic: { type: 'string' }, status: { type: 'string' } }, required: ['topic', 'status'], additionalProperties: false } },
-  { name: 'watercooler_v1_reindex', description: 'Generate and return the index content', inputSchema: { type: 'object', properties: {}, additionalProperties: false } },
+  { name: 'watercooler_v1_list_threads', description: 'List all watercooler threads', inputSchema: { type: 'object', properties: { open_only: { type: 'boolean' }, limit: { type: 'number' }, cursor: { type: 'string' }, format: { type: 'string', enum: ['markdown'] }, project: { type: 'string', description: 'Optional: target a specific project instead of current session project' } }, additionalProperties: false } },
+  { name: 'watercooler_v1_read_thread', description: 'Read full thread content', inputSchema: { type: 'object', properties: { topic: { type: 'string' }, from_entry: { type: 'number' }, limit: { type: 'number' }, format: { type: 'string', enum: ['markdown'] }, project: { type: 'string', description: 'Optional: target a specific project instead of current session project' } }, required: ['topic'], additionalProperties: false } },
+  { name: 'watercooler_v1_say', description: 'Add entry and flip ball', inputSchema: { type: 'object', properties: { topic: { type: 'string' }, title: { type: 'string' }, body: { type: 'string' }, role: { type: 'string' }, entry_type: { type: 'string' }, project: { type: 'string', description: 'Optional: target a specific project instead of current session project' }, create_if_missing: { type: 'boolean', description: 'Create thread if it does not exist (default: false)', default: false } }, required: ['topic', 'title', 'body'], additionalProperties: false } },
+  { name: 'watercooler_v1_ack', description: 'Acknowledge thread', inputSchema: { type: 'object', properties: { topic: { type: 'string' }, title: { type: 'string' }, body: { type: 'string' }, project: { type: 'string', description: 'Optional: target a specific project instead of current session project' } }, required: ['topic'], additionalProperties: false } },
+  { name: 'watercooler_v1_handoff', description: 'Hand off ball to another agent', inputSchema: { type: 'object', properties: { topic: { type: 'string' }, note: { type: 'string' }, target_agent: { type: 'string' }, project: { type: 'string', description: 'Optional: target a specific project instead of current session project' } }, required: ['topic'], additionalProperties: false } },
+  { name: 'watercooler_v1_set_status', description: 'Update thread status', inputSchema: { type: 'object', properties: { topic: { type: 'string' }, status: { type: 'string' }, project: { type: 'string', description: 'Optional: target a specific project instead of current session project' } }, required: ['topic', 'status'], additionalProperties: false } },
+  { name: 'watercooler_v1_reindex', description: 'Generate and return the index content', inputSchema: { type: 'object', properties: { project: { type: 'string', description: 'Optional: target a specific project instead of current session project' } }, additionalProperties: false } },
   { name: 'watercooler_v1_set_project', description: 'Bind this session to a project', inputSchema: { type: 'object', properties: { project: { type: 'string' } }, required: ['project'], additionalProperties: false } },
   { name: 'watercooler_v1_list_projects', description: 'List allowed projects for the current user', inputSchema: { type: 'object', properties: {}, additionalProperties: false } },
 ];
@@ -81,6 +86,13 @@ export class SessionManager {
   constructor(state: DurableObjectState, env: Env) {
     this.state = state;
     this.env = env;
+    // Load persisted state asynchronously
+    this.state.blockConcurrencyWhile(async () => {
+      const stored = await this.state.storage.get<{ projectId?: string }>('session');
+      if (stored?.projectId) {
+        this.projectId = stored.projectId;
+      }
+    });
   }
 
   async fetch(request: Request): Promise<Response> {
@@ -173,6 +185,20 @@ export class SessionManager {
     });
   }
 
+  async getUserACL(): Promise<ProjectACL | null> {
+    if (!this.identity) return null;
+    try {
+      const aclKey = `user:${this.identity.userId}`;
+      const aclData = await this.env.KV_PROJECTS.get(aclKey);
+      if (aclData) {
+        return JSON.parse(aclData) as ProjectACL;
+      }
+    } catch (e) {
+      console.error('Error loading ACL:', e);
+    }
+    return null;
+  }
+
   async handleMessages(request: Request, corsHeaders: Record<string, string>): Promise<Response> {
     if (!this.controller || !this.identity || !this.projectId) {
       return new Response('Invalid session', { status: 400, headers: corsHeaders });
@@ -239,19 +265,36 @@ export class SessionManager {
           }
           // Load ACL for current user
           let allowed: string[] = [];
+          let aclObj: ProjectACL | null = null;
           try {
             const aclKey = `user:${this.identity!.userId}`;
             const aclData = await this.env.KV_PROJECTS.get(aclKey);
             if (aclData) {
-              const acl = JSON.parse(aclData) as { projects?: string[] };
+              const acl = JSON.parse(aclData) as ProjectACL;
+              aclObj = acl;
               allowed = Array.isArray(acl.projects) ? acl.projects : [];
             }
           } catch {}
           if (!allowed.includes(requested)) {
-            console.log(JSON.stringify({ event: 'acl_denied', reason: 'project_not_in_allowlist', user: this.identity!.userId, project: requested }));
-            return send({ jsonrpc: '2.0', id, error: { code: -32000, message: 'Access denied for project' } });
+            const canAutoEnroll = this.env.AUTO_ENROLL_PROJECTS === 'true' || this.env.ALLOW_DEV_SESSION === 'true';
+            if (canAutoEnroll) {
+              // Create or update user's ACL to include the requested project
+              const userId = this.identity!.userId;
+              const aclKey = `user:${userId}`;
+              const next: ProjectACL = aclObj ?? { user_id: userId, default: requested, projects: [] };
+              if (!next.projects.includes(requested)) next.projects.push(requested);
+              if (!next.default) next.default = requested;
+              await this.env.KV_PROJECTS.put(aclKey, JSON.stringify(next));
+              allowed = next.projects;
+              console.log(JSON.stringify({ event: 'acl_enrolled_project', user: userId, project: requested }));
+            } else {
+              console.log(JSON.stringify({ event: 'acl_denied', reason: 'project_not_in_allowlist', user: this.identity!.userId, project: requested }));
+              return send({ jsonrpc: '2.0', id, error: { code: -32000, message: 'Access denied for project' } });
+            }
           }
           this.projectId = requested;
+          // Persist project to durable storage
+          await this.state.storage.put('session', { projectId: requested });
           console.log(JSON.stringify({ event: 'session_project_set', user: this.identity!.userId, project: requested }));
           return send({ jsonrpc: '2.0', id, result: { project: requested, message: 'Project context set for this session' } });
         } catch (err: any) {
@@ -278,9 +321,107 @@ export class SessionManager {
       }
 
       try {
-        if (!this.projectId) {
+        // Determine target project: explicit param overrides session project
+        const explicitProject = args['project'] as string | undefined;
+        const targetProject = explicitProject || this.projectId;
+
+        if (!targetProject) {
           return send({ jsonrpc: '2.0', id, error: { code: -32001, message: 'Project not set. Call watercooler_v1_set_project first.' } });
         }
+
+        // Validate ACL for target project
+        if (explicitProject && explicitProject !== this.projectId) {
+          // Cross-project access - verify user has access
+          try {
+            const aclKey = `user:${this.identity!.userId}`;
+            const aclData = await this.env.KV_PROJECTS.get(aclKey);
+            if (aclData) {
+              const acl = JSON.parse(aclData) as ProjectACL;
+              if (!acl.projects.includes(explicitProject)) {
+                console.log(JSON.stringify({ event: 'cross_project_denied', user: this.identity!.userId, from: this.projectId, to: explicitProject }));
+                return send({ jsonrpc: '2.0', id, error: { code: -32000, message: `Access denied for project: ${explicitProject}` } });
+              }
+            } else {
+              return send({ jsonrpc: '2.0', id, error: { code: -32000, message: 'Access denied - no ACL entry' } });
+            }
+          } catch (e) {
+            return send({ jsonrpc: '2.0', id, error: { code: -32603, message: 'Error validating project access' } });
+          }
+          console.log(JSON.stringify({ event: 'cross_project_access', user: this.identity!.userId, from: this.projectId, to: explicitProject, tool: name }));
+        }
+
+        // Thread existence checking for thread-specific operations
+        const threadTools = ['watercooler_v1_say', 'watercooler_v1_read_thread', 'watercooler_v1_ack', 'watercooler_v1_handoff', 'watercooler_v1_set_status'];
+        const topic = args['topic'] as string | undefined;
+        const createIfMissing = args['create_if_missing'] === true;
+
+        if (threadTools.includes(name) && topic && !createIfMissing) {
+          // Check if thread exists in target project
+          const checkResponse = await fetch(`${this.env.BACKEND_URL}/mcp/watercooler_v1_list_threads`, {
+            method: 'POST',
+            headers: {
+              'Content-Type': 'application/json',
+              'X-Internal-Auth': this.env.INTERNAL_AUTH_SECRET,
+              'X-User-Id': this.identity!.userId,
+              'X-Agent-Name': this.identity!.agentName,
+              'X-Project-Id': targetProject,
+            },
+            body: JSON.stringify({}),
+          });
+
+          if (checkResponse.ok) {
+            const listResult = await checkResponse.json();
+            // Parse result to check if thread exists
+            let threadExists = false;
+            let otherProjects: string[] = [];
+
+            // The backend returns content array with text
+            if (listResult?.content?.[0]?.text) {
+              const text = listResult.content[0].text;
+              // Simple check: does the topic appear in the thread list?
+              threadExists = text.includes(`**${topic}**`) || text.includes(`topic: ${topic}`) || text.includes(topic);
+            }
+
+            if (!threadExists) {
+              // Check other projects to provide helpful error
+              const userACL = await this.getUserACL();
+              if (userACL) {
+                for (const proj of userACL.projects) {
+                  if (proj === targetProject) continue;
+                  const otherCheck = await fetch(`${this.env.BACKEND_URL}/mcp/watercooler_v1_list_threads`, {
+                    method: 'POST',
+                    headers: {
+                      'Content-Type': 'application/json',
+                      'X-Internal-Auth': this.env.INTERNAL_AUTH_SECRET,
+                      'X-User-Id': this.identity!.userId,
+                      'X-Agent-Name': this.identity!.agentName,
+                      'X-Project-Id': proj,
+                    },
+                    body: JSON.stringify({}),
+                  });
+                  if (otherCheck.ok) {
+                    const otherResult = await otherCheck.json();
+                    if (otherResult?.content?.[0]?.text) {
+                      const text = otherResult.content[0].text;
+                      if (text.includes(`**${topic}**`) || text.includes(`topic: ${topic}`) || text.includes(topic)) {
+                        otherProjects.push(proj);
+                      }
+                    }
+                  }
+                }
+              }
+
+              const errorMsg = otherProjects.length > 0
+                ? `Thread '${topic}' not found in project '${targetProject}'. Thread exists in: [${otherProjects.join(', ')}]. Use set_project or specify project explicitly.`
+                : `Thread '${topic}' not found in project '${targetProject}'. Use create_if_missing=true to create it.`;
+
+              console.log(JSON.stringify({ event: 'thread_not_found', topic, project: targetProject, found_in: otherProjects, user: this.identity!.userId }));
+              return send({ jsonrpc: '2.0', id, error: { code: -32002, message: errorMsg } });
+            }
+          }
+        }
+
+        // Forward to backend with target project
         const response = await fetch(`${this.env.BACKEND_URL}/mcp/${name}`, {
           method: 'POST',
           headers: {
@@ -288,7 +429,7 @@ export class SessionManager {
             'X-Internal-Auth': this.env.INTERNAL_AUTH_SECRET,
             'X-User-Id': this.identity!.userId,
             'X-Agent-Name': this.identity!.agentName,
-            'X-Project-Id': this.projectId!,
+            'X-Project-Id': targetProject,
           },
           body: JSON.stringify(args),
         });
@@ -296,10 +437,17 @@ export class SessionManager {
         const result = await response.json();
 
         if (response.ok) {
-          console.log(JSON.stringify({ event: 'do_dispatch_ok', method, tool: name, user: this.identity!.userId }));
-          // Normalize to MCP tool result shape: content must be an array of typed items.
+          const isCrossProject = explicitProject && explicitProject !== this.projectId;
+          console.log(JSON.stringify({ event: 'do_dispatch_ok', method, tool: name, user: this.identity!.userId, project: targetProject, cross_project: isCrossProject }));
+          // Normalize to MCP tool result shape and add metadata
           const normalized = normalizeMcpResult(result);
-          send({ jsonrpc: '2.0', id, result: normalized });
+          // Add project_id to response metadata
+          const metadata = {
+            project_id: targetProject,
+            cross_project: isCrossProject,
+            session_project: this.projectId,
+          };
+          send({ jsonrpc: '2.0', id, result: { ...normalized, _metadata: metadata } });
         } else {
           console.log(JSON.stringify({ event: 'do_dispatch_err', method, tool: name, status: response.status, user: this.identity!.userId }));
           send({ jsonrpc: '2.0', id, error: { code: -32603, message: 'Tool call failed', data: result } });
