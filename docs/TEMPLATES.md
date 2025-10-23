@@ -210,6 +210,7 @@ The built-in entry template:
 ```markdown
 ---
 Entry: {{AGENT}} {{UTC}}
+Role: {{ROLE}}
 Type: {{TYPE}}
 Title: {{TITLE}}
 

@@ -1660,6 +1660,88 @@ Verify that different projects create separate directories:
 - ✅ Worker correctly passes `X-Project-Id` header
 - ✅ Backend correctly uses project ID in file paths
 
+#### Thread Disambiguation & Cross-Project Behavior
+
+The Worker implements thread existence checking and cross-project access controls to prevent confusion and ensure intentional thread creation.
+
+**Key Behaviors**:
+
+1. **Session Project Persistence**
+   - `watercooler_v1_set_project` stores project ID in Durable Object storage
+   - Project selection persists across all subsequent tool calls
+   - Check current project with `watercooler_v1_whoami`
+
+2. **Thread Existence Checking**
+   - Thread operations require explicit thread creation via `create_if_missing=true`
+   - Operations on non-existent threads return helpful error messages
+   - Error includes list of projects where thread exists (if any)
+
+3. **Cross-Project Access**
+   - All thread tools accept optional `project` parameter
+   - Explicit project parameter bypasses session project
+   - Cross-project operations logged and annotated in metadata
+   - ACL validation enforced for target project
+
+**Testing Thread Disambiguation**:
+
+```bash
+# Set project context
+watercooler_v1_set_project(project="proj-alpha")
+
+# Attempt to write to non-existent thread (fails)
+watercooler_v1_say(topic="new-topic", title="Test", body="Content")
+# Error: Thread 'new-topic' not found in project 'proj-alpha'.
+#        Use create_if_missing=true to create it.
+
+# Explicitly create new thread
+watercooler_v1_say(
+  topic="new-topic",
+  title="Test",
+  body="Content",
+  create_if_missing=true
+)
+# Success: Thread created in proj-alpha
+
+# Cross-project read (requires ACL access)
+watercooler_v1_read_thread(topic="existing-thread", project="proj-beta")
+# Success if user has access to proj-beta
+# Response includes _metadata: { project_id: "proj-beta", cross_project: true, session_project: "proj-alpha" }
+```
+
+**Testing Cross-Project Discovery**:
+
+```bash
+# Create thread in proj-alpha
+watercooler_v1_set_project(project="proj-alpha")
+watercooler_v1_say(topic="shared-topic", title="Alpha Entry", body="Content", create_if_missing=true)
+
+# Switch to proj-beta
+watercooler_v1_set_project(project="proj-beta")
+
+# Attempt to access thread (thread exists in different project)
+watercooler_v1_read_thread(topic="shared-topic")
+# Error: Thread 'shared-topic' not found in project 'proj-beta'.
+#        Thread exists in: [proj-alpha].
+#        Use set_project or specify project explicitly.
+
+# Access via explicit project parameter
+watercooler_v1_read_thread(topic="shared-topic", project="proj-alpha")
+# Success: Returns thread content
+```
+
+**What this validates**:
+- ✅ No accidental thread creation (default `create_if_missing=false`)
+- ✅ Clear error messages when thread not found
+- ✅ Cross-project thread discovery helps locate threads
+- ✅ Explicit project parameter works for all thread tools
+- ✅ Metadata includes project context for all operations
+- ✅ ACL validation enforced for cross-project access
+
+**Error Codes**:
+- `-32001`: Project not set (call `set_project` first)
+- `-32002`: Thread not found (with hints about where it exists)
+- `-32000`: Access denied for project (user not in ACL)
+
 ---
 
 ## Understanding Through Troubleshooting
@@ -2821,6 +2903,7 @@ Defense: Secret rotation + incident response
 | `BACKEND_URL` | Var | ✅ Yes | FastAPI backend URL (e.g., `https://watercooler.onrender.com`) |
 | `DEFAULT_AGENT` | Var | ✅ Yes | Default agent name (e.g., `"Claude"`) |
 | `ALLOW_DEV_SESSION` | Var | ⚠️ Staging | Set to `"true"` for staging only (allows `?session=dev`, NEVER in prod) |
+| `AUTO_ENROLL_PROJECTS` | Var | Optional | When set to `"true"`, `watercooler_v1_set_project` will automatically add the requested project to the caller's ACL if missing. Useful for dev/on-demand project creation; keep disabled in strict prod. |
 | `KV_PROJECTS` | Binding | ✅ Yes | KV namespace binding (configured in `wrangler.toml`) |
 
 **How to set**:
