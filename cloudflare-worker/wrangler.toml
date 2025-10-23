@@ -9,6 +9,7 @@ preview_urls = true
 [vars]
 BACKEND_URL = "https://watercooler-collab.onrender.com"
 DEFAULT_AGENT = "Agent"
+AGENT_TYPE = "Agent"
 # ALLOW_DEV_SESSION not set - defaults to false in production
 
 # KV namespace for per-user project ACLs and defaults
@@ -23,6 +24,7 @@ name = "mharmless-remote-mcp-staging"
 [env.staging.vars]
 BACKEND_URL = "https://watercooler-collab.onrender.com"
 DEFAULT_AGENT = "Agent"
+AGENT_TYPE = "Agent"
 ALLOW_DEV_SESSION = "true"
 AUTO_ENROLL_PROJECTS = "true"
 
@@ -37,6 +39,7 @@ name = "mharmless-remote-mcp"
 [env.production.vars]
 BACKEND_URL = "https://watercooler-collab.onrender.com"
 DEFAULT_AGENT = "Agent"
+AGENT_TYPE = "Agent"
 # ALLOW_DEV_SESSION not set - defaults to false (OAuth required)
 # AUTO_ENROLL_PROJECTS not set in production (default deny). Enable only if you want set_project to create ACL entries automatically.
 

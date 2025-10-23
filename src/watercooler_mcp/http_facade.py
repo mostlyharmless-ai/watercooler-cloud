@@ -171,9 +171,17 @@ async def extract_identity_headers(request: Request, call_next):
             content={"error": "Missing X-Project-Id header"}
         )
 
+    # Parse GitHub username from user_id (gh:username -> username)
+    user_tag = x_user_id.split(':')[-1] if x_user_id else None
+
+    # Set user tag in context for agents module (Remote MCP)
+    from watercooler.agents import set_user_tag
+    set_user_tag(user_tag)
+
     # Store in request state for use in endpoints
     request.state.user_id = x_user_id
     request.state.agent_name = x_agent_name or "Agent"
+    request.state.user_tag = user_tag  # GitHub username for (user) tag in entries
     request.state.project_id = x_project_id
 
     return await call_next(request)
@@ -328,6 +336,7 @@ async def mcp_say(req: SayRequest, request: Request):
             title=req.title,
             entry_type=req.entry_type,
             body=req.body,
+            user_tag=request.state.user_tag,
         )
 
     if sync:
@@ -367,6 +376,7 @@ async def mcp_ack(req: AckRequest, request: Request):
         agent=agent,
         title=req.title or None,
         body=req.body or None,
+        user_tag=request.state.user_tag,
     )
 
     thread_path = fs.thread_path(req.topic, threads_dir)
@@ -402,6 +412,7 @@ async def mcp_handoff(req: HandoffRequest, request: Request):
                 entry_type="Note",
                 body=req.note,
                 ball=req.target_agent,
+                user_tag=request.state.user_tag,
             )
 
         return {
@@ -417,6 +428,7 @@ async def mcp_handoff(req: HandoffRequest, request: Request):
             threads_dir=threads_dir,
             agent=agent,
             note=req.note or None,
+            user_tag=request.state.user_tag,
         )
 
         thread_path = fs.thread_path(req.topic, threads_dir)

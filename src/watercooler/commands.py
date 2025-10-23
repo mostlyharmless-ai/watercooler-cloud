@@ -103,6 +103,7 @@ def append_entry(
     ball: str | None = None,
     templates_dir: Path | None = None,
     registry: dict | None = None,
+    user_tag: str | None = None,
 ) -> Path:
     """Append a structured entry to a thread.
 
@@ -118,6 +119,7 @@ def append_entry(
         ball: Optional ball update (if None, auto-flips to counterpart)
         templates_dir: Optional templates directory
         registry: Optional agent registry
+        user_tag: Optional user tag for agent identification (GitHub username)
 
     Returns:
         Path to updated thread file
@@ -138,7 +140,7 @@ def append_entry(
         except FileNotFoundError:
             # Fallback to simple format
             now = utcnow_iso()
-            canonical = _canonical_agent(agent, registry)
+            canonical = _canonical_agent(agent, registry, user_tag=user_tag)
             who = f" by {canonical}"
             entry = f"\n\n---\n\n- Updated: {now}{who}\n\n{body}\n"
             s = bump_header(s, status=status, ball=ball)
@@ -147,7 +149,7 @@ def append_entry(
 
         # Fill entry template
         now = utcnow_iso()
-        canonical_agent = _canonical_agent(agent, registry)
+        canonical_agent = _canonical_agent(agent, registry, user_tag=user_tag)
 
         mapping = {
             "UTC": now,
@@ -228,6 +230,7 @@ def say(
     ball: str | None = None,
     templates_dir: Path | None = None,
     registry: dict | None = None,
+    user_tag: str | None = None,
 ) -> Path:
     """Quick team note with auto-ball-flip.
 
@@ -246,6 +249,7 @@ def say(
         ball: Optional ball update (if not provided, auto-flips)
         templates_dir: Optional templates directory
         registry: Optional agent registry
+        user_tag: Optional user tag for agent identification (GitHub username)
     """
     # Default agent to Team
     default_agent, default_role = _default_agent_and_role(registry)
@@ -264,6 +268,7 @@ def say(
         ball=ball,  # append_entry will auto-flip if None
         templates_dir=templates_dir,
         registry=registry,
+        user_tag=user_tag,
     )
 
 
@@ -280,6 +285,7 @@ def ack(
     ball: str | None = None,
     templates_dir: Path | None = None,
     registry: dict | None = None,
+    user_tag: str | None = None,
 ) -> Path:
     """Acknowledge without auto-flipping ball.
 
@@ -298,6 +304,7 @@ def ack(
         ball: Optional ball update (does NOT auto-flip)
         templates_dir: Optional templates directory
         registry: Optional agent registry
+        user_tag: Optional user tag for agent identification (GitHub username)
     """
     # Default agent to Team
     default_agent, default_role = _default_agent_and_role(registry)
@@ -326,6 +333,7 @@ def ack(
         ball=final_ball,  # Explicit ball (no auto-flip)
         templates_dir=templates_dir,
         registry=registry,
+        user_tag=user_tag,
     )
 
 
@@ -338,6 +346,7 @@ def handoff(
     note: str | None = None,
     registry: dict | None = None,
     templates_dir: Path | None = None,
+    user_tag: str | None = None,
 ) -> Path:
     """Flip the Ball to the counterpart and append a handoff entry.
 
@@ -349,6 +358,7 @@ def handoff(
         note: Optional custom handoff message
         registry: Optional agent registry
         templates_dir: Optional templates directory
+        user_tag: Optional user tag for agent identification (GitHub username)
     """
     tp = thread_path(topic, threads_dir)
     # Determine current counterpart based on registry and existing ball
@@ -375,6 +385,7 @@ def handoff(
         ball=target,  # Explicitly set target (no auto-flip needed)
         templates_dir=templates_dir,
         registry=registry,
+        user_tag=user_tag,
     )
 
 

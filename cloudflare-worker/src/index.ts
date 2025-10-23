@@ -12,6 +12,7 @@
 interface Env {
   BACKEND_URL: string;
   DEFAULT_AGENT: string;
+  AGENT_TYPE: string; // AI agent type (e.g., "Codex", "Claude")
   KV_PROJECTS: KVNamespace;
   GITHUB_CLIENT_ID: string;
   GITHUB_CLIENT_SECRET: string;
@@ -68,6 +69,7 @@ const TOOL_DEFS = [
   { name: 'watercooler_v1_set_status', description: 'Update thread status', inputSchema: { type: 'object', properties: { topic: { type: 'string' }, status: { type: 'string' }, project: { type: 'string', description: 'Optional: target a specific project instead of current session project' } }, required: ['topic', 'status'], additionalProperties: false } },
   { name: 'watercooler_v1_reindex', description: 'Generate and return the index content', inputSchema: { type: 'object', properties: { project: { type: 'string', description: 'Optional: target a specific project instead of current session project' } }, additionalProperties: false } },
   { name: 'watercooler_v1_set_project', description: 'Bind this session to a project', inputSchema: { type: 'object', properties: { project: { type: 'string' } }, required: ['project'], additionalProperties: false } },
+  { name: 'watercooler_v1_set_agent', description: 'Set AI agent identity for this session', inputSchema: { type: 'object', properties: { base: { type: 'string', description: 'Base agent name (e.g., "Claude", "Codex")' }, spec: { type: 'string', description: 'Optional specialization (e.g., "technical-documentation-specialist")' } }, required: ['base'], additionalProperties: false } },
   { name: 'watercooler_v1_list_projects', description: 'List allowed projects for the current user', inputSchema: { type: 'object', properties: {}, additionalProperties: false } },
 ];
 
@@ -88,9 +90,13 @@ export class SessionManager {
     this.env = env;
     // Load persisted state asynchronously
     this.state.blockConcurrencyWhile(async () => {
-      const stored = await this.state.storage.get<{ projectId?: string }>('session');
+      const stored = await this.state.storage.get<{ projectId?: string; agentName?: string }>('session');
       if (stored?.projectId) {
         this.projectId = stored.projectId;
+      }
+      // Load persisted agent name if available
+      if (stored?.agentName && this.identity) {
+        this.identity.agentName = stored.agentName;
       }
     });
   }
@@ -131,11 +137,17 @@ export class SessionManager {
   async handleSSE(request: Request, corsHeaders: Record<string, string>): Promise<Response> {
     // Extract identity from headers (set by Worker after auth)
     const userId = request.headers.get('X-User-Id') || '';
-    const agentName = request.headers.get('X-Agent-Name') || this.env.DEFAULT_AGENT;
+    let agentName = request.headers.get('X-Agent-Name') || this.env.DEFAULT_AGENT;
     const projectId = request.headers.get('X-Project-Id') || '';
 
     if (!userId || !projectId) {
       return new Response('Missing identity headers', { status: 400, headers: corsHeaders });
+    }
+
+    // Check for persisted agent name (from set_agent tool)
+    const stored = await this.state.storage.get<{ projectId?: string; agentName?: string }>('session');
+    if (stored?.agentName) {
+      agentName = stored.agentName; // Prefer persisted agent over header
     }
 
     this.identity = { userId, agentName };
@@ -299,6 +311,48 @@ export class SessionManager {
           return send({ jsonrpc: '2.0', id, result: { project: requested, message: 'Project context set for this session' } });
         } catch (err: any) {
           return send({ jsonrpc: '2.0', id, error: { code: -32603, message: 'Failed to set project', data: String(err?.message || err) } });
+        }
+      }
+
+      // Local tool: set agent identity for this session (no backend call)
+      if (name === 'watercooler_v1_set_agent') {
+        try {
+          const base = String(args['base'] || '').trim();
+          const spec = args['spec'] ? String(args['spec']).trim() : undefined;
+
+          if (!base) {
+            return send({ jsonrpc: '2.0', id, error: { code: -32602, message: 'Missing base agent name' } });
+          }
+
+          // Construct agent name (base or base:spec)
+          const agentName = spec ? `${base}:${spec}` : base;
+
+          // Update session identity
+          if (this.identity) {
+            this.identity.agentName = agentName;
+          }
+
+          // Persist to durable storage
+          const stored = await this.state.storage.get<{ projectId?: string; agentName?: string }>('session') || {};
+          stored.agentName = agentName;
+          await this.state.storage.put('session', stored);
+
+          console.log(JSON.stringify({
+            event: 'session_agent_set',
+            user: this.identity!.userId,
+            agent: agentName
+          }));
+
+          return send({
+            jsonrpc: '2.0',
+            id,
+            result: {
+              agent: agentName,
+              message: 'Agent identity set for this session'
+            }
+          });
+        } catch (err: any) {
+          return send({ jsonrpc: '2.0', id, error: { code: -32603, message: 'Failed to set agent', data: String(err?.message || err) } });
         }
       }
 
@@ -1679,7 +1733,7 @@ async function resolveIdentity(
     const session: SessionData = JSON.parse(sessionData);
     return {
       userId: `gh:${session.github_login}`,
-      agentName: session.github_login,
+      agentName: env.AGENT_TYPE, // Use AI agent type instead of GitHub username
     };
   } catch (error) {
     console.error('Error resolving identity:', error);
@@ -1723,11 +1777,6 @@ async function resolveTokenIdentity(
       return null;
     }
 
-    // Extract agentName from userId (gh:username -> username)
-    const agentName = parsed.userId.startsWith('gh:')
-      ? parsed.userId.substring(3)
-      : parsed.userId;
-
     console.log(JSON.stringify({
       event: 'token_auth_success',
       user: parsed.userId,
@@ -1738,7 +1787,7 @@ async function resolveTokenIdentity(
 
     return {
       userId: parsed.userId,
-      agentName,
+      agentName: env.AGENT_TYPE, // Use AI agent type instead of GitHub username
       tokenId: token,
     };
   } catch (error) {

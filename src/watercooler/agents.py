@@ -1,11 +1,15 @@
 from __future__ import annotations
 
+import contextvars
 import getpass
 import json
 import os
 import re
 from pathlib import Path
 from typing import Tuple
+
+# Context variable for user tag from HTTP request (Remote MCP)
+_user_tag_ctx: contextvars.ContextVar[str | None] = contextvars.ContextVar('user_tag', default=None)
 
 
 def _load_agents_registry(path: str | None) -> dict:
@@ -55,19 +59,39 @@ def _split_agent_and_tag(agent: str) -> Tuple[str, str | None]:
     return agent.strip(), None
 
 
+def set_user_tag(user_tag: str | None) -> None:
+    """Set the user tag for the current context (Remote MCP requests)."""
+    _user_tag_ctx.set(user_tag)
+
+
 def _get_git_user() -> str | None:
-    # Fallback to OS user; avoid invoking git in stdlib-only context
+    """Get user tag, preferring context variable (Remote MCP) over OS username.
+
+    For Remote MCP: Returns user tag from HTTP request context (GitHub username).
+    For Local MCP: Returns OS username via getpass.getuser().
+    """
+    # Check context variable first (Remote MCP)
+    ctx_user = _user_tag_ctx.get()
+    if ctx_user:
+        return ctx_user
+
+    # Fallback to OS user (Local MCP)
     try:
         return getpass.getuser()
     except Exception:
         return None
 
 
-def _canonical_agent(agent: str, registry: dict | None = None) -> str:
+def _canonical_agent(agent: str, registry: dict | None = None, user_tag: str | None = None) -> str:
     """Return the canonical agent name with user tag.
 
     Looks up the base in registry["canonical"] using a lower-case key.
-    If no tag is provided, appends the OS user (if available) in the form " (user)".
+    If no tag is provided, appends the user tag (if available) in the form " (user)".
+    
+    Args:
+        agent: Agent string, optionally with tag in format "Agent (tag)"
+        registry: Optional agent registry
+        user_tag: Optional explicit user tag (takes precedence over context variable and agent string)
     """
     a, tag = _split_agent_and_tag(agent.strip())
     base_key = a.lower()
@@ -75,8 +99,10 @@ def _canonical_agent(agent: str, registry: dict | None = None) -> str:
     default_canonical = {"codex": "Codex", "claude": "Claude", "team": "Team"}
     canonical_map = (registry or {}).get("canonical", default_canonical)
     canonical = canonical_map.get(base_key, a)
-    # If tag is not provided, attempt to get the git/OS username.
-    if not tag:
+    # Priority: explicit user_tag > tag from agent string > context variable/OS user
+    if user_tag:
+        tag = user_tag
+    elif not tag:
         tag = _get_git_user()
     return f"{canonical} ({tag})" if tag else canonical
 
