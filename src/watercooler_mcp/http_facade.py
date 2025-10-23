@@ -608,6 +608,159 @@ async def admin_sync(request: Request):
         raise HTTPException(status_code=500, detail=f"Sync failed: {e}")
 
 
+@app.post("/admin/discover-projects")
+async def admin_discover_projects(request: Request):
+    """Discover what projects actually exist with thread data.
+    
+    Scans BASE_THREADS_ROOT for user/project directories and returns:
+    - Projects with thread files (valid)
+    - Empty project directories (potentially cleanup candidates)
+    
+    Requires X-Internal-Auth to match INTERNAL_AUTH_SECRET when set.
+    """
+    # Verify internal auth
+    expected = os.environ.get("INTERNAL_AUTH_SECRET")
+    provided = request.headers.get("X-Internal-Auth")
+    if expected and provided != expected:
+        raise HTTPException(status_code=403, detail="Invalid internal authentication")
+    
+    base_root = Path(os.environ.get("BASE_THREADS_ROOT", "/tmp/watercooler"))
+    
+    if not base_root.exists():
+        return {
+            "base_root": str(base_root),
+            "exists": False,
+            "projects": {},
+            "summary": {"total_users": 0, "total_projects": 0, "projects_with_data": 0}
+        }
+    
+    projects_by_user = {}
+    total_projects = 0
+    projects_with_data = 0
+    
+    # Scan all user directories
+    for user_dir in base_root.iterdir():
+        if not user_dir.is_dir() or user_dir.name.startswith('.'):
+            continue
+        
+        user_id = user_dir.name
+        projects_by_user[user_id] = []
+        
+        # Scan project directories for this user
+        for project_dir in user_dir.iterdir():
+            if not project_dir.is_dir() or project_dir.name.startswith('.'):
+                continue
+            
+            project_id = project_dir.name
+            total_projects += 1
+            
+            # Check if project has any thread files or marker file
+            thread_files = list(project_dir.glob("*.md"))
+            has_threads = len(thread_files) > 0
+            has_marker = (project_dir / ".project").exists()
+            has_data = has_threads or has_marker
+
+            if has_data:
+                projects_with_data += 1
+
+            projects_by_user[user_id].append({
+                "project_id": project_id,
+                "has_threads": has_threads,
+                "has_marker": has_marker,
+                "thread_count": len(thread_files),
+                "path": str(project_dir)
+            })
+    
+    return {
+        "base_root": str(base_root),
+        "exists": True,
+        "projects_by_user": projects_by_user,
+        "summary": {
+            "total_users": len(projects_by_user),
+            "total_projects": total_projects,
+            "projects_with_data": projects_with_data,
+            "empty_projects": total_projects - projects_with_data
+        }
+    }
+
+
+@app.post("/admin/create-project")
+async def admin_create_project(request: Request):
+    """Create a new project directory with marker file.
+    
+    Creates the directory structure for a new project and places a .project
+    marker file so the project can be validated before any threads exist.
+    
+    Requires X-Internal-Auth to match INTERNAL_AUTH_SECRET when set.
+    Requires X-User-Id header to determine which user is creating the project.
+    
+    Request body:
+        {
+            "project": "project-name",
+            "description": "Optional project description"
+        }
+    """
+    # Verify internal auth
+    expected = os.environ.get("INTERNAL_AUTH_SECRET")
+    provided = request.headers.get("X-Internal-Auth")
+    if expected and provided != expected:
+        raise HTTPException(status_code=403, detail="Invalid internal authentication")
+    
+    # Get user ID from header (set by Worker)
+    user_id = request.headers.get("X-User-Id")
+    if not user_id:
+        raise HTTPException(status_code=400, detail="Missing X-User-Id header")
+    
+    # Parse request body
+    try:
+        body = await request.json()
+        project_id = body.get("project")
+        description = body.get("description", "")
+    except Exception:
+        raise HTTPException(status_code=400, detail="Invalid JSON body")
+    
+    if not project_id:
+        raise HTTPException(status_code=400, detail="Missing project field")
+    
+    # Validate project name (basic sanity check)
+    if not project_id.replace("-", "").replace("_", "").isalnum():
+        raise HTTPException(status_code=400, detail="Invalid project name (use alphanumeric, hyphens, underscores only)")
+    
+    base_root = Path(os.environ.get("BASE_THREADS_ROOT", "/tmp/watercooler"))
+    project_dir = base_root / user_id / project_id
+    
+    # Check if project already exists
+    if project_dir.exists():
+        return {
+            "status": "exists",
+            "message": f"Project '{project_id}' already exists",
+            "path": str(project_dir)
+        }
+    
+    # Create project directory with marker file
+    try:
+        project_dir.mkdir(parents=True, exist_ok=True)
+        
+        # Create .project marker file with metadata
+        marker_file = project_dir / ".project"
+        marker_content = f"""# Project: {project_id}
+Created by: {user_id}
+Created at: {Path.cwd()}
+Description: {description or "(none)"}
+"""
+        marker_file.write_text(marker_content)
+        
+        return {
+            "status": "created",
+            "message": f"Project '{project_id}' created successfully",
+            "path": str(project_dir),
+            "project": project_id,
+            "user": user_id
+        }
+    except Exception as e:
+        raise HTTPException(status_code=500, detail=f"Failed to create project: {e}")
+
+
 # ============================================================================
 # Development Server
 # ============================================================================

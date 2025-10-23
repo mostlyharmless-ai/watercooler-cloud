@@ -21,7 +21,8 @@ interface Env {
   // When "true", allow watercooler_v1_set_project to automatically add
   // the requested project to the caller's ACL if it doesn't exist yet.
   // This is useful during development or when you want on-demand project creation
-  // without out-of-band ACL seeding.
+  // without out-of-band ACL seeding. Auto-enrollment validates against actual
+  // projects on the backend to prevent filesystem artifacts from being added.
   AUTO_ENROLL_PROJECTS?: string;
   SESSION_MANAGER: DurableObjectNamespace;
 }
@@ -42,6 +43,48 @@ interface TokenData {
   createdAt: number;
   expiresAt: number;
   note?: string;
+}
+
+/**
+ * Validate if a project exists on the backend by checking for thread data or marker file
+ */
+async function validateProjectExists(projectName: string, env: Env): Promise<boolean> {
+  try {
+    const response = await fetch(`${env.BACKEND_URL}/admin/discover-projects`, {
+      method: 'POST',
+      headers: {
+        'X-Internal-Auth': env.INTERNAL_AUTH_SECRET || '',
+        'Content-Type': 'application/json'
+      }
+    });
+
+    if (!response.ok) {
+      console.log(JSON.stringify({ event: 'project_validation_failed', status: response.status }));
+      return false;
+    }
+
+    const data = await response.json() as {
+      projects_by_user?: Record<string, Array<{
+        project_id: string,
+        has_threads: boolean,
+        has_marker: boolean
+      }>>
+    };
+
+    // Check if project exists with thread data OR marker file across all users
+    for (const projects of Object.values(data.projects_by_user || {})) {
+      for (const project of projects) {
+        if (project.project_id === projectName && (project.has_threads || project.has_marker)) {
+          return true;
+        }
+      }
+    }
+
+    return false;
+  } catch (err: any) {
+    console.log(JSON.stringify({ event: 'project_validation_error', error: String(err?.message || err) }));
+    return false;
+  }
 }
 
 /**
@@ -71,6 +114,7 @@ const TOOL_DEFS = [
   { name: 'watercooler_v1_set_project', description: 'Bind this session to a project', inputSchema: { type: 'object', properties: { project: { type: 'string' } }, required: ['project'], additionalProperties: false } },
   { name: 'watercooler_v1_set_agent', description: 'Set AI agent identity for this session', inputSchema: { type: 'object', properties: { base: { type: 'string', description: 'Base agent name (e.g., "Claude", "Codex")' }, spec: { type: 'string', description: 'Optional specialization (e.g., "technical-documentation-specialist")' } }, required: ['base'], additionalProperties: false } },
   { name: 'watercooler_v1_list_projects', description: 'List allowed projects for the current user', inputSchema: { type: 'object', properties: {}, additionalProperties: false } },
+  { name: 'watercooler_v1_create_project', description: 'Create a new project with marker file', inputSchema: { type: 'object', properties: { project: { type: 'string', description: 'Project name (alphanumeric, hyphens, underscores only)' }, description: { type: 'string', description: 'Optional project description' } }, required: ['project'], additionalProperties: false } },
 ];
 
 /**
@@ -290,6 +334,12 @@ export class SessionManager {
           if (!allowed.includes(requested)) {
             const canAutoEnroll = this.env.AUTO_ENROLL_PROJECTS === 'true' || this.env.ALLOW_DEV_SESSION === 'true';
             if (canAutoEnroll) {
+              // Validate project exists on backend before auto-enrolling
+              const projectExists = await validateProjectExists(requested, this.env);
+              if (!projectExists) {
+                console.log(JSON.stringify({ event: 'acl_denied', reason: 'project_not_found_on_backend', user: this.identity!.userId, project: requested }));
+                return send({ jsonrpc: '2.0', id, error: { code: -32000, message: `Project '${requested}' does not exist on backend or has no thread data` } });
+              }
               // Create or update user's ACL to include the requested project
               const userId = this.identity!.userId;
               const aclKey = `user:${userId}`;
@@ -308,7 +358,10 @@ export class SessionManager {
           // Persist project to durable storage
           await this.state.storage.put('session', { projectId: requested });
           console.log(JSON.stringify({ event: 'session_project_set', user: this.identity!.userId, project: requested }));
-          return send({ jsonrpc: '2.0', id, result: { project: requested, message: 'Project context set for this session' } });
+          // Normalize result to MCP content shape so clients reliably render output
+          const payload = { project: requested, message: 'Project context set for this session' };
+          const normalized = normalizeMcpResult(payload);
+          return send({ jsonrpc: '2.0', id, result: normalized });
         } catch (err: any) {
           return send({ jsonrpc: '2.0', id, error: { code: -32603, message: 'Failed to set project', data: String(err?.message || err) } });
         }
@@ -343,14 +396,10 @@ export class SessionManager {
             agent: agentName
           }));
 
-          return send({
-            jsonrpc: '2.0',
-            id,
-            result: {
-              agent: agentName,
-              message: 'Agent identity set for this session'
-            }
-          });
+          // Normalize result to MCP content shape so clients reliably render output
+          const payload = { agent: agentName, message: 'Agent identity set for this session' };
+          const normalized = normalizeMcpResult(payload);
+          return send({ jsonrpc: '2.0', id, result: normalized });
         } catch (err: any) {
           return send({ jsonrpc: '2.0', id, error: { code: -32603, message: 'Failed to set agent', data: String(err?.message || err) } });
         }
@@ -368,9 +417,73 @@ export class SessionManager {
               projects: Array.isArray(acl.projects) ? acl.projects : [],
             };
           }
-          return send({ jsonrpc: '2.0', id, result });
+          // Safe fallback: if ACL exists but yields no projects, include current session project when available
+          if ((!result.projects || result.projects.length === 0) && this.projectId) {
+            console.log(JSON.stringify({ event: 'list_projects_empty_acl_fallback', user: this.identity!.userId, session_project: this.projectId }));
+            result.projects = [this.projectId];
+            if (!result.default) result.default = this.projectId;
+          }
+          // Emit debug when still empty to aid staging diagnostics
+          if (!result.projects || result.projects.length === 0) {
+            console.log(JSON.stringify({ event: 'list_projects_empty_result', user: this.identity!.userId, acl_present: Boolean(aclData) }));
+          } else {
+            console.log(JSON.stringify({ event: 'list_projects_ok', user: this.identity!.userId, count: result.projects.length }));
+          }
+          // Normalize to MCP content so clients see output consistently
+          const normalized = normalizeMcpResult(result);
+          return send({ jsonrpc: '2.0', id, result: normalized });
         } catch (err: any) {
           return send({ jsonrpc: '2.0', id, error: { code: -32603, message: 'Failed to list projects', data: String(err?.message || err) } });
+        }
+      }
+
+      if (name === 'watercooler_v1_create_project') {
+        try {
+          const project = args['project'] as string;
+          const description = (args['description'] as string) || '';
+
+          if (!project) {
+            return send({ jsonrpc: '2.0', id, error: { code: -32602, message: 'Missing project parameter' } });
+          }
+
+          // Call backend to create project
+          const response = await fetch(`${this.env.BACKEND_URL}/admin/create-project`, {
+            method: 'POST',
+            headers: {
+              'Content-Type': 'application/json',
+              'X-Internal-Auth': this.env.INTERNAL_AUTH_SECRET || '',
+              'X-User-Id': this.identity!.userId,
+              'X-Agent-Name': this.identity!.agentName
+            },
+            body: JSON.stringify({ project, description })
+          });
+
+          if (!response.ok) {
+            const errorText = await response.text();
+            return send({ jsonrpc: '2.0', id, error: { code: -32603, message: 'Backend create-project failed', data: errorText } });
+          }
+
+          const result = await response.json();
+
+          // Auto-enroll user in the new project if AUTO_ENROLL enabled
+          if (this.env.AUTO_ENROLL_PROJECTS === 'true' || this.env.ALLOW_DEV_SESSION === 'true') {
+            const aclKey = `user:${this.identity!.userId}`;
+            const aclData = await this.env.KV_PROJECTS.get(aclKey);
+            const acl = aclData ? JSON.parse(aclData) : { user_id: this.identity!.userId, default: project, projects: [] };
+            if (!acl.projects.includes(project)) {
+              acl.projects.push(project);
+            }
+            if (!acl.default) {
+              acl.default = project;
+            }
+            await this.env.KV_PROJECTS.put(aclKey, JSON.stringify(acl));
+            console.log(JSON.stringify({ event: 'create_project_auto_enrolled', user: this.identity!.userId, project }));
+          }
+
+          const normalized = normalizeMcpResult(result);
+          return send({ jsonrpc: '2.0', id, result: normalized });
+        } catch (err: any) {
+          return send({ jsonrpc: '2.0', id, error: { code: -32603, message: 'Failed to create project', data: String(err?.message || err) } });
         }
       }
 
