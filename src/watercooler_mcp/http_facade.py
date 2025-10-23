@@ -369,15 +369,28 @@ async def mcp_ack(req: AckRequest, request: Request):
     """Acknowledge thread without flipping ball."""
     threads_dir = derive_threads_dir(request.state.user_id, request.state.project_id)
     agent = request.state.agent_name
+    sync = get_git_sync_manager()
 
-    commands.ack(
-        req.topic,
-        threads_dir=threads_dir,
-        agent=agent,
-        title=req.title or None,
-        body=req.body or None,
-        user_tag=request.state.user_tag,
-    )
+    def ack_operation():
+        commands.ack(
+            req.topic,
+            threads_dir=threads_dir,
+            agent=agent,
+            title=req.title or None,
+            body=req.body or None,
+            user_tag=request.state.user_tag,
+        )
+
+    if sync:
+        ack_title = req.title or "Ack"
+        commit_message = (
+            f"{agent}: {ack_title} ({req.topic})\n"
+            f"\n"
+            f"Watercooler-Topic: {req.topic}"
+        )
+        sync.with_sync(ack_operation, commit_message)
+    else:
+        ack_operation()
 
     thread_path = fs.thread_path(req.topic, threads_dir)
     _, status, ball, _ = thread_meta(thread_path)
@@ -398,22 +411,34 @@ async def mcp_handoff(req: HandoffRequest, request: Request):
     """Hand off ball to another agent."""
     threads_dir = derive_threads_dir(request.state.user_id, request.state.project_id)
     agent = request.state.agent_name
+    sync = get_git_sync_manager()
 
     if req.target_agent:
-        commands.set_ball(req.topic, threads_dir=threads_dir, ball=req.target_agent)
+        def handoff_operation():
+            commands.set_ball(req.topic, threads_dir=threads_dir, ball=req.target_agent)
 
-        if req.note:
-            commands.append_entry(
-                req.topic,
-                threads_dir=threads_dir,
-                agent=agent,
-                role="pm",
-                title=f"Handoff to {req.target_agent}",
-                entry_type="Note",
-                body=req.note,
-                ball=req.target_agent,
-                user_tag=request.state.user_tag,
+            if req.note:
+                commands.append_entry(
+                    req.topic,
+                    threads_dir=threads_dir,
+                    agent=agent,
+                    role="pm",
+                    title=f"Handoff to {req.target_agent}",
+                    entry_type="Note",
+                    body=req.note,
+                    ball=req.target_agent,
+                    user_tag=request.state.user_tag,
+                )
+
+        if sync:
+            commit_message = (
+                f"{agent}: Handoff to {req.target_agent} ({req.topic})\n"
+                f"\n"
+                f"Watercooler-Topic: {req.topic}"
             )
+            sync.with_sync(handoff_operation, commit_message)
+        else:
+            handoff_operation()
 
         return {
             "content": (
@@ -423,13 +448,24 @@ async def mcp_handoff(req: HandoffRequest, request: Request):
             )
         }
     else:
-        commands.handoff(
-            req.topic,
-            threads_dir=threads_dir,
-            agent=agent,
-            note=req.note or None,
-            user_tag=request.state.user_tag,
-        )
+        def handoff_operation():
+            commands.handoff(
+                req.topic,
+                threads_dir=threads_dir,
+                agent=agent,
+                note=req.note or None,
+                user_tag=request.state.user_tag,
+            )
+
+        if sync:
+            commit_message = (
+                f"{agent}: Handoff ({req.topic})\n"
+                f"\n"
+                f"Watercooler-Topic: {req.topic}"
+            )
+            sync.with_sync(handoff_operation, commit_message)
+        else:
+            handoff_operation()
 
         thread_path = fs.thread_path(req.topic, threads_dir)
         _, status, ball, _ = thread_meta(thread_path)
