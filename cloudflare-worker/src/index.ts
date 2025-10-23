@@ -375,9 +375,9 @@ export class SessionManager {
             let threadExists = false;
             let otherProjects: string[] = [];
 
-            // The backend returns content array with text
-            if (listResult?.content?.[0]?.text) {
-              const text = listResult.content[0].text;
+            // The backend returns content as a string
+            if (listResult?.content) {
+              const text = listResult.content;
               // Simple check: does the topic appear in the thread list?
               threadExists = text.includes(`**${topic}**`) || text.includes(`topic: ${topic}`) || text.includes(topic);
             }
@@ -401,8 +401,8 @@ export class SessionManager {
                   });
                   if (otherCheck.ok) {
                     const otherResult = await otherCheck.json();
-                    if (otherResult?.content?.[0]?.text) {
-                      const text = otherResult.content[0].text;
+                    if (otherResult?.content) {
+                      const text = otherResult.content;
                       if (text.includes(`**${topic}**`) || text.includes(`topic: ${topic}`) || text.includes(topic)) {
                         otherProjects.push(proj);
                       }
