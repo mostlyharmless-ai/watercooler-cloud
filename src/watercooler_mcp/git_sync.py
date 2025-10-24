@@ -307,9 +307,9 @@ class GitSyncManager:
                 "Agent: Added planning entry (feature-x)"
             )
         """
-        # Pull latest before operation. If pull fails (e.g., first write before upstream),
-        # proceed anyway and establish upstream during push.
-        self.pull()
+        # Pull latest before operation
+        if not self.pull():
+            raise GitPullError("Failed to pull latest changes before operation")
 
         # Execute operation
         result = operation()
