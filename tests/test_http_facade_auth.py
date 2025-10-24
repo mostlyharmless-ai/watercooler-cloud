@@ -11,6 +11,10 @@ import os
 import importlib.util
 from pathlib import Path
 import pytest
+
+# Skip entire module if fastapi is not installed
+pytest.importorskip("fastapi")
+
 from fastapi.testclient import TestClient
 
 # Mark all tests in this module as requiring HTTP dependencies
