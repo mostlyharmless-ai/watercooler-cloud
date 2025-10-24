@@ -218,6 +218,7 @@ Thumbs.db
 .idea/
 *.swp
 *.swo
+*.code-workspace
 
 # Node/Worker artifacts
 node_modules/
