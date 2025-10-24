@@ -12,44 +12,44 @@ Helper scripts for deploying and managing the Remote MCP Worker with OAuth + ACL
          ▼
 ┌─────────────────────────────────────────────────┐
 │          Cloudflare Worker (Edge)               │
-│  ┌──────────────────────────────────────────┐  │
-│  │  /auth/login    → OAuth initiation       │  │
-│  │  /auth/callback → GitHub OAuth, session  │  │
-│  │  /sse           → MCP transport (SSE)    │  │
-│  │  /messages      → JSON-RPC handler       │  │
-│  └──────────────────────────────────────────┘  │
+│  ┌──────────────────────────────────────────┐   │
+│  │  /auth/login    → OAuth initiation       │   │
+│  │  /auth/callback → GitHub OAuth, session  │   │
+│  │  /sse           → MCP transport (SSE)    │   │
+│  │  /messages      → JSON-RPC handler       │   │
+│  └──────────────────────────────────────────┘   │
 │                                                 │
 │  Security:                                      │
-│  • CSRF protection (state parameter)           │
-│  • Session cookies (HttpOnly, Secure)          │
-│  • Rate limiting (KV token bucket)             │
-│  • ACL enforcement (default-deny)              │
+│  • CSRF protection (state parameter)            │
+│  • Session cookies (HttpOnly, Secure)           │
+│  • Rate limiting (KV token bucket)              │
+│  • ACL enforcement (default-deny)               │
 │                                                 │
 │  Storage (KV):                                  │
-│  • session:{uuid} → {userId, login, avatar}    │
-│  • user:gh:{login} → {projects: [...]}         │
-│  • oauth:state:{state} → "1" (10min TTL)       │
-│  • ratelimit:oauth:cb:{ip} → count (5min TTL)  │
+│  • session:{uuid} → {userId, login, avatar}     │
+│  • user:gh:{login} → {projects: [...]}          │
+│  • oauth:state:{state} → "1" (10min TTL)        │
+│  • ratelimit:oauth:cb:{ip} → count (5min TTL)   │
 └─────────────────┬───────────────────────────────┘
                   │ X-User-Id, X-Project-Id,
                   │ X-Agent-Name, X-Internal-Auth
                   ▼
 ┌─────────────────────────────────────────────────┐
 │       FastAPI Backend (Render)                  │
-│  ┌──────────────────────────────────────────┐  │
-│  │  /mcp/* → Watercooler tool endpoints     │  │
-│  │  /health → Health check                  │  │
-│  │  /admin/sync → Git sync trigger          │  │
-│  └──────────────────────────────────────────┘  │
+│  ┌──────────────────────────────────────────┐   │
+│  │  /mcp/* → Watercooler tool endpoints     │   │
+│  │  /health → Health check                  │   │
+│  │  /admin/sync → Git sync trigger          │   │
+│  └──────────────────────────────────────────┘   │
 │                                                 │
 │  Security:                                      │
-│  • Validates X-Internal-Auth header            │
-│  • Trusts Worker identity headers              │
-│  • Fail-fast if secret missing in production   │
+│  • Validates X-Internal-Auth header             │
+│  • Trusts Worker identity headers               │
+│  • Fail-fast if secret missing in production    │
 │                                                 │
 │  Storage:                                       │
-│  • Per-user/project thread directories         │
-│  • Optional Git sync to watercooler-threads    │
+│  • Per-user/project thread directories          │
+│  • Optional Git sync to watercooler-threads     │
 └─────────────────────────────────────────────────┘
 ```
 
