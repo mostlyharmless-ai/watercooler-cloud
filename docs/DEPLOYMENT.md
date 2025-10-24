@@ -52,6 +52,25 @@ This guide teaches you the architecture as you deploy it, helping you build a me
 - Rate limits: 3 tokens/hour per user (issue); 10/hour (revoke)
 - See [CLI Token Authentication](#cli-token-authentication) for setup details
 
+### Pre‑Deploy Checklist (Per Environment)
+- Cloudflare account: `npx wrangler whoami` shows the expected account
+- KV binding: `[[kv_namespaces]]` contains `KV_PROJECTS` with a valid `id`
+- Secrets set: `./cloudflare-worker/scripts/set-secrets.sh --env staging|production`
+  - `GITHUB_CLIENT_ID`, `GITHUB_CLIENT_SECRET`, `INTERNAL_AUTH_SECRET`
+  - INTERNAL_AUTH_SECRET matches the backend value exactly
+- wrangler.toml per env:
+  - Staging defaults: `ALLOW_DEV_SESSION="false"`, `AUTO_ENROLL_PROJECTS="false"`
+  - Production: do not set `ALLOW_DEV_SESSION`; keep `AUTO_ENROLL_PROJECTS` off
+  - `BACKEND_URL` points to the correct backend for the environment
+- OAuth App: callback URL matches the Worker domain (`…/auth/callback`), no trailing slash
+- ACL: seed at least one project for your user in KV (`user:gh:<login>`) 
+- Token for testing: issue at `/console`; copy token safely
+- Acceptance smoke:
+  - Open SSE with `Authorization: Bearer <token>` on an allowed project → receive `event: endpoint`
+  - POST `initialize` → then `tools/list` → `watercooler_v1_health` → `watercooler_v1_say`
+  - Deny tests: forbidden project → 403; revoke token → subsequent 401
+- Observability: `npx wrangler tail --env <env> --format json` shows `session_validated` and `token_auth_success`
+
 ## TODO: Token Lifecycle & UX Improvements
 
 The following items capture best practices and planned refinements for day‑to‑day token use so users don’t need to edit configs frequently.

@@ -3,7 +3,7 @@
 # Configure Cloudflare Worker secrets interactively
 #
 # Usage:
-#   ./scripts/set-secrets.sh
+#   ./scripts/set-secrets.sh [--env staging|production]
 #
 # Secrets:
 #   GITHUB_CLIENT_ID - Get from: https://github.com/settings/developers
@@ -37,7 +37,30 @@ NC='\033[0m'
 # Change to worker directory
 cd "$(dirname "$0")/.." || exit 1
 
-echo -e "${BLUE}=== Cloudflare Worker Secrets Configuration ===${NC}"
+ENV_FLAG=""
+ENV_NAME=""
+
+# Parse optional --env argument
+if [[ $# -gt 0 ]]; then
+  if [[ "$1" == "--env" && -n "$2" ]]; then
+    case "$2" in
+      staging|production)
+        ENV_FLAG=(--env "$2")
+        ENV_NAME="$2"
+        shift 2
+        ;;
+      *)
+        echo -e "${RED}Invalid environment: $2 (use 'staging' or 'production')${NC}"
+        exit 1
+        ;;
+    esac
+  else
+    echo -e "${YELLOW}Usage: $0 [--env staging|production]${NC}"
+    exit 1
+  fi
+fi
+
+echo -e "${BLUE}=== Cloudflare Worker Secrets Configuration ${ENV_NAME:+($ENV_NAME)} ===${NC}"
 echo ""
 
 # Check wrangler
@@ -59,7 +82,7 @@ echo ""
 
 # Show current secrets (without values)
 echo -e "${BLUE}Current secrets:${NC}"
-npx wrangler secret list 2>/dev/null || echo "(none)"
+npx wrangler secret list ${ENV_FLAG[@]} 2>/dev/null || echo "(none)"
 echo ""
 
 # Generate secure random secret
@@ -73,7 +96,11 @@ generate_secret() {
 set_secret() {
     local NAME=$1
     local VALUE=$2
-    echo "$VALUE" | npx wrangler secret put "$NAME" > /dev/null 2>&1
+    if [[ -n "$ENV_NAME" ]]; then
+      echo "$VALUE" | npx wrangler secret put "$NAME" --env "$ENV_NAME" > /dev/null 2>&1
+    else
+      echo "$VALUE" | npx wrangler secret put "$NAME" > /dev/null 2>&1
+    fi
 }
 
 # GitHub Client ID
@@ -205,5 +232,9 @@ echo "  1. Configure INTERNAL_AUTH_SECRET on Render backend"
 echo "  2. Create KV namespace (if not done):"
 echo "       npx wrangler kv namespace create \"KV_PROJECTS\""
 echo "  3. Deploy the worker:"
-echo "       ./scripts/deploy.sh staging"
+if [[ "$ENV_NAME" == "production" ]]; then
+  echo "       ./scripts/deploy.sh production"
+else
+  echo "       ./scripts/deploy.sh staging"
+fi
 echo ""
