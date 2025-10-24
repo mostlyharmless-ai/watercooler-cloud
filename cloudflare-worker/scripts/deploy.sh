@@ -137,14 +137,15 @@ if [[ "$ENV" == "production" ]]; then
     fi
 
 else
-    # Staging checks
-    if ! grep -q "ALLOW_DEV_SESSION.*=.*\"true\"" wrangler.toml; then
-        echo -e "${YELLOW}⚠ ALLOW_DEV_SESSION not explicitly set to \"true\"${NC}"
-        echo "You may want to enable dev session for staging testing."
-        echo "Add to wrangler.toml [env.staging]:"
-        echo "  ALLOW_DEV_SESSION = \"true\""
+    # Staging info (dev session posture)
+    if grep -q 'ALLOW_DEV_SESSION.*=.*"true"' wrangler.toml; then
+        echo -e "${YELLOW}⚠ Dev session ENABLED (staging) — temporary testing only${NC}"
     else
-        echo -e "${GREEN}✓ ALLOW_DEV_SESSION enabled (staging)${NC}"
+        echo -e "${GREEN}✓ Dev session DISABLED (staging) — recommended${NC}"
+    fi
+    # Warn if auto-enroll is enabled in staging
+    if grep -q 'AUTO_ENROLL_PROJECTS.*=.*"true"' wrangler.toml; then
+        echo -e "${YELLOW}⚠ AUTO_ENROLL_PROJECTS is enabled — prefer explicit create_project + ACL${NC}"
     fi
 fi
 

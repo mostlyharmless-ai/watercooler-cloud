@@ -3,14 +3,15 @@
 This is a concise guide for operators to configure, deploy, test, roll back, and monitor the Watercooler cloud MCP stack (Cloudflare Worker + FastAPI Backend) with OAuth and default‑deny ACLs.
 
 ## Environments
-- Staging: `ALLOW_DEV_SESSION=true`, OAuth enabled, 2–3 users only
-- Production: `ALLOW_DEV_SESSION` unset/false, OAuth required, default‑deny ACLs
+- Staging: Auth-only by default. `ALLOW_DEV_SESSION=false` (recommended), `AUTO_ENROLL_PROJECTS=false`; use OAuth or issued tokens via `/console`. Dev session may be enabled temporarily for testing only.
+- Production: `ALLOW_DEV_SESSION` unset/false, OAuth or tokens required, default‑deny ACLs
 
 ## Secrets & Env
 - Worker (wrangler secrets): `GITHUB_CLIENT_ID`, `GITHUB_CLIENT_SECRET`, `INTERNAL_AUTH_SECRET`
-- Worker (wrangler vars): `BACKEND_URL`, `DEFAULT_AGENT`; `ALLOW_DEV_SESSION` (staging only)
+- Worker (wrangler vars): `BACKEND_URL`, `DEFAULT_AGENT`, `ALLOW_DEV_SESSION` (staging optional; default "false"), `AUTO_ENROLL_PROJECTS` (default "false")
 - Backend (Render): `INTERNAL_AUTH_SECRET`, `BASE_THREADS_ROOT=/data/wc-cloud`, `WATERCOOLER_DIR=/data/wc-cloud`
 - Optional Git: `WATERCOOLER_GIT_REPO`, `WATERCOOLER_GIT_AUTHOR`, `WATERCOOLER_GIT_EMAIL`, `GIT_SSH_PRIVATE_KEY` (PEM)
+- Tokens: Issue/revoke at `/console` (browser) and use `Authorization: Bearer <token>` in clients
 
 ## Backend Start Command (copy/paste)
 Preserve + migrate + initializer (recommended):
@@ -29,12 +30,12 @@ mkdir -p /data/secrets && printf '%s' "$GIT_SSH_PRIVATE_KEY" > /data/secrets/wc_
 
 ## Deploy
 - Backend: set env + start command → Save/Deploy
-- Worker staging: `npx wrangler deploy --env staging` (has `ALLOW_DEV_SESSION=true`)
-- Worker production: `npx wrangler deploy --env production` (OAuth‑only)
+- Worker staging: `npx wrangler deploy --env staging` (auth‑only by default; dev session disabled unless explicitly enabled)
+- Worker production: `npx wrangler deploy --env production` (OAuth/tokens only)
 
 ## Staging Test Checklist
-- OAuth: `/auth/login` → authorize → session cookie
-- SSE (no dev session): `/sse?project=proj-jay` (Accept: `text/event-stream`)
+- Auth: `/auth/login` (OAuth) or issue a token at `/console` and include `Authorization: Bearer <token>`
+- SSE: `/sse?project=proj-jay` (Accept: `text/event-stream`) with cookie or Bearer token; dev session only if explicitly enabled
 - Tools: initialize → tools.list → health → say/read → commit in repo
 - ACL: `proj-jay` 200; `proj-denied` 403
 - Rate limit: 12× bad `/auth/callback` → 429 after 10/5m
@@ -43,6 +44,7 @@ mkdir -p /data/secrets && printf '%s' "$GIT_SSH_PRIVATE_KEY" > /data/secrets/wc_
 
 ## Production Promotion
 - Ensure `ALLOW_DEV_SESSION` is disabled in prod
+- Ensure `AUTO_ENROLL_PROJECTS` is disabled in prod
 - Verify `INTERNAL_AUTH_SECRET` matches (Worker ↔ Backend)
 - Seed initial prod ACLs
 - Deploy prod; repeat smoke tests (no dev session)
@@ -62,9 +64,11 @@ mkdir -p /data/secrets && printf '%s' "$GIT_SSH_PRIVATE_KEY" > /data/secrets/wc_
 - Default‑deny ACL at Worker; 403 when user/project not allowlisted
 - Backend fail‑fast if `INTERNAL_AUTH_SECRET` missing in production
 - Structured logs for auth/session/ACL/rate‑limit events
+- Prefer OAuth or issued tokens; dev session allowed only in staging when explicitly enabled
 
 ## Common Troubleshooting
 - 401: no session → visit `/auth/login`
+- 401: dev session not allowed → use OAuth or issue token at `/console`
 - 406: missing `Accept: text/event-stream` on `/sse`
 - 403: not in ACL → add project to `user:gh:<login>` allowlist
 - 429: rate limit exceeded → wait window

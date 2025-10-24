@@ -12,6 +12,7 @@ Quick guide to using Watercooler via Remote MCP with OAuth authentication and pe
 - Claude Desktop or Cursor with MCP support
 - `npx` and `mcp-remote` (installed automatically)
 - Access to the deployed Cloudflare Worker URL
+- An authenticated session (OAuth in browser) or a personal token issued at `/console`
 
 ## Client Configuration
 
@@ -73,7 +74,7 @@ To work with multiple projects, create separate server entries:
 5. Return to your client — tools should be available automatically
 
 Notes
-- In staging only, `?session=dev` may be enabled (feature flag `ALLOW_DEV_SESSION=true`). This is disabled in production — expect cookie‑only sessions.
+- Dev session is disabled by default in staging and always disabled in production. Use OAuth (browser) or tokens issued at `/console`. If staging explicitly enables dev session for testing, `?session=dev` may work temporarily.
 - Project access is **default‑deny**. Ensure your GitHub login has an allowlist entry in KV for the project you're using.
 
 ### CLI Clients (Token-Based)
@@ -182,6 +183,7 @@ You can only access projects listed in your KV ACL entry.
 - OAuth flow didn’t complete or session cookie missing
 - Restart client and watch for the browser prompt (or open `/auth/login` manually)
 - Ensure cookies are allowed for the Worker domain
+ - For CLI/headless clients, issue a token at `/console` and include `Authorization: Bearer <token>`
 
 ### "Access denied to project"
 - Default‑deny ACL: your login must be explicitly allowlisted
@@ -251,7 +253,7 @@ Claude/Cursor
 ## Next Steps
 
 - Review [Cloudflare Remote MCP Playbook](./Cloudflare_Remote_MCP_Playbook_AUTH_FIRST_PROXY_FIRST__v2.md) for full details
-- Set up additional users in KV (see [scripts/README.md](../scripts/README.md))
+- Set up additional users in KV (see [cloudflare-worker/scripts/README.md](../cloudflare-worker/scripts/README.md))
 - Configure git sync for cloud storage (optional)
 - Add Cloudflare Access for org-wide SSO (optional)
 ## Single Entry: List + Set Project (One MCP server for many projects)

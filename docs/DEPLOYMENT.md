@@ -31,9 +31,9 @@ This guide teaches you the architecture as you deploy it, helping you build a me
 1. Secrets: `wrangler login` → `wrangler secret put GITHUB_CLIENT_ID|GITHUB_CLIENT_SECRET|INTERNAL_AUTH_SECRET`
 2. Backend env: set `INTERNAL_AUTH_SECRET`, `BASE_THREADS_ROOT=/data/wc-cloud`, `WATERCOOLER_DIR=/data/wc-cloud`
 3. Backend start: copy the one‑liner from [Deployment Journey → Backend Start Command](#configure-start-command-copypaste-one%E2%80%91liner)
-4. Worker deploy (staging): `npx wrangler deploy --env staging` (has `ALLOW_DEV_SESSION=true`)
+4. Worker deploy (staging): `npx wrangler deploy --env staging` (auth-only; dev session disabled by default — use tokens via `/console` if needed)
 5. Seed ACL: KV `user:gh:<login>` → `["proj-alpha"]`
-6. Test OAuth + SSE + say/read; then deploy prod (`--env production`, no dev session)
+6. Test OAuth + SSE + say/read; then deploy prod (`--env production`). Staging and prod are both behind auth; dev session is optional in staging and should be used only temporarily.
 
 ### Developer: Quick Test
 1. Visit `/auth/login` (OAuth) → returns with session cookie
@@ -528,7 +528,7 @@ preview_id = "your_preview_namespace_id"  # From wrangler kv:namespace create --
 # Staging environment
 [env.staging]
 name = "watercooler-remote-mcp-staging"
-vars = { BACKEND_URL = "https://your-backend-staging.onrender.com", DEFAULT_AGENT = "Claude", ALLOW_DEV_SESSION = "true" }
+vars = { BACKEND_URL = "https://your-backend-staging.onrender.com", DEFAULT_AGENT = "Claude", ALLOW_DEV_SESSION = "false", AUTO_ENROLL_PROJECTS = "false" }
 
 # Production environment (default when no --env specified)
 vars = { BACKEND_URL = "https://your-backend-prod.onrender.com", DEFAULT_AGENT = "Claude" }
@@ -538,9 +538,11 @@ vars = { BACKEND_URL = "https://your-backend-prod.onrender.com", DEFAULT_AGENT =
 **Configuration decisions**:
 
 - `BACKEND_URL`: Your Render backend URL (from Backend deployment)
-- `DEFAULT_AGENT`: Default agent name for MCP requests (typically "Claude")
-- `ALLOW_DEV_SESSION`: **Only in staging** - allows `?session=dev` for testing without OAuth
-  - ⚠️ **Never enable in production** - dev sessions bypass all authentication
+- `DEFAULT_AGENT`: Default agent name for MCP requests (e.g., "Claude")
+- `ALLOW_DEV_SESSION`: Optional in staging, disabled by default. If set to `"true"`, allows `?session=dev` for temporary testing. ⚠️ Never enable in production; prefer OAuth or issued tokens.
+- `AUTO_ENROLL_PROJECTS`: Default `"false"`. When enabled, `set_project`/`create_project` can auto‑add the requested project to the caller’s ACL after backend validation. Prefer explicit `create_project` + `seed-acl.sh`.
+
+Note: By default, staging and production can point to the same `BACKEND_URL` and share the same `KV_PROJECTS` namespace. Sessions (Durable Objects) are per‑environment, but threads/ACL/tokens are shared. To fully separate environments, bind a different KV namespace for staging and/or point `BACKEND_URL` to a staging backend.
 
 **Why separate staging and production?** Staging lets you test changes (including risky features like dev sessions) before impacting production users.
 
@@ -557,9 +559,8 @@ cd cloudflare-worker
 1. Validates all required secrets are set (`wrangler secret list`)
 2. Checks KV namespace is bound (parses `wrangler.toml`)
 3. Verifies `ALLOW_DEV_SESSION` is NOT enabled if deploying to production
-4. Runs `npm run build` to compile TypeScript
-5. Deploys with `wrangler deploy --env staging`
-6. Provides next-step instructions
+4. Deploys with `wrangler deploy --env staging` (Wrangler compiles TypeScript)
+5. Provides next-step instructions
 
 **Expected output**:
 ```
@@ -579,7 +580,7 @@ Checking KV namespace binding...
 ✓ KV_PROJECTS bound (ID: abc123...)
 
 Checking environment configuration...
-✓ ALLOW_DEV_SESSION enabled (staging)
+✓ Dev session DISABLED (staging) — recommended
 
 === All pre-flight checks passed ===
 
@@ -947,7 +948,8 @@ name = "watercooler-remote-mcp-staging"
 vars = {
   BACKEND_URL = "https://your-backend-staging.onrender.com",
   DEFAULT_AGENT = "Claude",
-  ALLOW_DEV_SESSION = "true"  # Only in staging
+  ALLOW_DEV_SESSION = "false",  # Default; set to "true" temporarily for testing only
+  AUTO_ENROLL_PROJECTS = "false"  # Recommended default; prefer explicit create_project + ACL
 }
 
 # Production environment (default)
@@ -961,18 +963,16 @@ vars = {
 **Environment Variable Descriptions**:
 - `BACKEND_URL`: FastAPI backend URL (from Render deployment)
 - `DEFAULT_AGENT`: Default agent name sent to Backend (typically "Claude")
-- `ALLOW_DEV_SESSION`: If `"true"`, allows `?session=dev` (staging only, never production)
+- `ALLOW_DEV_SESSION`: Optional (staging). Default disabled; if `"true"`, allows `?session=dev` for temporary testing. Prefer OAuth/tokens.
+- `AUTO_ENROLL_PROJECTS`: Default `"false"`. When enabled, auto‑enrolls requested project into caller’s ACL after backend validation; prefer explicit ACL seeding.
 
-#### Manual Step 5: Build and Deploy
+#### Manual Step 5: Deploy
 
 ```bash
 cd cloudflare-worker
 
 # Install dependencies
 npm install
-
-# Build TypeScript
-npm run build
 
 # Deploy to staging
 wrangler deploy --env staging
@@ -1885,19 +1885,19 @@ cd cloudflare-worker
 
 **How to fix** (choose based on environment):
 
-**If this is staging** (and you want dev sessions):
+**If this is staging** (and you explicitly want dev session for temporary testing):
 ```toml
 # In wrangler.toml under [env.staging]
 [env.staging]
 vars = {
-  ALLOW_DEV_SESSION = "true",  # Enable dev sessions
+  ALLOW_DEV_SESSION = "true",  # TEMPORARY: enable dev session for testing only
   ...
 }
 ```
 
 **If this is production** (dev sessions should stay disabled):
-- Don't enable `ALLOW_DEV_SESSION` in production
-- Use OAuth instead: Visit `/auth/login` to authenticate properly
+- Do not enable `ALLOW_DEV_SESSION` in production
+- Prefer OAuth (`/auth/login`) or issue a token at `/console` and use `Authorization: Bearer <token>`
 - Dev sessions are a security bypass for testing only
 
 **What this teaches**:
@@ -2902,8 +2902,8 @@ Defense: Secret rotation + incident response
 | `INTERNAL_AUTH_SECRET` | Secret | ✅ Yes | Shared secret for Worker↔Backend auth (32+ random chars) |
 | `BACKEND_URL` | Var | ✅ Yes | FastAPI backend URL (e.g., `https://watercooler.onrender.com`) |
 | `DEFAULT_AGENT` | Var | ✅ Yes | Default agent name (e.g., `"Claude"`) |
-| `ALLOW_DEV_SESSION` | Var | ⚠️ Staging | Set to `"true"` for staging only (allows `?session=dev`, NEVER in prod) |
-| `AUTO_ENROLL_PROJECTS` | Var | Optional | When set to `"true"`, `watercooler_v1_set_project` will automatically add the requested project to the caller's ACL if missing. Useful for dev/on-demand project creation; keep disabled in strict prod. |
+| `ALLOW_DEV_SESSION` | Var | ⚠️ Staging | Optional; default disabled. If set to `"true"`, allows `?session=dev` for temporary testing in staging (NEVER in prod). Prefer OAuth or issued tokens. |
+| `AUTO_ENROLL_PROJECTS` | Var | Optional | Default `"false"`. When enabled, `set_project`/`create_project` may auto‑add the requested project to the caller's ACL after backend validation. Prefer explicit `create_project` + `seed-acl.sh`. |
 | `KV_PROJECTS` | Binding | ✅ Yes | KV namespace binding (configured in `wrangler.toml`) |
 
 **How to set**:

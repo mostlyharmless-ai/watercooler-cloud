@@ -180,6 +180,17 @@ npx wrangler secret put GITHUB_CLIENT_SECRET
 - Derive `agent_name` from the OAuth identity (e.g., GitHub login).
 - Worker → backend: set `X-Agent-Name: <derived>` and include an opaque **session id** for audit.
 
+**Token mode (CLI/headless)**
+- For non‑interactive clients (Codex, CI), issue personal tokens at `/console` (requires an OAuth session in the browser).
+- Pass tokens via HTTP header: `Authorization: Bearer <token>` when connecting to `/sse`.
+- Tokens are rate‑limited and time‑limited; prefer short TTLs and revoke when not needed.
+- Example (`mcp-remote`):
+  ```bash
+  npx -y mcp-remote \
+    "https://<worker>.<account>.workers.dev/sse?project=proj-alpha" \
+    --header "Authorization: Bearer <YOUR_TOKEN>"
+  ```
+
 **Cloudflare Access (optional)**
 - Put the Worker behind Access to require SSO for the domain.
 - If using Access for programmatic clients, consider **Access Service Tokens** and a Worker adapter that injects or validates them.
@@ -206,6 +217,10 @@ Use the repo’s variables from `docs/ENVIRONMENT_VARS.md`.
 - `BACKEND_URL` — private HTTPS URL for the Python facade
 - `DEFAULT_AGENT` — optional fallback agent label
 - `KV_PROJECTS` — KV binding used to store per‑user project ACLs and defaults
+ - `ALLOW_DEV_SESSION` — optional (staging only). Default disabled. If `"true"`, allows temporary `?session=dev` testing in staging; never enable in production.
+ - `AUTO_ENROLL_PROJECTS` — optional. Default `"false"`. When enabled, `set_project`/`create_project` may auto‑add the requested project to the caller's ACL after backend validation; prefer explicit `create_project` + ACL seeding.
+
+> Staging posture: auth‑only by default (dev session disabled). Use OAuth or `/console` tokens. Enable dev session only temporarily for debugging.
 
 **Cloudflare commands**
 ```bash

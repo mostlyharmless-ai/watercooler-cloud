@@ -64,7 +64,8 @@ Helper scripts for deploying and managing the Remote MCP Worker with OAuth + ACL
 | `INTERNAL_AUTH_SECRET` | ✅ Yes | Shared secret for Worker↔Backend auth (32+ random chars) | `wrangler secret put INTERNAL_AUTH_SECRET` |
 | `BACKEND_URL` | ✅ Yes | FastAPI backend URL (e.g. `https://watercooler.onrender.com`) | Set in `wrangler.toml` |
 | `DEFAULT_AGENT` | ✅ Yes | Default agent name (e.g. "Claude") | Set in `wrangler.toml` |
-| `ALLOW_DEV_SESSION` | ⚠️ Staging | Set to `"true"` to allow `?session=dev` (NEVER in production) | Set in `wrangler.toml` per environment |
+| `ALLOW_DEV_SESSION` | ⚠️ Staging | Default: disabled. Optionally set to `"true"` in staging to allow `?session=dev` for temporary testing (NEVER in production). | Set in `wrangler.toml` per environment |
+| `AUTO_ENROLL_PROJECTS` | ⚠️ Staging | When `"true"`, `set_project`/`create_project` may auto‑add the requested project to the caller’s ACL after backend validation. Recommended `false`; prefer explicit `create_project` + `seed-acl.sh`. | Set in `wrangler.toml` per environment |
 | `KV_PROJECTS` | ✅ Yes | KV namespace binding | Bind in `wrangler.toml` |
 
 ### Backend (Render)
@@ -131,10 +132,10 @@ Helper scripts for deploying and managing the Remote MCP Worker with OAuth + ACL
 
 **Production**: Dev session DISABLED (users must authenticate via OAuth)
 
-**Staging**: Dev session ENABLED via `ALLOW_DEV_SESSION=true`
-- Allows `?session=dev` for testing
-- Logs warning on each use
-- Should NEVER be enabled in production
+**Staging**: Dev session is DISABLED by default. To enable temporarily for testing, set `ALLOW_DEV_SESSION="true"` in `[env.staging.vars]`.
+- Allows `?session=dev` for testing only
+- Never enable in production
+- Prefer authenticated access using OAuth or issued tokens (see Access Tokens)
 
 ## Available Scripts
 
@@ -256,6 +257,13 @@ Stream Worker logs with helpful filters.
 ./scripts/tail-logs.sh auth
 ```
 
+### Access Tokens
+- Issue or revoke a token in the browser console:
+  - Staging: `https://mharmless-remote-mcp-staging.mostlyharmless-ai.workers.dev/console`
+  - Production: `https://mharmless-remote-mcp.mostlyharmless-ai.workers.dev/console`
+- Use tokens with clients via HTTP header: `Authorization: Bearer <token>`
+- Programmatic endpoints (for advanced clients): `/tokens/issue`, `/tokens/revoke`, `/auth/status`
+
 ### Test Security
 ```bash
 ./scripts/test-security.sh https://mharmless-remote-mcp-staging.mostlyharmless-ai.workers.dev
@@ -276,9 +284,10 @@ User has no ACL entry. Fix:
 ```
 
 ### "Unauthorized - Dev session not allowed"
-`ALLOW_DEV_SESSION` not enabled. Either:
-- Enable in staging: Set in `wrangler.toml` for staging env
-- Use OAuth: Visit `/auth/login` to authenticate
+`ALLOW_DEV_SESSION` is not enabled (recommended). Use one of:
+- OAuth: Visit `/auth/login` to authenticate
+- Token: Issue a token at `/console` and connect with `Authorization: Bearer <token>`
+- (Temporarily for testing) enable `ALLOW_DEV_SESSION` in staging only
 
 ### Rate limit exceeded
 Too many OAuth attempts. Wait 5 minutes or:
