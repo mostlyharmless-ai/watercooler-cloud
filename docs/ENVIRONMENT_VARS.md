@@ -248,6 +248,23 @@ WATERCOOLER_DIR = "/Users/jay/.watercooler-threads"
 
 ---
 
+## Cloud Remote MCP (Cloudflare Worker) Variables
+
+These variables are configured in the Cloudflare Worker (`wrangler.toml` and Wrangler secrets) and control the Remote MCP gateway.
+
+| Variable | Type | Default | Purpose |
+|----------|------|---------|---------|
+| `BACKEND_URL` | Var | — | HTTPS URL of the Python HTTP facade (backend) |
+| `DEFAULT_AGENT` | Var | `"Agent"` | Fallback agent label when not provided by client |
+| `KV_PROJECTS` | Binding | — | KV namespace for per‑user ACLs, session metadata, rate limits |
+| `INTERNAL_AUTH_SECRET` | Secret | — | Shared secret for Worker ↔ Backend auth (sent as `X‑Internal‑Auth`) |
+| `ALLOW_DEV_SESSION` | Var | `"false"` | Optional (staging only). If `"true"`, allows temporary `?session=dev` testing; never enable in production |
+| `AUTO_ENROLL_PROJECTS` | Var | `"false"` | If `"true"`, `set_project`/`create_project` may auto‑add requested project to caller’s ACL after backend validation; prefer explicit ACL seeding |
+
+Notes
+- Staging posture is auth‑only by default: keep `ALLOW_DEV_SESSION="false"` and use OAuth or tokens issued at `/console`.
+- See `cloudflare-worker/scripts/README.md` for deployment and security guidance.
+
 ### WATERCOOLER_GIT_SSH_KEY
 
 **Purpose:** Path to SSH private key for git authentication.

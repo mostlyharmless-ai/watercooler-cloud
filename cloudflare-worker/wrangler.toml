@@ -1,0 +1,85 @@
+name = "mharmless-remote-mcp"
+main = "src/index.ts"
+compatibility_date = "2025-01-01"
+compatibility_flags = ["nodejs_compat"]
+workers_dev = true
+preview_urls = true
+
+# Default configuration (production)
+[vars]
+BACKEND_URL = "https://watercooler-collab.onrender.com"
+DEFAULT_AGENT = "Agent"
+AGENT_TYPE = "Agent"
+# ALLOW_DEV_SESSION not set - defaults to false in production
+
+# KV namespace for per-user project ACLs and defaults
+[[kv_namespaces]]
+binding = "KV_PROJECTS"
+id = "d9af191397d44b1e8e94f9ca10ecd6e7"
+
+# Staging environment configuration
+[env.staging]
+name = "mharmless-remote-mcp-staging"
+
+[env.staging.vars]
+BACKEND_URL = "https://watercooler-collab.onrender.com"
+DEFAULT_AGENT = "Agent"
+AGENT_TYPE = "Agent"
+ALLOW_DEV_SESSION = "false"
+AUTO_ENROLL_PROJECTS = "false"
+
+[[env.staging.kv_namespaces]]
+binding = "KV_PROJECTS"
+id = "d9af191397d44b1e8e94f9ca10ecd6e7"
+
+# Production environment configuration (explicit)
+[env.production]
+name = "mharmless-remote-mcp"
+
+[env.production.vars]
+BACKEND_URL = "https://watercooler-collab.onrender.com"
+DEFAULT_AGENT = "Agent"
+AGENT_TYPE = "Agent"
+# ALLOW_DEV_SESSION not set - defaults to false (OAuth required)
+# AUTO_ENROLL_PROJECTS not set in production (default deny). Enable only if you want set_project to create ACL entries automatically.
+
+[[env.production.kv_namespaces]]
+binding = "KV_PROJECTS"
+id = "d9af191397d44b1e8e94f9ca10ecd6e7"
+
+# Optional placement configuration for smart routing
+# [placement]
+# mode = "smart"
+
+# Durable Objects configuration (default/production)
+[durable_objects]
+bindings = [
+  { name = "SESSION_MANAGER", class_name = "SessionManager" }
+]
+
+[[migrations]]
+tag = "v1-session"
+new_sqlite_classes = ["SessionManager"]
+
+# Durable Objects for staging
+[env.staging.durable_objects]
+bindings = [
+  { name = "SESSION_MANAGER", class_name = "SessionManager" }
+]
+
+[[env.staging.migrations]]
+tag = "v1-session"
+new_sqlite_classes = ["SessionManager"]
+
+# Durable Objects for production
+[env.production.durable_objects]
+bindings = [
+  { name = "SESSION_MANAGER", class_name = "SessionManager" }
+]
+
+[[env.production.migrations]]
+tag = "v1-session"
+new_sqlite_classes = ["SessionManager"]
+
+[triggers]
+crons = ["*/15 * * * *"]

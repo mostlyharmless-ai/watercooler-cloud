@@ -42,6 +42,10 @@ mcp = [
     "fastmcp>=2.0",
     "python-ulid>=2.0",
 ]
+http = [
+    "fastapi>=0.100",
+    "uvicorn[standard]>=0.20",
+]
 
 [tool.setuptools.packages.find]
 where = ["src"]
@@ -52,3 +56,8 @@ watercooler = ["py.typed", "templates/*.md"]
 [project.scripts]
 watercooler = "watercooler.cli:main"
 watercooler-mcp = "watercooler_mcp.server:main"
+
+[tool.pytest.ini_options]
+markers = [
+    "http: marks tests as requiring HTTP facade dependencies (deselect with '-m \"not http\"')",
+]

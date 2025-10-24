@@ -1,0 +1,17 @@
+{
+  "name": "mharmless-remote-mcp",
+  "version": "0.1.0",
+  "description": "Remote MCP Worker with OAuth and project-based authorization",
+  "main": "src/index.ts",
+  "scripts": {
+    "dev": "wrangler dev",
+    "deploy": "wrangler deploy"
+  },
+  "devDependencies": {
+    "@cloudflare/workers-types": "^4.20250110.0",
+    "wrangler": "^4.43.0"
+  },
+  "dependencies": {
+    "@modelcontextprotocol/sdk": "^1.0.4"
+  }
+}

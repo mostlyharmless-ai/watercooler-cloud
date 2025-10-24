@@ -1,0 +1,38 @@
+{
+  "description": "Sample KV entries for user/project ACLs - Valid projects only",
+  "entries": [
+    {
+      "key": "gh:caleb",
+      "value": {
+        "user_id": "gh:caleb",
+        "default": "proj-alpha",
+        "projects": [
+          "proj-alpha",
+          "proj-jay",
+          "watercooler-cloud"
+        ]
+      }
+    },
+    {
+      "key": "gh:jay",
+      "value": {
+        "user_id": "gh:jay",
+        "default": "proj-alpha",
+        "projects": [
+          "proj-alpha",
+          "proj-jay"
+        ]
+      }
+    },
+    {
+      "key": "gh:octocat",
+      "value": {
+        "user_id": "gh:octocat",
+        "default": "proj-alpha",
+        "projects": [
+          "proj-alpha"
+        ]
+      }
+    }
+  ]
+}

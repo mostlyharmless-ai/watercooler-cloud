@@ -47,6 +47,21 @@ cd watercooler-collab
 pip install -e .
 ```
 
+## Remote MCP Deployment — Quick Checklist
+
+- Full guide: see `docs/DEPLOYMENT.md`.
+- Cloudflare Worker
+  - Set `BACKEND_URL` to your Render URL and `INTERNAL_AUTH_SECRET` (via Wrangler Secret or CF UI).
+  - Deploy: `npx wrangler secret put INTERNAL_AUTH_SECRET` then `npx wrangler deploy`.
+- Render Backend
+  - Env: `INTERNAL_AUTH_SECRET` (match Worker), `BASE_THREADS_ROOT=/data/wc-cloud`, `WATERCOOLER_DIR=/data/wc-cloud`.
+  - Optional Git backup: `WATERCOOLER_GIT_REPO`, `WATERCOOLER_GIT_AUTHOR`, `WATERCOOLER_GIT_EMAIL`, `GIT_SSH_PRIVATE_KEY` (PEM).
+  - Start: copy a one‑liner from `scratch.txt` into Render → Settings → Start command.
+  - Disk: attach a persistent disk mounted at `/data`.
+- Test end‑to‑end
+  - Backend direct: `POST /mcp/watercooler_v1_health | _say | _read_thread` with `X-Internal-Auth`.
+  - Worker path: `GET /sse` → `initialize` → `tools/list` → `tools/call`.
+
 ### MCP Server (AI Agent Integration)
 
 Enable AI agents (Claude, Codex) to discover and use watercooler tools automatically:

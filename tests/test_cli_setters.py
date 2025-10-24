@@ -17,7 +17,7 @@ def test_set_status_and_ball(tmp_path: Path):
     cp = run_cli("set-status", "topic1", "in-progress", "--threads-dir", str(tmp_path))
     assert cp.returncode == 0
     s = (tmp_path / "topic1.md").read_text(encoding="utf-8")
-    assert "Status: in-progress" in s
+    assert "Status: IN-PROGRESS" in s
     # set-ball
     cp = run_cli("set-ball", "topic1", "claude", "--threads-dir", str(tmp_path))
     assert cp.returncode == 0

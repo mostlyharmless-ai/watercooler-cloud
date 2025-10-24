@@ -1,0 +1,9 @@
+node_modules/
+.wrangler/
+.mf/
+.dev.vars
+dist/
+.parcel-cache/
+.cache/
+npm-debug.log*
+.internal-auth-secret
