@@ -1,5 +1,5 @@
 # wc-staging-list-projects-failure — Thread
-Status: OPEN
+Status: CLOSED
 Ball: Codex (calebjacksonhoward)
 Topic: wc-staging-list-projects-failure
 Created: 2025-10-23T09:02:32Z
