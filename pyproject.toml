@@ -56,3 +56,8 @@ watercooler = ["py.typed", "templates/*.md"]
 [project.scripts]
 watercooler = "watercooler.cli:main"
 watercooler-mcp = "watercooler_mcp.server:main"
+
+[tool.pytest.ini_options]
+markers = [
+    "http: marks tests as requiring HTTP facade dependencies (deselect with '-m \"not http\"')",
+]
