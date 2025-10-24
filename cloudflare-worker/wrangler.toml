@@ -25,8 +25,8 @@ name = "mharmless-remote-mcp-staging"
 BACKEND_URL = "https://watercooler-collab.onrender.com"
 DEFAULT_AGENT = "Agent"
 AGENT_TYPE = "Agent"
-ALLOW_DEV_SESSION = "true"
-AUTO_ENROLL_PROJECTS = "true"
+ALLOW_DEV_SESSION = "false"
+AUTO_ENROLL_PROJECTS = "false"
 
 [[env.staging.kv_namespaces]]
 binding = "KV_PROJECTS"
