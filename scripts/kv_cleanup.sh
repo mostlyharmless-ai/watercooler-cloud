@@ -16,7 +16,7 @@ if [ -z "$ENV" ] || [ -z "$USER_KEY" ] || [ -z "$PROJECT_TO_REMOVE" ]; then
     echo ""
     echo "Examples:"
     echo "  $0 staging user:gh:caleb watercooler-collab"
-    echo "  $0 production user:gh:jay watercooler"
+    echo "  $0 production user:gh:agent watercooler"
     echo ""
     echo "This will:"
     echo "  1. Fetch the user's ACL from KV"
