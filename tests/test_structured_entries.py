@@ -182,9 +182,9 @@ def test_init_thread_with_owner_and_participants(tmp_path: Path):
         "--threads-dir",
         str(tmp_path),
         "--owner",
-        "Jay",
+        "agent",
         "--participants",
-        "Jay, Claude, Codex",
+        "agent, Claude, Codex",
     )
     assert cp.returncode == 0
 

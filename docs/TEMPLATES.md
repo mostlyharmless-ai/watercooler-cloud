@@ -98,8 +98,8 @@ Both formats are equivalent and can be mixed in the same template.
 |------------|-------------|---------|
 | `{{TOPIC}}` | Thread topic identifier | `feature-auth` |
 | `{{Short title}}` | Human-readable title | `Feature Auth` |
-| `{{OWNER}}` | Thread owner | `Jay` |
-| `{{PARTICIPANTS}}` | Comma-separated participants | `Jay, Claude, Codex` |
+| `{{OWNER}}` | Thread owner | `agent` |
+| `{{PARTICIPANTS}}` | Comma-separated participants | `agent, Claude, Codex` |
 | `{{STATUS}}` | Initial status | `OPEN` |
 | `{{BALL}}` | Initial ball owner | `codex` |
 | `{{UTC}}` or `{{NOWUTC}}` | Current UTC timestamp | `2025-10-06T12:34:56Z` |
@@ -152,8 +152,8 @@ Usage:
 
 ```bash
 watercooler init-thread feature-auth \
-  --owner Jay \
-  --participants "Jay, Claude, Codex" \
+  --owner agent \
+  --participants "agent, Claude, Codex" \
   --ball codex
 ```
 
@@ -164,15 +164,15 @@ Results in:
 title: Feature Auth
 status: OPEN
 ball: codex
-owner: Jay
-participants: Jay, Claude, Codex
+owner: agent
+participants: agent, Claude, Codex
 created: 2025-10-06T12:34:56Z
 ---
 
 # Feature Auth
 
-**Owner**: Jay
-**Participants**: Jay, Claude, Codex
+**Owner**: agent
+**Participants**: agent, Claude, Codex
 **Status**: OPEN
 **Ball**: codex
 
@@ -196,7 +196,7 @@ created: 2025-10-06T12:34:56Z
 
 | Placeholder | Description | Example |
 |------------|-------------|---------|
-| `{{AGENT}}` | Canonical agent name with user tag | `Claude (jay)` |
+| `{{AGENT}}` | Canonical agent name with user tag | `Claude (agent)` |
 | `{{ROLE}}` | Agent role | `critic` |
 | `{{TYPE}}` | Entry type | `Decision` |
 | `{{TITLE}}` | Entry title | `Review Complete` |
@@ -234,7 +234,7 @@ Results in:
 
 ```markdown
 ---
-[2025-10-06T12:34:56Z] Claude (jay) (critic): Review Complete
+[2025-10-06T12:34:56Z] Claude (agent) (critic): Review Complete
 
 All edge cases covered. Approved for merge.
 ```
@@ -261,7 +261,7 @@ Results in:
 ```markdown
 ---
 **Entry**: Security Review Complete
-**Agent**: Claude (jay)
+**Agent**: Claude (agent)
 **Role**: critic
 **Type**: Decision
 **Timestamp**: 2025-10-06T12:34:56Z
@@ -309,7 +309,7 @@ With `--body "Implementation complete"`:
 
 ```markdown
 ---
-Entry: Claude (jay) 2025-10-06T12:34:56Z
+Entry: Claude (agent) 2025-10-06T12:34:56Z
 Title: Implementation Complete
 
 Implementation complete
@@ -369,8 +369,8 @@ mkdir -p .watercooler/templates
 ```bash
 # Initialize thread with custom template
 watercooler init-thread feature-auth \
-  --owner Jay \
-  --participants "Jay, Claude, Codex"
+  --owner agent \
+  --participants "agent, Claude, Codex"
 
 # Add entry with custom template
 watercooler say feature-auth \
@@ -391,13 +391,13 @@ Thread file `watercooler/feature-auth.md`:
 | Field | Value |
 |-------|-------|
 | Topic | feature-auth |
-| Owner | Jay |
+| Owner | agent |
 | Status | OPEN |
 | Ball | codex |
 | Created | 2025-10-06T12:00:00Z |
 
 ## Participants
-Jay, Claude, Codex
+agent, Claude, Codex
 
 ## Thread History
 
@@ -405,7 +405,7 @@ Jay, Claude, Codex
 
 ### Architecture Proposal
 
-> Plan by Claude (jay) as planner — 2025-10-06T12:05:30Z
+> Plan by Claude (agent) as planner — 2025-10-06T12:05:30Z
 
 JWT-based auth with Redis session store
 ```
@@ -417,10 +417,10 @@ JWT-based auth with Redis session store
 The `{{AGENT}}` placeholder receives canonicalized agent names:
 
 Input: `--agent codex`
-Output: `Codex (jay)`
+Output: `Codex (agent)`
 
 Input: `--agent Claude`
-Output: `Claude (jay)`
+Output: `Claude (agent)`
 
 See [AGENT_REGISTRY.md](AGENT_REGISTRY.md) for custom agent mappings.
 

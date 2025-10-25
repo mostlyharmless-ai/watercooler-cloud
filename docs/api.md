@@ -240,7 +240,7 @@ with AdvisoryLock(lock_path, force_break=True):
 
 **Lock File Format:**
 ```
-pid=12345 time=2025-10-07T10:00:00Z user=jay cwd=/Users/jay/project
+pid=12345 time=2025-10-07T10:00:00Z user=agent cwd=/Users/agent/project
 ```
 
 **Notes:**

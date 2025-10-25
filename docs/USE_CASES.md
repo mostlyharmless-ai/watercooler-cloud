@@ -45,7 +45,7 @@ Watercooler provides role-based agent coordination with explicit ball ownership:
 watercooler init-thread api-redesign \
   --title "API Redesign for v2.0" \
   --owner Team \
-  --participants "Claude, Codex, Jay" \
+  --participants "Claude, Codex, agent" \
   --ball codex
 
 watercooler say api-redesign \
@@ -110,7 +110,7 @@ Ball: team
 ...
 
 ---
-Entry: Claude (jay) 2025-10-07T10:00:00Z
+Entry: Claude (agent) 2025-10-07T10:00:00Z
 Role: planner
 Type: Plan
 Title: Architecture Proposal
@@ -118,7 +118,7 @@ Title: Architecture Proposal
 [Design proposal content...]
 
 ---
-Entry: Codex (jay) 2025-10-07T11:30:00Z
+Entry: Codex (agent) 2025-10-07T11:30:00Z
 Role: implementer
 Type: Note
 Title: Implementation Complete
@@ -126,7 +126,7 @@ Title: Implementation Complete
 Implemented REST endpoints. Tests at 85% coverage. See commit abc123.
 
 ---
-Entry: Claude (jay) 2025-10-07T12:15:00Z
+Entry: Claude (agent) 2025-10-07T12:15:00Z
 Role: critic
 Type: Decision
 Title: Security Review
@@ -312,7 +312,7 @@ mechanism using the versioning strategy you approved..."
 
 4. **Link Threads to Code**:
    ```markdown
-   Entry: Claude (jay) 2025-10-07T14:00:00Z
+   Entry: Claude (agent) 2025-10-07T14:00:00Z
    Type: Note
 
    Implemented in: src/auth/oauth.py:145-230
@@ -522,10 +522,10 @@ watercooler say api-versioning \
    Read thread file to see full handoff history:
    ```bash
    grep "^Entry:" .watercooler/feature-auth.md
-   # Entry: Team (jay) 2025-10-07T10:00:00Z
-   # Entry: Claude (jay) 2025-10-07T11:00:00Z
-   # Entry: Codex (jay) 2025-10-07T12:00:00Z
-   # Entry: Claude (jay) 2025-10-07T13:00:00Z
+   # Entry: Team (agent) 2025-10-07T10:00:00Z
+   # Entry: Claude (agent) 2025-10-07T11:00:00Z
+   # Entry: Codex (agent) 2025-10-07T12:00:00Z
+   # Entry: Claude (agent) 2025-10-07T13:00:00Z
    ```
 
 ---
@@ -1147,7 +1147,7 @@ Ball: team
 ...
 
 ---
-Entry: Team (jay) 2025-10-07T09:00:00Z
+Entry: Team (agent) 2025-10-07T09:00:00Z
 Role: pm
 Type: Note
 Title: Feature Request
@@ -1155,7 +1155,7 @@ Title: Feature Request
 Need full-text search for blog posts...
 
 ---
-Entry: Claude (jay) 2025-10-07T09:30:00Z
+Entry: Claude (agent) 2025-10-07T09:30:00Z
 Role: planner
 Type: Plan
 Title: Design Proposal
@@ -1163,7 +1163,7 @@ Title: Design Proposal
 Use PostgreSQL full-text search...
 
 ---
-Entry: Team (jay) 2025-10-07T10:00:00Z
+Entry: Team (agent) 2025-10-07T10:00:00Z
 Role: pm
 Type: Decision
 Title: Approach Approved
@@ -1171,7 +1171,7 @@ Title: Approach Approved
 Approved. Codex, please implement.
 
 ---
-Entry: Codex (jay) 2025-10-07T14:00:00Z
+Entry: Codex (agent) 2025-10-07T14:00:00Z
 Role: implementer
 Type: Note
 Title: Implementation Complete
@@ -1179,7 +1179,7 @@ Title: Implementation Complete
 Implemented search with tsvector. PR #456...
 
 ---
-Entry: Claude (jay) 2025-10-07T15:00:00Z
+Entry: Claude (agent) 2025-10-07T15:00:00Z
 Role: critic
 Type: Note
 Title: Review Feedback
@@ -1187,7 +1187,7 @@ Title: Review Feedback
 Issues found: (1) SQL injection risk...
 
 ---
-Entry: Codex (jay) 2025-10-07T15:30:00Z
+Entry: Codex (agent) 2025-10-07T15:30:00Z
 Role: implementer
 Type: Note
 Title: Feedback Addressed
@@ -1195,7 +1195,7 @@ Title: Feedback Addressed
 (1) Added parameterized queries...
 
 ---
-Entry: Claude (jay) 2025-10-07T16:00:00Z
+Entry: Claude (agent) 2025-10-07T16:00:00Z
 Role: critic
 Type: Decision
 Title: LGTM
@@ -1203,7 +1203,7 @@ Title: LGTM
 All feedback addressed. Approved for merge.
 
 ---
-Entry: Team (jay) 2025-10-07T16:30:00Z
+Entry: Team (agent) 2025-10-07T16:30:00Z
 Role: pm
 Type: PR
 Title: Merged to main
@@ -1211,7 +1211,7 @@ Title: Merged to main
 PR #456 merged at 2025-10-07T16:00:00Z...
 
 ---
-Entry: Team (jay) 2025-10-07T18:00:00Z
+Entry: Team (agent) 2025-10-07T18:00:00Z
 Role: pm
 Type: Closure
 Title: Deployed to Production

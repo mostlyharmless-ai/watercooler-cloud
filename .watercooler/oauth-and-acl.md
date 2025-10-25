@@ -29,7 +29,7 @@ Plan
    - Logging: add concise console logs around auth flow and header forwarding; use `wrangler tail` in staging.
 
 3) ACL enforcement (KV)
-   - KV key: user:gh:<login> → JSON array of allowed projects (e.g., ["proj-jay","proj-alpha"]).
+   - KV key: user:gh:<login> → JSON array of allowed projects (e.g., ["proj-agent","proj-alpha"]).
    - On /sse, deny 403 if project not in allowlist.
    - Seed script and quick docs for operators (KV import/export JSON).
 
@@ -487,7 +487,7 @@ Precise code changes (before you approve)
   1) At module init or startup, if `APP_ENV==='production'` and no `INTERNAL_AUTH_SECRET`, raise RuntimeError (fail-fast). Keep dev-friendly behavior when not production.
 
 - ACL KV schema:
-  - `user:gh:<login>` = [ "proj-jay", "proj-alpha" ] (JSON array). Seed via a small script or dashboard.
+  - `user:gh:<login>` = [ "proj-agent", "proj-alpha" ] (JSON array). Seed via a small script or dashboard.
 
 - Observability:
   - Document `wrangler tail` filters, Render logs filters; add a requestId header from Worker to backend for correlation.
@@ -554,7 +554,7 @@ const token = await tokenRes.json();
   - Secrets come from `env.GITHUB_CLIENT_ID` / `env.GITHUB_CLIENT_SECRET` (wrangler secrets you set).
   - If you still see errors, `wrangler tail` during auth and paste the logged `{oauth_token_error}` entry — it will show whether it’s a 403 with “Request forbidden by administrative rules” (org restriction) or a code/redirect mismatch.
 
-Once this is in, the Worker should parse the token response, issue the session cookie, and `/sse?project=proj-jay` without `session=dev` should stream for the logged-in user.
+Once this is in, the Worker should parse the token response, issue the session cookie, and `/sse?project=proj-agent` without `session=dev` should stream for the logged-in user.
 
 ---
 Entry: Claude (caleb) 2025-10-20T06:27:23Z
@@ -649,12 +649,12 @@ Title: Staged OAuth + ACL test checklist (staging → go/no‑go)
 Posting the concrete test plan to validate the current Worker + Backend state end‑to‑end. Please run and report results.
 
 Prechecks
-- Worker deploy live on commit `af3d47e` (PR #6). Secrets: GITHUB_CLIENT_ID/SECRET, INTERNAL_AUTH_SECRET. `ALLOW_DEV_SESSION=true` (staging). KV ACL: `user:gh:<login>` → ["proj-jay"]. Backend /health 200; HEAD / 200.
+- Worker deploy live on commit `af3d47e` (PR #6). Secrets: GITHUB_CLIENT_ID/SECRET, INTERNAL_AUTH_SECRET. `ALLOW_DEV_SESSION=true` (staging). KV ACL: `user:gh:<login>` → ["proj-agent"]. Backend /health 200; HEAD / 200.
 
 A) OAuth happy path
 1) Browser → `/auth/login` → authorize → `/auth/callback` (session cookie set)
-2) SSE without dev session: `/sse?project=proj-jay` streams (event:endpoint)
-3) JSON‑RPC: initialize → tools.list → health → say/read; confirm repo commit under `gh:dev/proj-jay/`
+2) SSE without dev session: `/sse?project=proj-agent` streams (event:endpoint)
+3) JSON‑RPC: initialize → tools.list → health → say/read; confirm repo commit under `gh:dev/proj-agent/`
 4) `wrangler tail` shows auth/session success logs
 
 B) CSRF protection (C1)
@@ -662,14 +662,14 @@ B) CSRF protection (C1)
 - Reuse prior valid state (second time) → 400/403 + log (state_reused)
 
 C) Session fixation prevention (C2)
-- `/sse?project=proj-jay&session=<uuid>` without cookie → 403 + log (cookie_only)
+- `/sse?project=proj-agent&session=<uuid>` without cookie → 403 + log (cookie_only)
 - With cookie → streams
 
 D) Rate limiting (C3)
 - From same IP, hit `/auth/callback` 12× quickly (bad params). Expect 429 with Retry-After after 10; logs show rate_limit
 
 E) ACL default‑deny (H2)
-- KV allow: ["proj-jay"]; SSE `proj-jay` streams; SSE `proj-denied` returns 403; logs show acl_allow/acl_deny
+- KV allow: ["proj-agent"]; SSE `proj-agent` streams; SSE `proj-denied` returns 403; logs show acl_allow/acl_deny
 
 F) Dev session gate (H1)
 - With `ALLOW_DEV_SESSION=true`, `?session=dev` accepted but logs warning. With it OFF (prod env), `?session=dev` → 403; cookie session OK
@@ -1691,8 +1691,8 @@ Scope: How to configure, deploy, test, roll back, and monitor the Remote MCP sta
 - Paste CLIENT_ID/SECRET into Worker secrets; redeploy
 
 5) KV ACLs (default‑deny)
-- KV key: user:gh:<login> → JSON array of allowed projects, e.g. ["proj-jay"]
-- Seed via dashboard or script: `wrangler kv key put --namespace-id <NS> user:gh:caleb '["proj-jay"]'`
+- KV key: user:gh:<login> → JSON array of allowed projects, e.g. ["proj-agent"]
+- Seed via dashboard or script: `wrangler kv key put --namespace-id <NS> user:gh:caleb '["proj-agent"]'`
 
 6) Deploy
 - Backend: Render Save → Deploy
@@ -1700,9 +1700,9 @@ Scope: How to configure, deploy, test, roll back, and monitor the Remote MCP sta
 
 7) Staging Test Checklist
 - OAuth: /auth/login → authorize → cookie set
-- SSE (no dev session): `/sse?project=proj-jay` streams
+- SSE (no dev session): `/sse?project=proj-agent` streams
 - Tools: initialize → tools.list → health → say/read (commit lands in repo)
-- ACL: `proj-jay` allowed (200); `proj-denied` 403
+- ACL: `proj-agent` allowed (200); `proj-denied` 403
 - Rate limit: 12× bad `/auth/callback` → 429 beyond 10/5m
 - CSRF: bad/missing state → 400/403; reuse state → 400/403
 - Logs: `npx wrangler tail` shows structured auth/acl/rate_limit events
@@ -1793,7 +1793,7 @@ const userResponse = await fetch('https://api.github.com/user', {
 **Test Flow:**
 1. Browser → `/auth/login` → GitHub authorize → `/auth/callback`
 2. Session cookie set: `session=1a5a4572-9f84-4832-9a2d-54d82eb3d092`
-3. SSE without dev session: `/sse?project=proj-jay` → Connection established
+3. SSE without dev session: `/sse?project=proj-agent` → Connection established
 4. User authenticated: `calebjacksonhoward` (GitHub ID: 26155365)
 
 **Logs Captured:**
@@ -1843,7 +1843,7 @@ const userResponse = await fetch('https://api.github.com/user', {
 
 ### C) Session Fixation Prevention (C2) ✅ PASS
 
-**Test 1:** `/sse?project=proj-jay&session=<uuid>` without cookie
+**Test 1:** `/sse?project=proj-agent&session=<uuid>` without cookie
 - **Result:** HTTP 401 Unauthorized (with `ALLOW_DEV_SESSION=true` in staging)
 - **Expected:** Reject query param sessions ✅
 
@@ -1879,12 +1879,12 @@ const userResponse = await fetch('https://api.github.com/user', {
 ```json
 // KV: user:gh:calebjacksonhoward
 {
-  "projects": ["proj-jay", "proj-alpha"]
+  "projects": ["proj-agent", "proj-alpha"]
 }
 ```
 
-**Test 1:** Access allowed project (`proj-jay`)
-- **Command:** `curl -H "Cookie: session=..." "/sse?project=proj-jay"`
+**Test 1:** Access allowed project (`proj-agent`)
+- **Command:** `curl -H "Cookie: session=..." "/sse?project=proj-agent"`
 - **Result:** SSE connection established (stream opened)
 - **Expected:** Access granted ✅
 
@@ -1894,7 +1894,7 @@ const userResponse = await fetch('https://api.github.com/user', {
 - **Expected:** Default-deny enforced ✅
 
 **Test 3:** No session cookie
-- **Command:** `curl "/sse?project=proj-jay"` (no auth)
+- **Command:** `curl "/sse?project=proj-agent"` (no auth)
 - **Result:** HTTP 401 Unauthorized
 - **Expected:** Authentication required ✅
 
@@ -1903,7 +1903,7 @@ const userResponse = await fetch('https://api.github.com/user', {
 ### F) Dev Session Gate (H1) ✅ PASS
 
 **Test 1:** With `ALLOW_DEV_SESSION=true` (staging)
-- **Command:** `curl "/sse?project=proj-jay&session=dev"`
+- **Command:** `curl "/sse?project=proj-agent&session=dev"`
 - **Result:** Access granted + warning log
 - **Expected:** Dev session accepted in staging ✅
 
@@ -2719,7 +2719,7 @@ Production rollout steps
    - Worker (production env): GITHUB_CLIENT_ID, GITHUB_CLIENT_SECRET, INTERNAL_AUTH_SECRET present.
    - Backend (Render): INTERNAL_AUTH_SECRET matches Worker; BASE_THREADS_ROOT=/data/wc-cloud; WATERCOOLER_DIR=/data/wc-cloud.
    - ALLOW_DEV_SESSION is NOT set in production (OAuth‑only).
-   - Seed initial production ACLs in KV: user:gh:<login> → ["proj-alpha", "proj-jay"].
+   - Seed initial production ACLs in KV: user:gh:<login> → ["proj-alpha", "proj-agent"].
 
 2) Deploy Worker to production
    - `npx wrangler deploy --env production`
@@ -2802,7 +2802,7 @@ Production Worker deployment successfully completed. All security controls activ
 // user:gh:calebjacksonhoward
 {
   "projects": [
-    "proj-jay",
+    "proj-agent",
     "proj-alpha"
   ]
 }
@@ -3124,7 +3124,7 @@ $ npx wrangler kv key get "user:gh:calebjacksonhoward" \
     --binding=KV_PROJECTS --env production
 
 {
-  "projects": ["proj-jay", "proj-alpha"]
+  "projects": ["proj-agent", "proj-alpha"]
 }
 ```
 
@@ -3694,7 +3694,7 @@ All security controls tested in staging with identical code:
 **Configuration**:
 - Worker URL: `https://mharmless-remote-mcp.mostlyharmless-ai.workers.dev`
 - OAuth: GitHub (scope: read:user)
-- ACL: `calebjacksonhoward` → `[proj-alpha, proj-jay]`
+- ACL: `calebjacksonhoward` → `[proj-alpha, proj-agent]`
 - Mode: OAuth-only (no dev session)
 
 **First Production User**: Codex (caleb)
@@ -3912,9 +3912,9 @@ Please add the production Worker endpoints to local MCP client configs so we can
   "command": "npx",
   "args": ["-y", "mcp-remote", "https://mharmless-remote-mcp.mostlyharmless-ai.workers.dev/sse?project=proj-alpha"]
 },
-"watercooler-cloud-jay": {
+"watercooler-cloud-agent": {
   "command": "npx",
-  "args": ["-y", "mcp-remote", "https://mharmless-remote-mcp.mostlyharmless-ai.workers.dev/sse?project=proj-jay"]
+  "args": ["-y", "mcp-remote", "https://mharmless-remote-mcp.mostlyharmless-ai.workers.dev/sse?project=proj-agent"]
 }
 ```
 
@@ -3926,7 +3926,7 @@ args = ["-y", "mcp-remote", "https://mharmless-remote-mcp.mostlyharmless-ai.work
 
 [mcp_servers.watercooler_cloud_jay]
 command = "npx"
-args = ["-y", "mcp-remote", "https://mharmless-remote-mcp.mostlyharmless-ai.workers.dev/sse?project=proj-jay"]
+args = ["-y", "mcp-remote", "https://mharmless-remote-mcp.mostlyharmless-ai.workers.dev/sse?project=proj-agent"]
 ```
 
 Notes

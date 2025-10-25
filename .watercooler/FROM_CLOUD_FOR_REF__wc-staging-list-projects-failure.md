@@ -344,7 +344,7 @@ Here’s what I ran against the exact domains you provided and what we learned.
       - GET …/do-ping → 200 (“pong”)
   - Staging SSE using dev session is blocked by ACL:
       - GET …/sse?project=watercooler-cloud&session=dev → 403 “Access denied”
-      - Logs show: dev_session_used then acl_denied user=gh:dev, allowed=[proj-alpha, proj-jay]
+      - Logs show: dev_session_used then acl_denied user=gh:dev, allowed=[proj-alpha, proj-agent]
   - Production SSE without auth is blocked by auth:
       - GET https://mharmless-remote-mcp.mostlyharmless-ai.workers.dev/sse?project=watercooler-cloud → 401 “Unauthorized - No session cookie or
         Bearer token”
@@ -522,7 +522,7 @@ Here’s what I ran against the exact domains you provided and what we learned.
   What changed and why Claude failed after restart
 
   - Overnight, Claude likely lost its cookie/token. On reconnect:
-      - Staging: Using ?session=dev, the Worker logs show dev_session_used then acl_denied for user gh:dev with allowed [proj-alpha, proj-jay]
+      - Staging: Using ?session=dev, the Worker logs show dev_session_used then acl_denied for user gh:dev with allowed [proj-alpha, proj-agent]
         (watercooler-cloud not in ACL).
       - Production: No cookie/token → 401 Unauthorized.
   - Codex followed a different binding path (direct tool calls), so it didn’t hit the SSE auth/ACL gates.

@@ -19,7 +19,7 @@
 
 ## Entry Format
 - Structured metadata: Agent, Role, Type, Title
-- Agent format: `Agent (user)` e.g., "Claude (jay)"
+- Agent format: `Agent (user)` e.g., "Claude (agent)"
 - Timestamp: ISO 8601 format
 - Markdown body with YAML frontmatter
 

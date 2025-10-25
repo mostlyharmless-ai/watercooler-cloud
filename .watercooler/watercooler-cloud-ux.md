@@ -536,7 +536,7 @@ echo "VALUE" | npx wrangler secret put SECRET_NAME --env staging
 
 **ACLs Seeded**: 
 - User: `gh:calebjacksonhoward`
-- Projects: `proj-jay`, `proj-alpha`
+- Projects: `proj-agent`, `proj-alpha`
 
 ---
 
@@ -630,7 +630,7 @@ Title: ✓ Production deployed and configs updated
 
 **Local CLI Configuration Updated:**
 - ✓ `~/.codex/config.toml` - watercooler_cloud_alpha and watercooler_cloud_jay
-- ✓ `~/.claude.json` - watercooler-cloud-alpha and watercooler-cloud-jay
+- ✓ `~/.claude.json` - watercooler-cloud-alpha and watercooler-cloud-agent
 
 Both configs now include:
 ```
@@ -643,7 +643,7 @@ To test with real CLI clients, need to:
 1. Restart Codex CLI (if running)
 2. Restart Claude Code Desktop (if running)
 3. Test MCP tool access to verify Bearer token authentication works
-4. Verify ACL enforcement (proj-alpha and proj-jay should both work)
+4. Verify ACL enforcement (proj-alpha and proj-agent should both work)
 
 Ready for end-to-end CLI testing! 🚀
 
@@ -654,7 +654,7 @@ Title: CRITICAL: Production MCP Failure — Session State Architecture Issue
 
 ## Problem Encountered
 
-After production deployment, **both watercooler-cloud-alpha and watercooler-cloud-jay MCP servers show as FAILED** in Claude Code Desktop.
+After production deployment, **both watercooler-cloud-alpha and watercooler-cloud-agent MCP servers show as FAILED** in Claude Code Desktop.
 
 ### Initial Symptoms
 - MCP servers timeout after 30 seconds during initialization
@@ -850,7 +850,7 @@ Client → [Worker] → [Durable Object: session-abc123]
 
 This is a fundamental architecture issue that blocks all remote MCP usage in production. Eager to hear your thoughts on best path forward.
 
-Ball to Codex (jay) for review and decision.
+Ball to Codex (agent) for review and decision.
 
 ---
 Entry: Codex (caleb) 2025-10-21T04:28:24Z
@@ -1188,7 +1188,7 @@ Session IDs are being generated and returned correctly.
 
 1. **Restart Claude Code Desktop** (if running)
 2. **Check MCP server status** in Claude Code
-3. **Expected**: `watercooler-cloud-alpha` and `watercooler-cloud-jay` now show ✅ connected
+3. **Expected**: `watercooler-cloud-alpha` and `watercooler-cloud-agent` now show ✅ connected
 4. **Test**: Use a watercooler tool (e.g., `watercooler_v1_list_threads`)
 5. **Verify**: Tool call succeeds and backend creates commit
 
@@ -1223,7 +1223,7 @@ Title: MCP Remote Connection Failure - Investigation Report
 
 ## Problem Statement
 
-Both `watercooler-cloud-alpha` and `watercooler-cloud-jay` remote MCP servers are failing to connect from Claude Code CLI. Connection times out after 30 seconds with no data received.
+Both `watercooler-cloud-alpha` and `watercooler-cloud-agent` remote MCP servers are failing to connect from Claude Code CLI. Connection times out after 30 seconds with no data received.
 
 ## Investigation Timeline
 
@@ -1572,7 +1572,7 @@ BUT no logs from inside DO (no `do_fetch_called`, `session_open`, etc.)
 
 1. **Test with real MCP client** (Claude Code Desktop)
    - Restart Claude Code
-   - Check if watercooler-cloud-alpha/jay connect
+   - Check if watercooler-cloud-alpha/agent connect
    - Verify tool calls work end-to-end
 
 2. **If still failing**:
@@ -1666,7 +1666,7 @@ Quick update
 Proceed with current 24h token
 1) Update local configs to include your current token header:
    - ~/.codex/config.toml → entries for watercooler_cloud_alpha and watercooler_cloud_jay
-   - ~/.claude.json → entries for watercooler-cloud-alpha and watercooler-cloud-jay
+   - ~/.claude.json → entries for watercooler-cloud-alpha and watercooler-cloud-agent
    Add: `Authorization: Bearer <your-token>`
 2) Restart clients
    - Restart Codex CLI and Claude Code Desktop to pick up changes.
@@ -1693,7 +1693,7 @@ Please perform the following with the current 24h token to bring both cloud serv
   - For servers: watercooler_cloud_alpha and watercooler_cloud_jay
   - Add custom header: `Authorization: Bearer <PASTE-YOUR-TOKEN>`
 - ~/.claude.json
-  - For servers: watercooler-cloud-alpha and watercooler-cloud-jay
+  - For servers: watercooler-cloud-alpha and watercooler-cloud-agent
   - Ensure the same header is present
 
 2) Restart clients
@@ -1703,7 +1703,7 @@ Please perform the following with the current 24h token to bring both cloud serv
 3) Validate in production
 - In client, check both MCP servers show “connected”
 - Run tool sequence (either client UI or curl against /messages while SSE is open):
-  - health → list_threads → say/read any topic (e.g., `onboard-jay`)
+  - health → list_threads → say/read any topic (e.g., `onboard-agent`)
 - Optional logs while testing:
   ```bash
   npx wrangler tail --env production --format json | \
@@ -1785,7 +1785,7 @@ We now support full OAuth/OIDC in the Worker (discovery + register + authorize +
 Checklist (Claude + Codex)
 1) Claude (Desktop/CLI)
    - Edit `~/.claude.json`
-   - For servers `watercooler-cloud-alpha` and `watercooler-cloud-jay`, remove the Authorization header args.
+   - For servers `watercooler-cloud-alpha` and `watercooler-cloud-agent`, remove the Authorization header args.
      - Before:
        ```
        "args": ["-y", "mcp-remote", "https://…/sse?project=proj-alpha", "--header", "Authorization: Bearer <token>"]
@@ -1829,7 +1829,7 @@ Type: Note
 Title: All green: current state, findings, fixes, and next steps
 
 Status
-- Both cloud servers (alpha/jay) are now consistently “connected” in clients (validated via mcp-remote with SSE transport and CLI screenshots).
+- Both cloud servers (alpha/agent) are now consistently “connected” in clients (validated via mcp-remote with SSE transport and CLI screenshots).
 - End-to-end tools (health → list_threads → say/read) are working; data plane is stable.
 
 Key fixes and learnings
@@ -1863,7 +1863,7 @@ Security preserved
 What changed in client configs (quick fix)
 - Add `--transport sse-only` and keep the header:
   - ~/.claude.json args → ["-y","mcp-remote","https://…/sse?project=proj-alpha","--header","Authorization: Bearer <token>","--transport","sse-only"]
-  - ~/.codex/config.toml args likewise for alpha/jay.
+  - ~/.codex/config.toml args likewise for alpha/agent.
 - Restart clients; both connect in ≤5–10s.
 
 Verification commands (timeboxed)
@@ -1911,7 +1911,7 @@ Usage patterns
   - Pros: one MCP entry; explicit per-session context; easy to switch mid-session
   - Cons: a session can target only one project at a time (open a second session or keep two entries for parallel work)
 - Separate entries (current)
-  - `…/sse?project=proj-alpha` and `…/sse?project=proj-jay`
+  - `…/sse?project=proj-alpha` and `…/sse?project=proj-agent`
   - Pros: dead-simple targeting; easy parallel contexts; great for users
   - Cons: two config lines instead of one
 
@@ -1951,14 +1951,14 @@ Config (Claude/Codex · reliable header mode)
 Session flow
 1) List projects
    - tools/call name=watercooler_v1_list_projects args={}
-2) Set project (example: proj-jay)
-   - tools/call name=watercooler_v1_set_project args={"project":"proj-jay"}
+2) Set project (example: proj-agent)
+   - tools/call name=watercooler_v1_set_project args={"project":"proj-agent"}
 3) Use tools in that project context
    - tools/call name=watercooler_v1_list_threads args={}
    - tools/call name=watercooler_v1_say args={"topic":"…","title":"…","body":"…"}
 
 Notes
 - If you forget to set a project first, tools will prompt you to call set_project.
-- Per‑project entries (`…/sse?project=proj-alpha|proj-jay`) continue to work side‑by‑side if you prefer parallel contexts.
+- Per‑project entries (`…/sse?project=proj-alpha|proj-agent`) continue to work side‑by‑side if you prefer parallel contexts.
 - Data‑plane auth + ACLs are unchanged; Worker forwards `X‑Project‑Id` to the backend for correct isolation.
 

@@ -39,12 +39,12 @@ Complete reference for all watercooler-collab environment variables.
 
 Determines your agent identity in watercooler threads. When you create entries, they appear as:
 ```
-Entry: Claude (jay) 2025-10-10T08:00:00Z
+Entry: Claude (agent) 2025-10-10T08:00:00Z
 ```
 
 Where:
 - `Claude` = Agent name from `WATERCOOLER_AGENT`
-- `(jay)` = OS username from `getpass.getuser()` (automatically appended)
+- `(agent)` = OS username from `getpass.getuser()` (automatically appended)
 
 **Precedence (MCP only):**
 1. `WATERCOOLER_AGENT` env var (highest priority)
@@ -109,7 +109,7 @@ export WATERCOOLER_AGENT="Claude"
 
 **Default:** `./.watercooler` (current working directory)
 
-**Format:** Absolute or relative path (e.g., `"/Users/jay/project/.watercooler"`, `"~/threads"`)
+**Format:** Absolute or relative path (e.g., `"/Users/agent/project/.watercooler"`, `"~/threads"`)
 
 **Used by:** MCP Server & CLI
 
@@ -142,7 +142,7 @@ The MCP server automatically searches upward from your current working directory
 
 **Absolute path (recommended for reliability):**
 ```bash
-export WATERCOOLER_DIR="/Users/jay/project/.watercooler"
+export WATERCOOLER_DIR="/Users/agent/project/.watercooler"
 ```
 
 **Home directory:**
@@ -153,7 +153,7 @@ export WATERCOOLER_DIR="$HOME/.watercooler-threads"
 **MCP config:**
 ```toml
 [mcp_servers.watercooler.env]
-WATERCOOLER_DIR = "/Users/jay/project/.watercooler"
+WATERCOOLER_DIR = "/Users/agent/project/.watercooler"
 ```
 
 **VS Code workspace variable (Cline):**
@@ -233,7 +233,7 @@ unset WATERCOOLER_GIT_REPO  # Disables cloud sync
 [mcp_servers.watercooler.env]
 WATERCOOLER_AGENT = "Claude"
 WATERCOOLER_GIT_REPO = "git@github.com:team/threads.git"
-WATERCOOLER_DIR = "/Users/jay/.watercooler-threads"
+WATERCOOLER_DIR = "/Users/agent/.watercooler-threads"
 ```
 
 **Best practices:**
@@ -273,7 +273,7 @@ Notes
 
 **Default:** None (uses default SSH keys from `~/.ssh/`)
 
-**Format:** Absolute path to private key file (e.g., `"/Users/jay/.ssh/id_ed25519_watercooler"`)
+**Format:** Absolute path to private key file (e.g., `"/Users/agent/.ssh/id_ed25519_watercooler"`)
 
 **Used by:** MCP Server (cloud sync)
 
@@ -300,7 +300,7 @@ export WATERCOOLER_GIT_SSH_KEY="$HOME/.ssh/id_ed25519_watercooler"
 ```toml
 [mcp_servers.watercooler.env]
 WATERCOOLER_GIT_REPO = "git@github.com:team/threads.git"
-WATERCOOLER_GIT_SSH_KEY = "/Users/jay/.ssh/id_ed25519_watercooler"
+WATERCOOLER_GIT_SSH_KEY = "/Users/agent/.ssh/id_ed25519_watercooler"
 ```
 
 **Generate dedicated key:**
@@ -437,7 +437,7 @@ Allows customization of thread and entry templates. Templates use placeholder sy
 
 **Shell:**
 ```bash
-export WATERCOOLER_TEMPLATES="/Users/jay/my-templates"
+export WATERCOOLER_TEMPLATES="/Users/agent/my-templates"
 ```
 
 **CLI:**
@@ -469,7 +469,7 @@ Title: {{TITLE}}
 
 **Default:** OS username from `getpass.getuser()`
 
-**Format:** String (e.g., `"jay"`, `"alice"`)
+**Format:** String (e.g., `"agent"`, `"alice"`)
 
 **Used by:** Lock System (internal)
 
@@ -537,7 +537,7 @@ WATERCOOLER_AGENT = "Claude"
 ```toml
 [mcp_servers.watercooler.env]
 WATERCOOLER_AGENT = "Codex"
-WATERCOOLER_DIR = "/Users/jay/project/.watercooler"
+WATERCOOLER_DIR = "/Users/agent/project/.watercooler"
 ```
 
 **Use cases:**
@@ -555,8 +555,8 @@ WATERCOOLER_DIR = "/Users/jay/project/.watercooler"
 [mcp_servers.watercooler.env]
 WATERCOOLER_AGENT = "Claude"
 WATERCOOLER_GIT_REPO = "git@github.com:team/threads.git"
-WATERCOOLER_DIR = "/Users/jay/.watercooler-threads"
-WATERCOOLER_GIT_SSH_KEY = "/Users/jay/.ssh/id_ed25519_watercooler"
+WATERCOOLER_DIR = "/Users/agent/.watercooler-threads"
+WATERCOOLER_GIT_SSH_KEY = "/Users/agent/.ssh/id_ed25519_watercooler"
 WATERCOOLER_GIT_AUTHOR = "Alice's Claude"
 WATERCOOLER_GIT_EMAIL = "alice+claude@team.com"
 ```

@@ -180,7 +180,7 @@ Override threads directory location.
 
 ```bash
 # Use specific directory
-export WATERCOOLER_DIR=/Users/jay/projects/my-project/.watercooler
+export WATERCOOLER_DIR=/Users/agent/projects/my-project/.watercooler
 
 # Let upward search find it (recommended)
 # Works from any subdirectory in your repo
@@ -191,7 +191,7 @@ unset WATERCOOLER_DIR
 ```toml
 [mcp_servers.watercooler.env]
 WATERCOOLER_AGENT = "Codex"
-WATERCOOLER_DIR = "/Users/jay/projects/my-project/.watercooler"
+WATERCOOLER_DIR = "/Users/agent/projects/my-project/.watercooler"
 ```
 
 ## Enabling Cloud Sync (Optional)

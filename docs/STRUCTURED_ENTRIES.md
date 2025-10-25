@@ -318,9 +318,9 @@ watercooler handoff topic \
 Agents are identified in the format: `Agent (user)`
 
 Examples:
-- `Claude (jay)` - Claude agent used by jay
-- `Codex (jay)` - Codex agent used by jay
-- `Team (jay)` - Generic team entry by jay
+- `Claude (agent)` - Claude agent used by agent
+- `Codex (agent)` - Codex agent used by agent
+- `Team (agent)` - Generic team entry by agent
 
 The user tag is automatically added based on git configuration or can be specified via agent registry.
 

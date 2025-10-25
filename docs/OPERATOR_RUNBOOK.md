@@ -25,8 +25,8 @@ mkdir -p /data/secrets && printf '%s' "$GIT_SSH_PRIVATE_KEY" > /data/secrets/wc_
 - Scope: `read:user` (profile only)
 
 ## KV ACLs (default‑deny)
-- Key: `user:gh:<login>` → JSON array of allowed projects, e.g. `["proj-jay"]`
-- Seed via dashboard or CLI: `wrangler kv:key put --binding=KV_PROJECTS user:gh:<login> '["proj-jay"]'`
+- Key: `user:gh:<login>` → JSON array of allowed projects, e.g. `["proj-agent"]`
+- Seed via dashboard or CLI: `wrangler kv:key put --binding=KV_PROJECTS user:gh:<login> '["proj-agent"]'`
 
 ## Deploy
 - Backend: set env + start command → Save/Deploy
@@ -35,9 +35,9 @@ mkdir -p /data/secrets && printf '%s' "$GIT_SSH_PRIVATE_KEY" > /data/secrets/wc_
 
 ## Staging Test Checklist
 - Auth: `/auth/login` (OAuth) or issue a token at `/console` and include `Authorization: Bearer <token>`
-- SSE: `/sse?project=proj-jay` (Accept: `text/event-stream`) with cookie or Bearer token; dev session only if explicitly enabled
+- SSE: `/sse?project=proj-agent` (Accept: `text/event-stream`) with cookie or Bearer token; dev session only if explicitly enabled
 - Tools: initialize → tools.list → health → say/read → commit in repo
-- ACL: `proj-jay` 200; `proj-denied` 403
+- ACL: `proj-agent` 200; `proj-denied` 403
 - Rate limit: 12× bad `/auth/callback` → 429 after 10/5m
 - CSRF: bad/missing/reused state → 400/403
 - Logs: `npx wrangler tail --env staging --format json | grep -E 'auth_|acl_|rate_limit'`

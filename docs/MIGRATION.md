@@ -125,7 +125,7 @@ Updated: 2025-10-06T12:34:56Z
 # feature-auth
 
 ---
-Entry: Codex (jay) 2025-10-06T12:34:56Z
+Entry: Codex (agent) 2025-10-06T12:34:56Z
 Type: Note
 Title: Implementation Started
 
@@ -229,7 +229,7 @@ from watercooler.lock import AdvisoryLock
 ### 1. Agent Format
 
 **Old**: `codex#dev`
-**New**: `Codex (jay)`
+**New**: `Codex (agent)`
 
 ### 2. Entry Format
 
@@ -244,7 +244,7 @@ Simple body text.
 **New** (structured):
 ```markdown
 ---
-Entry: Codex (jay) 2025-10-06T12:34:56Z
+Entry: Codex (agent) 2025-10-06T12:34:56Z
 Role: implementer
 Type: Note
 Title: Implementation Complete

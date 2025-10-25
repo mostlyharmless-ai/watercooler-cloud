@@ -38,7 +38,7 @@ Use canonical agent names with role specification:
 - `Codex` - Code generation agent
 - `Team` - Human team members
 
-Agent names are automatically tagged with user (e.g., `Claude (jay)`).
+Agent names are automatically tagged with user (e.g., `Claude (agent)`).
 
 ### Git Configuration
 

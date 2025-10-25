@@ -88,7 +88,7 @@ Explicit threads directory override.
       "command": "/opt/anaconda3/envs/watercooler/bin/watercooler-mcp",
       "env": {
         "WATERCOOLER_AGENT": "Claude",
-        "WATERCOOLER_DIR": "/Users/jay/projects/watercooler-test/.watercooler"
+        "WATERCOOLER_DIR": "/Users/agent/projects/watercooler-test/.watercooler"
       }
     }
   }

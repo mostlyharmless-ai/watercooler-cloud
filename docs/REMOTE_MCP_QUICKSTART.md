@@ -5,7 +5,7 @@ Quick guide to using Watercooler via Remote MCP with OAuth authentication and pe
 ## Glossary
 
 - `KV` (Cloudflare Workers KV): Cloudflare’s global key–value store used by the Worker to persist small, fast data at the edge (sessions `session:{uuid}`, OAuth CSRF state `oauth:state:{state}`, rate‑limit buckets `ratelimit:*`, and the per‑user ACLs below).
-- `ACL` (Access Control List): Default‑deny allowlist of projects per user. Key: `user:gh:{login}`; Value: JSON array of projects (e.g. `["proj-alpha","proj-jay"]`). If a project isn’t listed for your login, `/sse?project=<name>` is denied with 403.
+- `ACL` (Access Control List): Default‑deny allowlist of projects per user. Key: `user:gh:{login}`; Value: JSON array of projects (e.g. `["proj-alpha","proj-agent"]`). If a project isn’t listed for your login, `/sse?project=<name>` is denied with 403.
 
 ## Prerequisites
 

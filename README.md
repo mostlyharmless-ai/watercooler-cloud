@@ -30,7 +30,7 @@ Thread-based collaboration with:
 - **12 CLI Commands**: init-thread, append-entry, say, ack, handoff, set-status, set-ball, list, reindex, search, web-export, unlock
 - **6 Agent Roles**: planner, critic, implementer, tester, pm, scribe
 - **5 Entry Types**: Note, Plan, Decision, PR, Closure
-- **Agent Format**: `Agent (user)` with user tagging (e.g., "Claude (jay)")
+- **Agent Format**: `Agent (user)` with user tagging (e.g., "Claude (agent)")
 - **Ball Auto-Flip**: say() flips to counterpart, ack() preserves current ball
 - **Template Discovery**: CLI > env var > project-local > bundled
 - **NEW Markers**: Flags when last entry author ≠ ball owner
@@ -104,8 +104,8 @@ See [.github/WATERCOOLER_SETUP.md](.github/WATERCOOLER_SETUP.md) for detailed se
 ```bash
 # Initialize a thread with custom metadata
 watercooler init-thread feature-auth \
-  --owner Jay \
-  --participants "Jay, Claude, Codex" \
+  --owner agent \
+  --participants "agent, Claude, Codex" \
   --ball codex
 
 # Add structured entry with role and type

@@ -195,7 +195,7 @@ No threads directory found at: /some/path/.watercooler
    **Codex config.toml:**
    ```toml
    [mcp_servers.watercooler.env]
-   WATERCOOLER_DIR = "/Users/jay/projects/my-project/.watercooler"
+   WATERCOOLER_DIR = "/Users/agent/projects/my-project/.watercooler"
    ```
 
    **Use absolute paths** to avoid ambiguity.

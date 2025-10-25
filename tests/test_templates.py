@@ -85,14 +85,14 @@ Title: {{TITLE}}
 
 {{BODY}}"""
     mapping = {
-        "AGENT": "Claude (jay)",
+        "AGENT": "Claude (agent)",
         "UTC": "2025-10-06T12:00:00Z",
         "TYPE": "Decision",
         "TITLE": "Approve Implementation",
         "BODY": "All tests passing, ready to merge."
     }
     result = _fill_template(template, mapping)
-    assert "Entry: Claude (jay) 2025-10-06T12:00:00Z" in result
+    assert "Entry: Claude (agent) 2025-10-06T12:00:00Z" in result
     assert "Type: Decision" in result
     assert "Title: Approve Implementation" in result
     assert "All tests passing" in result

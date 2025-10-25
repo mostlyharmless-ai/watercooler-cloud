@@ -356,7 +356,7 @@ We'll implement in two phases to balance rapid validation against production rea
 5. **Testing**
    - Add `fastmcp>=2.0` to pyproject.toml dependencies
    - Create MCP entry point: `python3 -m watercooler_mcp.server`
-   - Test in `/Users/jay/projects/watercooler-test`
+   - Test in `/Users/agent/projects/watercooler-test`
    - Configure Claude Desktop/Codex MCP settings
    - Verify each tool works with test thread
 
@@ -587,26 +587,26 @@ Make failures predictable and user‑friendly:
 
 ## Test Project Status
 
-**Location:** `/Users/jay/projects/watercooler-test/`
+**Location:** `/Users/agent/projects/watercooler-test/`
 
 **Current state:**
 - ✅ Git repository initialized
 - ✅ Watercooler-collab installed (editable mode)
 - ✅ `.watercooler/` directory created
 - ✅ Thread created: `test-conversation`
-- ✅ Initial message from Jay to Codex
+- ✅ Initial message from agent to Codex
 - ⏸️ Waiting for MCP server to enable Codex to respond naturally
 
 **Thread content:**
 ```markdown
 # test-conversation — Thread
 Status: OPEN
-Ball: Jay (jay)
+Ball: agent (agent)
 Topic: test-conversation
 Created: 2025-10-07T14:56:41Z
 
 ---
-Entry: Jay (jay) 2025-10-07T14:58:04Z
+Entry: agent (agent) 2025-10-07T14:58:04Z
 Type: Note
 Title: Initial greeting
 
@@ -675,11 +675,11 @@ Can you confirm you can see this and respond?
 
 ## Related Files
 
-- `/Users/jay/projects/watercooler-collab/` - Main library
-- `/Users/jay/projects/watercooler-test/` - Test project
-- `/Users/jay/projects/watercooler-collab/IMPLEMENTATION_PLAN.md` - Original L1-L4 plan
-- `/Users/jay/projects/watercooler-collab/docs/api.md` - Python API reference
-- `/Users/jay/projects/watercooler-collab/docs/integration.md` - Integration guide
+- `/Users/agent/projects/watercooler-collab/` - Main library
+- `/Users/agent/projects/watercooler-test/` - Test project
+- `/Users/agent/projects/watercooler-collab/IMPLEMENTATION_PLAN.md` - Original L1-L4 plan
+- `/Users/agent/projects/watercooler-collab/docs/api.md` - Python API reference
+- `/Users/agent/projects/watercooler-collab/docs/integration.md` - Integration guide
 
 ## Success Criteria
 

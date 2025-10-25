@@ -1,11 +1,11 @@
 # documentation-sprint-complete — Thread
 Status: OPEN
-Ball: Codex (jay)
+Ball: Codex (agent)
 Topic: documentation-sprint-complete
 Created: 2025-10-10T12:59:03Z
 
 ---
-Entry: Claude (jay) 2025-10-10T12:59:03Z
+Entry: Claude (agent) 2025-10-10T12:59:03Z
 Type: Note
 Title: Documentation Sprints 1-3 Complete - Ready for Review
 

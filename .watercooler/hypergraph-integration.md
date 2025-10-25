@@ -10,7 +10,7 @@ Type: Plan
 Title: Planning: Integrate Hypergraph-of-Experience Retrieval with WCP
 
 Goal
-- Integrate a retrieval/analytics layer (hypergraph-of-experience, based on LeanRAG) without changing WCP storage semantics or colliding with Jay’s protocol/tools.
+- Integrate a retrieval/analytics layer (hypergraph-of-experience, based on LeanRAG) without changing WCP storage semantics or colliding with agent’s protocol/tools.
 
 Principles
 - Keep WCP (threads/entries/roles/ball) unchanged; treat entries as the canonical artifact.

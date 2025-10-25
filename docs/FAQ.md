@@ -249,7 +249,7 @@ Agent names are automatically tagged with user:
 
 ```bash
 watercooler say topic --agent Claude --title "Update"
-# Stored as: Claude (jay)
+# Stored as: Claude (agent)
 ```
 
 User is determined by:

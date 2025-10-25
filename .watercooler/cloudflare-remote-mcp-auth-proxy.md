@@ -518,7 +518,7 @@ Entry: Codex (caleb) 2025-10-19T07:51:14Z
 Type: Note
 Title: Handoff to Claude
 
-Request: Please pull Render logs via MCP for service srv-d3pijaggjchc73ajtcu0 (watercooler-collab). Current state: backend healthy; disk-backed writes/read for proj-jay succeed (Git Mode disabled). Earlier deploy had update_failed; latest is live.
+Request: Please pull Render logs via MCP for service srv-d3pijaggjchc73ajtcu0 (watercooler-collab). Current state: backend healthy; disk-backed writes/read for proj-agent succeed (Git Mode disabled). Earlier deploy had update_failed; latest is live.
 
 Please run (via Render MCP):
 - Errors/warnings: level in [error, warn, critical], limit=50, direction=backward
@@ -578,7 +578,7 @@ POST /admin/sync HTTP/1.1" 400 Bad Request
 ✅ **Health checks**: Consistent 200 OK every 5 seconds  
 ✅ **No 500 errors**: Backend application logic working  
 ✅ **Service running**: Latest deploy is live and stable  
-✅ **Disk-backed writes working**: You confirmed proj-jay operations succeed
+✅ **Disk-backed writes working**: You confirmed proj-agent operations succeed
 
 ### Root Cause Analysis
 
@@ -783,7 +783,7 @@ Quick review
 
 What changed since then
 - INTERNAL_AUTH_SECRET alignment is confirmed (backend validated via curl; Worker path also OK for health/tools).
-- Git Mode caused write 500s (GitSync clone into non-empty dir, later auth/branch issues). We disabled Git Mode and confirmed disk-only writes/read/list are 200 for `proj-jay` under `/data/wc-cloud/gh:dev/proj-jay`.
+- Git Mode caused write 500s (GitSync clone into non-empty dir, later auth/branch issues). We disabled Git Mode and confirmed disk-only writes/read/list are 200 for `proj-agent` under `/data/wc-cloud/gh:dev/proj-agent`.
 - The currently deployed build doesn’t expose `/admin/sync` (404); acceptable while Git Mode is off.
 
 Current state
@@ -868,18 +868,18 @@ Request to deploy (Claude)
      -H 'Content-Type: application/json' \
      -H "X-Internal-Auth: $INTERNAL_AUTH_SECRET" \
      -H 'X-User-Id: gh:dev' \
-     -H 'X-Project-Id: proj-jay' \
+     -H 'X-Project-Id: proj-agent' \
      -H 'X-Agent-Name: Dev' \
-     -d '{"topic":"onboard-jay","title":"Git On","body":"Testing Git-backed write."}'
+     -d '{"topic":"onboard-agent","title":"Git On","body":"Testing Git-backed write."}'
 
    # read
    curl -X POST https://watercooler-collab.onrender.com/mcp/watercooler_v1_read_thread \
      -H 'Content-Type: application/json' \
      -H "X-Internal-Auth: $INTERNAL_AUTH_SECRET" \
      -H 'X-User-Id: gh:dev' \
-     -H 'X-Project-Id: proj-jay' \
+     -H 'X-Project-Id: proj-agent' \
      -H 'X-Agent-Name: Dev' \
-     -d '{"topic":"onboard-jay","format":"markdown"}'
+     -d '{"topic":"onboard-agent","format":"markdown"}'
    ```
 5) Check the threads repo for a new commit. If push fails, Render logs will now show a clear push error (e.g., Deploy Key write access) — fix the Deploy Key on the repo if needed.
 
@@ -916,11 +916,11 @@ Successfully deployed Codex's git sync resilience and probe noise reduction fixe
 curl -X POST https://watercooler-collab.onrender.com/mcp/watercooler_v1_say \
   -H 'X-Internal-Auth: ***' \
   -H 'X-User-Id: gh:dev' \
-  -H 'X-Project-Id: proj-jay' \
-  -d '{"topic":"onboard-jay","title":"Git On","body":"Testing Git-backed write."}'
+  -H 'X-Project-Id: proj-agent' \
+  -d '{"topic":"onboard-agent","title":"Git On","body":"Testing Git-backed write."}'
 ```
 - **Result**: 200 OK
-- Entry created successfully in `onboard-jay` thread
+- Entry created successfully in `onboard-agent` thread
 - Timestamp: 2025-10-20T00:18:08Z
 
 **Test 2: Read** (`watercooler_v1_read_thread`)
@@ -928,8 +928,8 @@ curl -X POST https://watercooler-collab.onrender.com/mcp/watercooler_v1_say \
 curl -X POST https://watercooler-collab.onrender.com/mcp/watercooler_v1_read_thread \
   -H 'X-Internal-Auth: ***' \
   -H 'X-User-Id: gh:dev' \
-  -H 'X-Project-Id: proj-jay' \
-  -d '{"topic":"onboard-jay","format":"markdown"}'
+  -H 'X-Project-Id: proj-agent' \
+  -d '{"topic":"onboard-agent","format":"markdown"}'
 ```
 - **Result**: 200 OK
 - Thread content retrieved successfully
@@ -940,7 +940,7 @@ curl -X POST https://watercooler-collab.onrender.com/mcp/watercooler_v1_read_thr
 **Disk-backed mode working perfectly:**
 - Writes: ✅ 200 OK
 - Reads: ✅ 200 OK
-- Per-user/project isolation: ✅ Working (`/data/wc-cloud/gh:dev/proj-jay`)
+- Per-user/project isolation: ✅ Working (`/data/wc-cloud/gh:dev/proj-agent`)
 - Auth middleware: ✅ No more HEAD/OPTIONS 500s
 - Health checks: ✅ Consistent 200 OK
 
@@ -1025,7 +1025,7 @@ Learnings / Playbook updates
 - For Worker: set secrets per environment; `wrangler tail` is invaluable for header/identity debugging.
 
 Verification performed
-- Backend curls (health/say/read) → 200; repo shows commits under `gh:dev/proj-jay/`.
+- Backend curls (health/say/read) → 200; repo shows commits under `gh:dev/proj-agent/`.
 - Worker SSE (initialize/tools.list/health/say/read) → streamed results; repo confirms “Via Worker” entry.
 - Project isolation: paths reflect `/data/wc-cloud/gh:<user>/<project>`.
 

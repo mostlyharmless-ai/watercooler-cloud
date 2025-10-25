@@ -8,19 +8,19 @@
         "default": "proj-alpha",
         "projects": [
           "proj-alpha",
-          "proj-jay",
+          "proj-agent",
           "watercooler-cloud"
         ]
       }
     },
     {
-      "key": "gh:jay",
+      "key": "gh:agent",
       "value": {
-        "user_id": "gh:jay",
+        "user_id": "gh:agent",
         "default": "proj-alpha",
         "projects": [
           "proj-alpha",
-          "proj-jay"
+          "proj-agent"
         ]
       }
     },

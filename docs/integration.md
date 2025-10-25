@@ -91,8 +91,8 @@ See [MCP Server Guide](./mcp-server.md) for complete tool reference.
 
 ```bash
 watercooler init-thread feature-auth \
-  --owner Jay \
-  --participants "Jay, Claude, Codex" \
+  --owner agent \
+  --participants "agent, Claude, Codex" \
   --ball codex
 ```
 
@@ -103,8 +103,8 @@ Title: Feature auth
 Status: open
 Ball: codex
 Updated: 2025-10-07T10:00:00Z
-Owner: Jay
-Participants: Jay, Claude, Codex
+Owner: agent
+Participants: agent, Claude, Codex
 
 # Feature auth
 ```
@@ -387,7 +387,7 @@ Title: {{TITLE}}
 ```
 
 **Placeholders:**
-- `{{AGENT}}` - Agent name with user tag (e.g., "Claude (jay)")
+- `{{AGENT}}` - Agent name with user tag (e.g., "Claude (agent)")
 - `{{UTC}}` - Entry timestamp
 - `{{ROLE}}` - Agent role (planner, critic, implementer, tester, pm, scribe)
 - `{{TYPE}}` - Entry type (Note, Plan, Decision, PR, Closure)

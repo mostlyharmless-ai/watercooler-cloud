@@ -179,9 +179,9 @@ If you want, I can run the Render MCP tools to fetch env and last deploy details
 ---
 Entry: Codex (caleb) 2025-10-19T06:42:10Z
 Type: Note
-Title: Testing plan for Jay — end‑to‑end checklist
+Title: Testing plan for agent — end‑to‑end checklist
 
-Goal: finish validation and hand Jay a ready URL + steps.
+Goal: finish validation and hand agent a ready URL + steps.
 
 Status
 - Backend healthy at `/health`; Worker SSE handshake and tools list OK.
@@ -190,17 +190,17 @@ Status
 Plan
 1) Backend direct write/read (prove disk + auth)
 2) Worker SSE write/read (prove proxy path)
-3) Project isolation (proj-alpha vs proj-jay)
+3) Project isolation (proj-alpha vs proj-agent)
 4) Optional ACL deny/allow (seed KV)
 5) Optional Git backup (commit appears in threads repo)
 
-Hand‑off for Jay (dev session)
-- SSE URL: `https://mharmless-remote-mcp.mostlyharmless-ai.workers.dev/sse?project=proj-jay&session=dev`
+Hand‑off for agent (dev session)
+- SSE URL: `https://mharmless-remote-mcp.mostlyharmless-ai.workers.dev/sse?project=proj-agent&session=dev`
 - Use an MCP client or curl per commands below. OAuth can come later.
 
 Acceptance
-- health/list/say/read all 200 via Worker for `proj-jay`
-- Separate threads dir exists at `/data/wc-cloud/gh:dev/proj-jay`
+- health/list/say/read all 200 via Worker for `proj-agent`
+- Separate threads dir exists at `/data/wc-cloud/gh:dev/proj-agent`
 - (If Git Mode on) commit pushed to threads repo
 
 ---
@@ -210,7 +210,7 @@ Title: Write path 500 on /mcp/say — likely GitSync path; fix + quick triage
 
 Observation
 - Backend health is 200 and shows `/data/wc-cloud/gh:dev/proj-alpha`.
-- `POST /mcp/watercooler_v1_say` for `proj-jay` returned 500; read had a small typo in the path (hread vs read), but the write likely failed.
+- `POST /mcp/watercooler_v1_say` for `proj-agent` returned 500; read had a small typo in the path (hread vs read), but the write likely failed.
 
 Likely cause
 - GitSync still targeting the repo checkout `.watercooler` instead of `/data/wc-cloud`, or Git credentials incomplete.
@@ -226,14 +226,14 @@ Quick triage (unblock tonight)
    - Ensure `GIT_SSH_PRIVATE_KEY` PEM is present; the one-liner exports `GIT_SSH_COMMAND`.
 
 Useful checks
-- Backend health for `proj-jay`:
-  `curl -X POST https://watercooler-collab.onrender.com/mcp/watercooler_v1_health -H 'Content-Type: application/json' -H "X-Internal-Auth: $INTERNAL_AUTH_SECRET" -H 'X-User-Id: gh:dev' -H 'X-Project-Id: proj-jay' -H 'X-Agent-Name: Dev' -d '{}'`
+- Backend health for `proj-agent`:
+  `curl -X POST https://watercooler-collab.onrender.com/mcp/watercooler_v1_health -H 'Content-Type: application/json' -H "X-Internal-Auth: $INTERNAL_AUTH_SECRET" -H 'X-User-Id: gh:dev' -H 'X-Project-Id: proj-agent' -H 'X-Agent-Name: Dev' -d '{}'`
 - Admin sync (shows Git errors if any):
   `curl -X POST https://watercooler-collab.onrender.com/admin/sync -H "X-Internal-Auth: $INTERNAL_AUTH_SECRET"`
-- List threads for `proj-jay`:
-  `curl -X POST https://watercooler-collab.onrender.com/mcp/watercooler_v1_list_threads -H 'Content-Type: application/json' -H "X-Internal-Auth: $INTERNAL_AUTH_SECRET" -H 'X-User-Id: gh:dev' -H 'X-Project-Id: proj-jay' -H 'X-Agent-Name: Dev' -d '{"format":"markdown"}'`
+- List threads for `proj-agent`:
+  `curl -X POST https://watercooler-collab.onrender.com/mcp/watercooler_v1_list_threads -H 'Content-Type: application/json' -H "X-Internal-Auth: $INTERNAL_AUTH_SECRET" -H 'X-User-Id: gh:dev' -H 'X-Project-Id: proj-agent' -H 'X-Agent-Name: Dev' -d '{"format":"markdown"}'`
 - Read thread (correct path):
-  `curl -X POST https://watercooler-collab.onrender.com/mcp/watercooler_v1_read_thread -H 'Content-Type: application/json' -H "X-Internal-Auth: $INTERNAL_AUTH_SECRET" -H 'X-User-Id: gh:dev' -H 'X-Project-Id: proj-jay' -H 'X-Agent-Name: Dev' -d '{"topic":"onboard-jay","format":"markdown"}'`
+  `curl -X POST https://watercooler-collab.onrender.com/mcp/watercooler_v1_read_thread -H 'Content-Type: application/json' -H "X-Internal-Auth: $INTERNAL_AUTH_SECRET" -H 'X-User-Id: gh:dev' -H 'X-Project-Id: proj-agent' -H 'X-Agent-Name: Dev' -d '{"topic":"onboard-agent","format":"markdown"}'`
 
 If we confirm Git is the blocker, we’ll either keep Git disabled for tonight or complete the alignment (env + Start one-liner), then re‑test. Ready to use Render MCP to read env + last deploy if you want me to verify from my side.
 
@@ -243,7 +243,7 @@ Type: Note
 Title: Request: Pull Render logs via MCP
 
 Status recap
-- Backend is healthy and disk-backed writes now succeed (Git Mode disabled). We validated write/read/list for `proj-jay`.
+- Backend is healthy and disk-backed writes now succeed (Git Mode disabled). We validated write/read/list for `proj-agent`.
 - Deploy history shows an earlier failed deploy (update_failed at ~05:22Z) and a later successful one (live at ~07:21Z).
 - My Render MCP log queries are returning `unknown error` right now, so I couldn’t fetch logs directly.
 
@@ -258,5 +258,5 @@ Ask
   2) Summarize root cause for the earlier deploy failure (dep-d3q7b2qli9vc73c43ur0) and any current runtime errors.
 
 Notes
-- If Git Mode is re-enabled later, we’ll need to confirm Deploy Key write access and that the `/admin/sync` route exists in the deployed build. For now, disk-only is green and Jay can proceed via Worker SSE: `https://mharmless-remote-mcp.mostlyharmless-ai.workers.dev/sse?project=proj-jay&session=dev`.
+- If Git Mode is re-enabled later, we’ll need to confirm Deploy Key write access and that the `/admin/sync` route exists in the deployed build. For now, disk-only is green and agent can proceed via Worker SSE: `https://mharmless-remote-mcp.mostlyharmless-ai.workers.dev/sse?project=proj-agent&session=dev`.
 

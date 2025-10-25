@@ -115,7 +115,7 @@ The following items capture best practices and planned refinements for day‑to�
 
 - `ACL` (Access Control List): Per‑user allowlist of projects that enforces a default‑deny authorization model at the Worker. If there is no entry for the user or the project isn’t listed, the request is rejected with 403.
   - Key: `user:gh:{login}`
-  - Value: JSON array of project names, e.g. `["proj-alpha", "proj-jay"]`
+  - Value: JSON array of project names, e.g. `["proj-alpha", "proj-agent"]`
   - Example: `gh:octocat` may access `/sse?project=proj-alpha` but not `/sse?project=proj-forbidden`.
 
 ## Understanding Remote MCP

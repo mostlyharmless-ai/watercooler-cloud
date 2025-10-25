@@ -50,7 +50,7 @@ The agent registry is a JSON file that defines:
 Agents are represented as: `Agent (user)`
 
 Examples:
-- `Claude (jay)` - Claude agent used by user jay
+- `Claude (agent)` - Claude agent used by user agent
 - `Codex (sarah)` - Codex agent used by user sarah
 - `Team (alex)` - Generic team entry by user alex
 
@@ -386,35 +386,35 @@ watercooler say feature-x --agents-file agents.json --agent team --title "Comple
 ```json
 {
   "canonical": {
-    "jay": "Jay",
+    "agent": "agent",
     "claude": "Claude"
   },
   "counterpart": {
-    "Jay": "Claude",
-    "Claude": "Jay"
+    "agent": "Claude",
+    "Claude": "agent"
   },
-  "default_ball": "Jay"
+  "default_ball": "agent"
 }
 ```
 
 **Workflow**:
 ```bash
-# Jay starts
-watercooler init-thread bug-fix --agents-file agents.json --ball jay
-watercooler say bug-fix --agents-file agents.json --agent jay --title "Bug Found" --body "Login fails on Safari"
+# agent starts
+watercooler init-thread bug-fix --agents-file agents.json --ball agent
+watercooler say bug-fix --agents-file agents.json --agent agent --title "Bug Found" --body "Login fails on Safari"
 # Ball → Claude
 
 # Claude analyzes
 watercooler say bug-fix --agents-file agents.json --agent claude --title "Root Cause" --body "Cookie SameSite issue"
-# Ball → Jay
+# Ball → agent
 
-# Jay implements fix
-watercooler say bug-fix --agents-file agents.json --agent jay --title "Fixed" --body "Updated cookie settings"
+# agent implements fix
+watercooler say bug-fix --agents-file agents.json --agent agent --title "Fixed" --body "Updated cookie settings"
 # Ball → Claude
 
 # Claude verifies
 watercooler say bug-fix --agents-file agents.json --agent claude --title "Verified" --body "Tests pass"
-# Ball → Jay
+# Ball → agent
 ```
 
 ### Example 3: Specialized Reviewers
@@ -470,15 +470,15 @@ User tags are automatically appended to agent names:
 
 ```bash
 # Agent name: codex
-# Git user: jay
-# Result: Codex (jay)
+# Git user: agent
+# Result: Codex (agent)
 watercooler say topic --agent codex --title "Update" --body "Done"
 ```
 
 Entry appears as:
 ```markdown
 ---
-Entry: Codex (jay) 2025-10-06T12:34:56Z
+Entry: Codex (agent) 2025-10-06T12:34:56Z
 ...
 ```
 
@@ -502,9 +502,9 @@ Entry: Claude (sarah) 2025-10-06T12:34:56Z
 In shared environments, tagging identifies who invoked which agent:
 
 ```bash
-# Jay uses Claude
+# agent uses Claude
 watercooler say topic --agent claude --title "Analysis" --body "Findings..."
-# Entry: Claude (jay)
+# Entry: Claude (agent)
 
 # Sarah uses Codex
 watercooler say topic --agent codex --title "Implementation" --body "Code..."
