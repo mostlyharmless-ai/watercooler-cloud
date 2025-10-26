@@ -114,6 +114,11 @@ class GitSyncManager:
             GitSyncError: If clone fails
         """
         try:
+            # If directory exists but isn't a git repo, remove it first
+            if self.local_path.exists() and not (self.local_path / ".git").exists():
+                import shutil
+                shutil.rmtree(self.local_path)
+
             cmd = ["git", "clone", self.repo_url, str(self.local_path)]
             subprocess.run(cmd, env=self._env, check=True, capture_output=True, text=True)
         except subprocess.CalledProcessError as e:
