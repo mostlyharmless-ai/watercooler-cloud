@@ -72,6 +72,7 @@ class SayRequest(BaseModel):
     body: str
     role: str = "implementer"
     entry_type: str = "Note"
+    create_if_missing: bool = False
 
 
 class AckRequest(BaseModel):

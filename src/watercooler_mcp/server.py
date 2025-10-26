@@ -356,7 +356,8 @@ def say(
     body: str,
     ctx: Context,
     role: str = "implementer",
-    entry_type: str = "Note"
+    entry_type: str = "Note",
+    create_if_missing: bool = False
 ) -> str:
     """Add your response to a thread and flip the ball to your counterpart.
 
@@ -369,6 +370,7 @@ def say(
         body: Full entry content (markdown supported)
         role: Your role - planner, critic, implementer, tester, pm, or scribe (default: implementer)
         entry_type: Entry type - Note, Plan, Decision, PR, or Closure (default: Note)
+        create_if_missing: Whether to create the thread if it doesn't exist (default: False, but threads are auto-created by commands.say)
 
     Returns:
         Confirmation message with updated ball status
