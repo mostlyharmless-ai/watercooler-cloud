@@ -136,6 +136,8 @@ celerybeat.pid
 
 # Environments
 .env
+.env.production
+.env.staging
 .envrc
 .venv
 env/
@@ -229,3 +231,6 @@ cloudflare-worker/.dev.vars
 cloudflare-worker/dist/
 cloudflare-worker/.parcel-cache/
 cloudflare-worker/.cache/
+
+# Secrets and sensitive data
+.secrets/
