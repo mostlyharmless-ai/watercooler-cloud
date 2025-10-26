@@ -1807,6 +1807,41 @@ Troubleshooting isn't just about fixing errors—it's an opportunity to deepen y
 
 ---
 
+#### "client_id=undefined on login redirect"
+
+**What happened**: The GitHub authorization URL was constructed with `client_id=undefined`, leading to a GitHub 404 or an immediate failure to render the OAuth page.
+
+**Root cause**:
+- Cloudflare Worker secrets were not configured for the active environment (staging/production). Wrangler secrets are environment‑scoped, so setting only the default scope leaves `env.GITHUB_CLIENT_ID` and `env.GITHUB_CLIENT_SECRET` undefined in non‑default environments.
+
+**How to fix (per environment)**:
+```bash
+cd cloudflare-worker
+
+# Recommended: interactive helper (sets all three secrets)
+./scripts/set-secrets.sh --env staging     # or --env production
+
+# Alternatively: set explicitly with wrangler
+echo "<GITHUB_CLIENT_ID>"        | npx wrangler secret put GITHUB_CLIENT_ID --env staging
+echo "<GITHUB_CLIENT_SECRET>"    | npx wrangler secret put GITHUB_CLIENT_SECRET --env staging
+echo "<INTERNAL_AUTH_SECRET>"    | npx wrangler secret put INTERNAL_AUTH_SECRET --env staging
+```
+
+**Verify**:
+- List secrets for the target environment:
+  ```bash
+  npx wrangler secret list --env staging   # expect: GITHUB_CLIENT_ID, GITHUB_CLIENT_SECRET, INTERNAL_AUTH_SECRET
+  ```
+- Probe the Worker’s debug endpoint (reports presence/lengths only):
+  ```bash
+  curl -sS https://<your-worker-domain>/debug/secrets | jq
+  # { has_github_client_id: true, github_client_id_length: 20, ... }
+  ```
+
+**What this teaches**:
+- Secrets are environment‑scoped in Wrangler; always pass `--env <env>` when setting and listing.
+- OAuth failures can originate from missing env bindings rather than code; add a preflight secrets check to every deploy.
+
 #### "CSRF state invalid" or "State mismatch"
 
 **What happened**: CSRF protection working correctly (this is good!)
