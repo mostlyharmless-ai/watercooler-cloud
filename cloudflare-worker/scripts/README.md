@@ -152,16 +152,28 @@ Deploy the Worker to Cloudflare with pre-flight checks.
 - Environment-specific configuration is correct
 
 ### `set-secrets.sh`
-Interactive script to configure Worker secrets.
+Interactive script to configure Worker secrets. Secrets are environment‑scoped; always pass the target environment.
 
 ```bash
-./scripts/set-secrets.sh
+./scripts/set-secrets.sh --env staging     # or --env production
 ```
 
 **Sets**:
 - `GITHUB_CLIENT_ID` (from GitHub OAuth app)
 - `GITHUB_CLIENT_SECRET` (from GitHub OAuth app)
-- `INTERNAL_AUTH_SECRET` (generates secure random value)
+- `INTERNAL_AUTH_SECRET` (generates or accepts secure random value)
+
+**Verify**:
+```bash
+# List secrets for an environment
+npx wrangler secret list --env staging
+
+# Optional: probe Worker debug endpoint (presence/lengths only)
+curl -sS https://<your-worker-domain>/debug/secrets | jq
+# → { has_github_client_id: true, github_client_id_length: 20, ... }
+```
+
+Note: `INTERNAL_AUTH_SECRET` must exactly match the Backend’s `INTERNAL_AUTH_SECRET` environment variable.
 
 ### `seed-acl.sh`
 Seed KV with user ACL data.
@@ -174,6 +186,56 @@ Seed KV with user ACL data.
 ```bash
 ./scripts/seed-acl.sh octocat proj-alpha proj-beta
 ```
+
+### `get-token.sh`
+Automatically configure Claude CLI and Codex CLI with MCP server using Bearer token authentication.
+
+```bash
+./scripts/get-token.sh <staging|production> <user|project>
+```
+
+**Arguments**:
+- `staging|production` - Which environment to configure
+- `user|project` - Configuration scope
+  - `user`: Saves to `~/.claude.json` (all projects) and `~/.codex/config.toml` (global)
+  - `project`: Saves to `./.claude.json` (this project only); Codex uses global config regardless
+
+**Workflow**:
+1. Opens `/console` page in browser (auto-redirects to OAuth login if needed)
+2. User clicks "Create Token" in the web UI
+3. User copies and pastes the Bearer token into script prompt
+4. Script automatically removes existing MCP server configs if present (both Claude and Codex)
+5. Script configures MCP servers using stdio transport format (`npx mcp-remote` wrapper)
+6. User restarts IDEs to load the new servers
+
+**Features**:
+- Configures both Claude and Codex CLI automatically (if installed)
+- No manual JSON/TOML editing required
+- Automatically replaces existing configs (no confirmation prompt)
+- Uses consistent stdio transport format across all environments
+- Generates config matching production format
+
+**CLI Detection**:
+- Script automatically detects which CLIs are available (Claude, Codex, or both)
+- Configures all available CLIs
+- Shows fallback manual instructions if neither CLI is found
+
+**Example**:
+```bash
+# Configure staging for all projects (both Claude and Codex)
+./scripts/get-token.sh staging user
+
+# Configure production for this project only (Claude only, Codex uses global)
+./scripts/get-token.sh production project
+```
+
+**Manual console access**:
+- Staging: https://watercooler-cloud-staging.mostlyharmless-ai.workers.dev/console
+- Production: https://watercooler-cloud.mostlyharmless-ai.workers.dev/console
+
+**Configuration locations**:
+- Claude: `~/.claude.json` (user) or `./.claude.json` (project)
+- Codex: `~/.codex/config.toml` (always global)
 
 ### `test-security.sh`
 Run security validation tests against deployed Worker.

@@ -61,27 +61,54 @@ if [[ ! -f "wrangler.toml" ]]; then
 fi
 echo -e "${GREEN}✓ wrangler.toml found${NC}"
 
-# Check secrets
+## Resolve script name for target env (to avoid identity drift)
+resolve_name() {
+  local env="$1"
+  local top_name
+  top_name=$(grep -E '^name\s*=\s*"' wrangler.toml | head -n1 | cut -d '"' -f2)
+  if [[ "$env" == "production" ]]; then
+    echo "$top_name"
+    return
+  fi
+  # Find name within [env.staging] block
+  local staging_block
+  staging_block=$(awk '/^\[env\.staging\]/{flag=1;next}/^\[/{flag=0}flag' wrangler.toml)
+  local stg_name
+  stg_name=$(echo "$staging_block" | grep -E '^name\s*=\s*"' | head -n1 | cut -d '"' -f2)
+  if [[ -n "$stg_name" ]]; then
+    echo "$stg_name"
+  else
+    # Fallback heuristic
+    echo "${top_name}-staging"
+  fi
+}
+
+SCRIPT_NAME=$(resolve_name "$ENV")
+ENV_FLAG=()
+if [[ "$ENV" == "staging" ]]; then ENV_FLAG=(--env staging); fi
+
+# Check secrets (by explicit script name and env)
 echo ""
-echo -e "${BLUE}Checking required secrets...${NC}"
+echo -e "${BLUE}Checking required secrets for script '${SCRIPT_NAME}' (${ENV})...${NC}"
 
 REQUIRED_SECRETS=("GITHUB_CLIENT_ID" "GITHUB_CLIENT_SECRET" "INTERNAL_AUTH_SECRET")
 MISSING_SECRETS=()
 
 for SECRET in "${REQUIRED_SECRETS[@]}"; do
-    if npx wrangler secret list 2>/dev/null | grep -q "^$SECRET"; then
-        echo -e "${GREEN}✓ $SECRET is set${NC}"
-    else
-        echo -e "${RED}✗ $SECRET is missing${NC}"
-        MISSING_SECRETS+=("$SECRET")
-    fi
+  if npx wrangler secret list --name "$SCRIPT_NAME" ${ENV_FLAG[@]} 2>/dev/null | awk '{print $1}' | grep -qx "$SECRET"; then
+    echo -e "${GREEN}✓ $SECRET is set${NC}"
+  else
+    echo -e "${RED}✗ $SECRET is missing${NC}"
+    MISSING_SECRETS+=("$SECRET")
+  fi
 done
 
 if [[ ${#MISSING_SECRETS[@]} -gt 0 ]]; then
-    echo ""
-    echo -e "${RED}Missing secrets detected!${NC}"
-    echo "Run: ./scripts/set-secrets.sh to configure secrets"
-    exit 1
+  echo ""
+  echo -e "${RED}Missing secrets detected for script '${SCRIPT_NAME}' (${ENV}).${NC}"
+  echo "Run: ./scripts/set-secrets.sh --env ${ENV} to configure secrets"
+  echo "Or set explicitly, e.g.: printf '%s' '<value>' | npx wrangler secret put <NAME> --name ${SCRIPT_NAME} ${ENV_FLAG[*]}"
+  exit 1
 fi
 
 # Check KV namespace binding
