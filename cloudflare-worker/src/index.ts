@@ -718,7 +718,25 @@ export default {
       }
     }
     if (url.pathname === '/health') {
-      return new Response(JSON.stringify({ status: 'ok', service: 'mharmless-remote-mcp', backend: env.BACKEND_URL }), {
+      return new Response(JSON.stringify({ status: 'ok', service: 'watercooler-cloud-worker', backend: env.BACKEND_URL }), {
+        headers: { ...corsHeaders, 'Content-Type': 'application/json' },
+      });
+    }
+    if (url.pathname === '/debug/secrets') {
+      return new Response(JSON.stringify({
+        has_github_client_id: !!env.GITHUB_CLIENT_ID,
+        github_client_id_length: env.GITHUB_CLIENT_ID?.length || 0,
+        github_client_id_prefix: env.GITHUB_CLIENT_ID?.substring(0, 6) || 'undefined',
+        has_github_client_secret: !!env.GITHUB_CLIENT_SECRET,
+        has_internal_auth: !!env.INTERNAL_AUTH_SECRET
+      }), {
+        headers: { ...corsHeaders, 'Content-Type': 'application/json' },
+      });
+    }
+    if (url.pathname === '/debug/envkeys') {
+      // Expose the binding keys present on this env (for diagnostics only)
+      const keys = Object.keys(env as unknown as Record<string, unknown>).sort();
+      return new Response(JSON.stringify(keys), {
         headers: { ...corsHeaders, 'Content-Type': 'application/json' },
       });
     }
@@ -823,6 +841,27 @@ async function handleAuthLogin(
 
   // Store state in KV with 10-minute TTL
   await env.KV_PROJECTS.put(`oauth:state:${state}`, '1', { expirationTtl: 600 });
+
+  // Debug: Log secret availability
+  console.log(JSON.stringify({
+    event: 'auth_login_debug',
+    has_client_id: !!env.GITHUB_CLIENT_ID,
+    client_id_length: env.GITHUB_CLIENT_ID?.length || 0,
+    client_id_firstchars: env.GITHUB_CLIENT_ID?.substring(0, 4) || 'undefined'
+  }));
+
+  // Guard: required secrets must be present before building OAuth URL
+  const missing: string[] = [];
+  if (!env.GITHUB_CLIENT_ID) missing.push('GITHUB_CLIENT_ID');
+  if (!env.GITHUB_CLIENT_SECRET) missing.push('GITHUB_CLIENT_SECRET');
+  if (!env.INTERNAL_AUTH_SECRET) missing.push('INTERNAL_AUTH_SECRET');
+  if (missing.length > 0) {
+    console.log(JSON.stringify({ event: 'missing_secrets', missing }));
+    return new Response(JSON.stringify({ error: 'missing_secrets', missing }), {
+      status: 503,
+      headers: { ...corsHeaders, 'Content-Type': 'application/json' },
+    });
+  }
 
   // Build GitHub authorization URL
   const redirectUri = `${url.origin}/auth/callback`;

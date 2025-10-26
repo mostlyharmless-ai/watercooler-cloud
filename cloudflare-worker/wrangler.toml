@@ -1,57 +1,27 @@
-name = "mharmless-remote-mcp"
+# Watercooler Cloud - Cloudflare Worker Configuration
+# Dual-stack deployment: staging and production environments
+
+name = "watercooler-cloud"
 main = "src/index.ts"
 compatibility_date = "2025-01-01"
 compatibility_flags = ["nodejs_compat"]
 workers_dev = true
 preview_urls = true
+account_id = "368d2724892d827312b997a7f06db1a5"
 
-# Default configuration (production)
+################################################################################
+# PRODUCTION ENVIRONMENT (default)
+################################################################################
+
 [vars]
-BACKEND_URL = "https://watercooler-collab.onrender.com"
-DEFAULT_AGENT = "Agent"
-AGENT_TYPE = "Agent"
-# ALLOW_DEV_SESSION not set - defaults to false in production
+BACKEND_URL = "https://watercooler-cloud.onrender.com"
+# ALLOW_DEV_SESSION not set - defaults to false (OAuth required)
+# AUTO_ENROLL_PROJECTS not set - defaults to false (explicit ACL management)
 
-# KV namespace for per-user project ACLs and defaults
 [[kv_namespaces]]
 binding = "KV_PROJECTS"
-id = "d9af191397d44b1e8e94f9ca10ecd6e7"
+id = "2f2d304b3d8c4522830a9460098b5559"
 
-# Staging environment configuration
-[env.staging]
-name = "mharmless-remote-mcp-staging"
-
-[env.staging.vars]
-BACKEND_URL = "https://watercooler-collab.onrender.com"
-DEFAULT_AGENT = "Agent"
-AGENT_TYPE = "Agent"
-ALLOW_DEV_SESSION = "false"
-AUTO_ENROLL_PROJECTS = "false"
-
-[[env.staging.kv_namespaces]]
-binding = "KV_PROJECTS"
-id = "d9af191397d44b1e8e94f9ca10ecd6e7"
-
-# Production environment configuration (explicit)
-[env.production]
-name = "mharmless-remote-mcp"
-
-[env.production.vars]
-BACKEND_URL = "https://watercooler-collab.onrender.com"
-DEFAULT_AGENT = "Agent"
-AGENT_TYPE = "Agent"
-# ALLOW_DEV_SESSION not set - defaults to false (OAuth required)
-# AUTO_ENROLL_PROJECTS not set in production (default deny). Enable only if you want set_project to create ACL entries automatically.
-
-[[env.production.kv_namespaces]]
-binding = "KV_PROJECTS"
-id = "d9af191397d44b1e8e94f9ca10ecd6e7"
-
-# Optional placement configuration for smart routing
-# [placement]
-# mode = "smart"
-
-# Durable Objects configuration (default/production)
 [durable_objects]
 bindings = [
   { name = "SESSION_MANAGER", class_name = "SessionManager" }
@@ -61,7 +31,22 @@ bindings = [
 tag = "v1-session"
 new_sqlite_classes = ["SessionManager"]
 
-# Durable Objects for staging
+################################################################################
+# STAGING ENVIRONMENT
+################################################################################
+
+[env.staging]
+name = "watercooler-cloud-staging"
+
+[env.staging.vars]
+BACKEND_URL = "https://watercooler-cloud-staging.onrender.com"
+ALLOW_DEV_SESSION = "false"
+AUTO_ENROLL_PROJECTS = "false"
+
+[[env.staging.kv_namespaces]]
+binding = "KV_PROJECTS"
+id = "b9b8b18bba6943878c892c4108371dc2"
+
 [env.staging.durable_objects]
 bindings = [
   { name = "SESSION_MANAGER", class_name = "SessionManager" }
@@ -71,15 +56,14 @@ bindings = [
 tag = "v1-session"
 new_sqlite_classes = ["SessionManager"]
 
-# Durable Objects for production
-[env.production.durable_objects]
-bindings = [
-  { name = "SESSION_MANAGER", class_name = "SessionManager" }
-]
+################################################################################
+# OPTIONAL CONFIGURATION
+################################################################################
 
-[[env.production.migrations]]
-tag = "v1-session"
-new_sqlite_classes = ["SessionManager"]
-
+# Cron triggers for periodic cleanup tasks
 [triggers]
 crons = ["*/15 * * * *"]
+
+# Optional smart routing (uncomment if needed)
+# [placement]
+# mode = "smart"
