@@ -517,7 +517,7 @@ Still stuck? Review these guides:
 
 - **[Quickstart Guide](./QUICKSTART.md)** - Step-by-step setup instructions
 - **[Environment Variables](./ENVIRONMENT_VARS.md)** - Complete configuration reference
-- **[Cloud Sync Guide](./CLOUD_SYNC_GUIDE.md)** - Git sync setup and troubleshooting
+- **[Cloud Sync Guide](../.mothballed/docs/CLOUD_SYNC_GUIDE.md)** - Git sync setup and troubleshooting
 - **[MCP Server Guide](./mcp-server.md)** - Tool reference and usage examples
 - **[Claude Code Setup](./CLAUDE_CODE_SETUP.md)** - Claude Code specific configuration
 - **[Claude Desktop Setup](./CLAUDE_DESKTOP_SETUP.md)** - Claude Desktop specific configuration

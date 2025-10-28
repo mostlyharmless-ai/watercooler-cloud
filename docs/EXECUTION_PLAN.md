@@ -96,7 +96,7 @@ Implementation blueprint (minimal, powerful)
 - Update `docs/LOCAL_QUICKSTART.md` with “Universal dev mode” and the single add command above.
 - Keep `docs/BRANCH_PAIRING.md` as the conceptual anchor.
 - Ensure `AGENTS.md` and `~/.claude/CLAUDE.md` reflect identity pre‑flight and branch pairing.
-- Keep remote path mothballed in `docs/DEPLOYMENT_QUICK_START.md`.
+- Keep remote path mothballed in `.mothballed/docs/DEPLOYMENT_QUICK_START.md`.
 
 7) Functional validation (team)
 - Repo switch: cd into two different code repos; run list/read/say; confirm threads resolve to `{repo}-threads` automatically.

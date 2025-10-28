@@ -77,7 +77,7 @@ File-based collaboration protocol for agentic coding projects with CLI tools and
 - [Multi-agent use case](USE_CASES.md#multi-agent-collaboration) - Complete example
 
 ### Team Collaboration
-- [Enable cloud sync](CLOUD_SYNC_STRATEGY.md) - Git-based team mode (Phase 2A)
+- [Enable cloud sync](.mothballed/docs/CLOUD_SYNC_STRATEGY.md) - Git-based team mode (Phase 2A)
 - [Configure git merge strategy](../.github/WATERCOOLER_SETUP.md) - Required setup
 - [Async collaboration use case](USE_CASES.md#async-team-collaboration) - Cross-timezone example
 
@@ -119,7 +119,7 @@ File-based collaboration protocol for agentic coding projects with CLI tools and
 - **[Templates](TEMPLATES.md)** - Template syntax and customization
 
 ### Advanced Topics
-- **[Cloud Sync Strategy](CLOUD_SYNC_STRATEGY.md)** - Git-based cloud sync (Phase 2A)
+- **[Cloud Sync Strategy](.mothballed/docs/CLOUD_SYNC_STRATEGY.md)** - Git-based cloud sync (Phase 2A)
 - **[Git Configuration](../.github/WATERCOOLER_SETUP.md)** - Merge strategies and pre-commit hooks
 
 ### Migration & History
@@ -163,9 +163,9 @@ See **[ROADMAP.md](ROADMAP.md)** for detailed phase status.
 6. Customize [Templates](TEMPLATES.md) - Make threads your own
 
 ### Advanced
-7. Enable [Cloud Sync](CLOUD_SYNC_STRATEGY.md) - Team collaboration
+7. Enable [Cloud Sync](.mothballed/docs/CLOUD_SYNC_STRATEGY.md) - Team collaboration
 8. Study [API Reference](api.md) - Python library integration
-9. Read [Architecture](CLOUD_SYNC_STRATEGY.md) - Implementation deep-dive
+9. Read [Architecture](.mothballed/docs/CLOUD_SYNC_STRATEGY.md) - Implementation deep-dive
 
 ---
 

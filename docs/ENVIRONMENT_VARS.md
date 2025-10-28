@@ -180,7 +180,7 @@ export WATERCOOLER_DIR="~/threads"
 
 **Related:**
 - See [QUICKSTART.md](./QUICKSTART.md#environment-variables) for basic setup
-- See [CLOUD_SYNC_GUIDE.md](./CLOUD_SYNC_GUIDE.md) for team collaboration
+- See [CLOUD_SYNC_GUIDE.md](../.mothballed/docs/CLOUD_SYNC_GUIDE.md) for team collaboration
 
 ---
 
@@ -243,8 +243,8 @@ WATERCOOLER_DIR = "/Users/agent/.watercooler-threads"
 - Clone repository locally and point `WATERCOOLER_DIR` to it
 
 **Related:**
-- See [CLOUD_SYNC_GUIDE.md](./CLOUD_SYNC_GUIDE.md) for complete setup
-- See [CLOUD_SYNC_STRATEGY.md](./CLOUD_SYNC_STRATEGY.md) for architecture details
+- See [CLOUD_SYNC_GUIDE.md](../.mothballed/docs/CLOUD_SYNC_GUIDE.md) for complete setup
+- See [CLOUD_SYNC_STRATEGY.md](../.mothballed/docs/CLOUD_SYNC_STRATEGY.md) for architecture details
 
 ---
 
@@ -314,7 +314,7 @@ ssh-add ~/.ssh/id_ed25519_watercooler
 2. Add as deploy key with write access in repository settings
 
 **Related:**
-- See [CLOUD_SYNC_GUIDE.md](./CLOUD_SYNC_GUIDE.md#ssh-key-setup) for detailed setup
+- See [CLOUD_SYNC_GUIDE.md](../.mothballed/docs/CLOUD_SYNC_GUIDE.md#ssh-key-setup) for detailed setup
 - See [WATERCOOLER_GIT_REPO](#watercooler_git_repo) for enabling cloud sync
 
 ---
@@ -369,7 +369,7 @@ export WATERCOOLER_GIT_AUTHOR="Bob's Claude"
 
 **Related:**
 - See [WATERCOOLER_GIT_EMAIL](#watercooler_git_email) for author email
-- See [CLOUD_SYNC_GUIDE.md](./CLOUD_SYNC_GUIDE.md) for team setup
+- See [CLOUD_SYNC_GUIDE.md](../.mothballed/docs/CLOUD_SYNC_GUIDE.md) for team setup
 
 ---
 
@@ -405,7 +405,7 @@ WATERCOOLER_GIT_EMAIL = "claude@team.com"
 
 **Related:**
 - See [WATERCOOLER_GIT_AUTHOR](#watercooler_git_author) for author name
-- See [CLOUD_SYNC_GUIDE.md](./CLOUD_SYNC_GUIDE.md) for team setup
+- See [CLOUD_SYNC_GUIDE.md](../.mothballed/docs/CLOUD_SYNC_GUIDE.md) for team setup
 
 ---
 
@@ -568,7 +568,7 @@ WATERCOOLER_GIT_EMAIL = "alice+claude@team.com"
 - `WATERCOOLER_GIT_AUTHOR/EMAIL` customize git identity
 
 **Related:**
-- See [CLOUD_SYNC_GUIDE.md](./CLOUD_SYNC_GUIDE.md) for complete cloud setup
+- See [CLOUD_SYNC_GUIDE.md](../.mothballed/docs/CLOUD_SYNC_GUIDE.md) for complete cloud setup
 
 ---
 
@@ -607,7 +607,7 @@ export WATERCOOLER_GIT_REPO="git@github.com:team/project-b-threads.git"
 
 **Related:**
 - See [direnv](https://direnv.net/) for automatic environment switching
-- See [CLOUD_SYNC_GUIDE.md](./CLOUD_SYNC_GUIDE.md#multiple-projects)
+- See [CLOUD_SYNC_GUIDE.md](../.mothballed/docs/CLOUD_SYNC_GUIDE.md#multiple-projects)
 
 ---
 
@@ -675,7 +675,7 @@ git pull
 ```
 
 **Common issues:**
-- SSH key not configured → See [CLOUD_SYNC_GUIDE.md](./CLOUD_SYNC_GUIDE.md#ssh-key-setup)
+- SSH key not configured → See [CLOUD_SYNC_GUIDE.md](../.mothballed/docs/CLOUD_SYNC_GUIDE.md#ssh-key-setup)
 - Wrong repository URL → Verify `WATERCOOLER_GIT_REPO`
 - Directory not a git clone → Re-clone repository
 
@@ -685,7 +685,7 @@ git pull
 
 - **[QUICKSTART.md](./QUICKSTART.md)** - Basic setup and configuration
 - **[MCP Server Guide](./mcp-server.md)** - MCP server documentation
-- **[CLOUD_SYNC_GUIDE.md](./CLOUD_SYNC_GUIDE.md)** - Team collaboration setup
+- **[CLOUD_SYNC_GUIDE.md](../.mothballed/docs/CLOUD_SYNC_GUIDE.md)** - Team collaboration setup
 - **[integration.md](./integration.md)** - Python library configuration
 - **[TROUBLESHOOTING.md](./TROUBLESHOOTING.md)** - Common issues and solutions
 - **[TEMPLATES.md](./TEMPLATES.md)** - Template customization

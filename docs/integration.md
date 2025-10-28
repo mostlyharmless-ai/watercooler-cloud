@@ -516,9 +516,11 @@ Watercooler supports **git-based cloud sync** for distributed team collaboration
 
 ### Documentation
 
-- **[Cloud Sync Guide](./CLOUD_SYNC_GUIDE.md)** - 5-minute setup walkthrough
-- **[Cloud Sync Strategy](./CLOUD_SYNC_STRATEGY.md)** - Decision rationale and trade-offs
-- **[Cloud Sync Architecture](./CLOUD_SYNC_ARCHITECTURE.md)** - Technical implementation details
+> **Note**: Cloud sync features have been mothballed in favor of local-first architecture. See [LOCAL_QUICKSTART.md](./LOCAL_QUICKSTART.md) for current setup.
+
+- **[Cloud Sync Guide](../.mothballed/docs/CLOUD_SYNC_GUIDE.md)** - 5-minute setup walkthrough (archived)
+- **[Cloud Sync Strategy](../.mothballed/docs/CLOUD_SYNC_STRATEGY.md)** - Decision rationale and trade-offs (archived)
+- **[Cloud Sync Architecture](../.mothballed/docs/CLOUD_SYNC_ARCHITECTURE.md)** - Technical implementation details (archived)
 
 ---
 
@@ -729,10 +731,10 @@ CONFLICT (content): Merge conflict in .watercooler/thread.md
 - [Agent Registry](AGENT_REGISTRY.md) - Agent configuration guide
 - [Templates Guide](TEMPLATES.md) - Template customization reference
 
-### Cloud Sync
-- [Cloud Sync Guide](./CLOUD_SYNC_GUIDE.md) - User-facing setup walkthrough
-- [Cloud Sync Strategy](./CLOUD_SYNC_STRATEGY.md) - Decision rationale
-- [Cloud Sync Architecture](./CLOUD_SYNC_ARCHITECTURE.md) - Technical details
+### Cloud Sync (Archived)
+- [Cloud Sync Guide](../.mothballed/docs/CLOUD_SYNC_GUIDE.md) - User-facing setup walkthrough (archived)
+- [Cloud Sync Strategy](../.mothballed/docs/CLOUD_SYNC_STRATEGY.md) - Decision rationale (archived)
+- [Cloud Sync Architecture](../.mothballed/docs/CLOUD_SYNC_ARCHITECTURE.md) - Technical details (archived)
 
 ### Reference
 - [MCP Server Guide](./mcp-server.md) - MCP tool documentation
