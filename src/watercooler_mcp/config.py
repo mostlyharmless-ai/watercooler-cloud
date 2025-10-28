@@ -241,10 +241,9 @@ def resolve_thread_context(code_root: Optional[Path] = None) -> ThreadContext:
     if threads_dir is None:
         if threads_slug:
             threads_dir = _compose_local_threads_path(_default_threads_base(), threads_slug)
-        elif normalized_root:
-            threads_dir = _resolve_path(normalized_root / ".watercooler")
         else:
-            threads_dir = _resolve_path(Path.cwd() / ".watercooler")
+            # Global fallback - NEVER create .watercooler in code repo
+            threads_dir = _resolve_path(_default_threads_base() / "_local")
 
     return ThreadContext(
         code_root=git_details.root or normalized_root,
