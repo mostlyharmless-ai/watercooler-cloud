@@ -125,7 +125,8 @@ def test_say_creates_directory_via_init_thread(temp_project_dir, mock_context, m
         title="Test Entry",
         body="This is a test",
         ctx=mock_context,
-        code_path=str(temp_project_dir)
+        code_path=str(temp_project_dir),
+        agent_func="Claude:pm",
     )
 
     # Verify directory was created
