@@ -16,10 +16,19 @@ if sys.version_info < (3, 10):
         f"Watercooler MCP requires Python 3.10+; found {sys.version.split()[0]}"
     )
 from fastmcp import FastMCP, Context
+import os
 from pathlib import Path
 from ulid import ULID
 from watercooler import commands, fs
-from .config import get_agent_name, get_threads_dir, get_version, get_git_sync_manager
+from .config import (
+    get_agent_name,
+    get_threads_dir,
+    get_version,
+    get_git_sync_manager,
+    get_threads_dir_for,
+    get_git_sync_manager_for,
+    get_code_context,
+)
 
 # Initialize FastMCP server
 mcp = FastMCP(name="Watercooler Collaboration")
@@ -201,7 +210,8 @@ def list_threads(
     open_only: bool | None = None,
     limit: int = 50,
     cursor: str | None = None,
-    format: str = "markdown"
+    format: str = "markdown",
+    code_path: str = "",
 ) -> str:
     """List all watercooler threads.
 
@@ -228,8 +238,46 @@ def list_threads(
         if format != "markdown":
             return f"Error: Phase 1A only supports format='markdown'. JSON support coming in Phase 1B."
 
-        threads_dir = get_threads_dir()
+        if not code_path:
+            return (
+                "code_path required: pass the code repository root (e.g., '.') so the server can resolve the correct threads repo/branch."
+            )
+
+        code_root = Path(code_path)
+        threads_dir = get_threads_dir_for(code_root)
         agent = get_agent_name(ctx.client_id)
+
+        # Cloud/Git mode: pull latest before listing to reflect remote updates
+        sync = get_git_sync_manager_for(code_root)
+        if sync:
+            code_ctx = get_code_context(code_root)
+            branch = code_ctx.get("code_branch")
+            if branch and os.getenv("WATERCOOLER_AUTO_BRANCH", "1") != "0":
+                try:
+                    sync.ensure_branch(branch)
+                except Exception:
+                    pass
+            sync.pull()
+
+        # Guard: avoid silently creating a local ./.watercooler when dynamic mode is intended
+        fallback = Path.cwd() / ".watercooler"
+        dynamic_env = any(
+            os.getenv(k)
+            for k in (
+                "WATERCOOLER_THREADS_BASE",
+                "WATERCOOLER_THREADS_PATTERN",
+                "WATERCOOLER_GIT_REPO",
+                "WATERCOOLER_CODE_REPO",
+            )
+        )
+        if threads_dir == fallback and dynamic_env:
+            return (
+                "Dynamic threads repo was not resolved from your git context.\n"
+                "To use universal dev mode, run Claude from inside your code repo, or set\n"
+                "WATERCOOLER_CODE_REPO or WATERCOOLER_GIT_REPO on the MCP server.\n"
+                f"Working dir: {Path.cwd()}\n"
+                f"Resolved threads dir: {threads_dir} (fallback suppressed)."
+            )
 
         # Create threads directory if it doesn't exist
         if not threads_dir.exists():
@@ -301,7 +349,8 @@ def read_thread(
     topic: str,
     from_entry: int = 0,
     limit: int = 100,
-    format: str = "markdown"
+    format: str = "markdown",
+    code_path: str = "",
 ) -> str:
     """Read the complete content of a watercooler thread.
 
@@ -325,15 +374,37 @@ def read_thread(
         if format != "markdown":
             return f"Error: Phase 1A only supports format='markdown'. JSON support coming in Phase 1B."
 
-        threads_dir = get_threads_dir()
-        sync = get_git_sync_manager()
+        if not code_path:
+            return (
+                "code_path required: pass the code repository root (e.g., '.') so the server can resolve the correct threads repo/branch."
+            )
+
+        code_root = Path(code_path)
+        threads_dir = get_threads_dir_for(code_root)
+        sync = get_git_sync_manager_for(code_root)
+
+        # Guard against unintended fallback when dynamic mode env is present
+        fallback = Path.cwd() / ".watercooler"
+        dynamic_env = any(os.getenv(k) for k in ("WATERCOOLER_THREADS_BASE","WATERCOOLER_THREADS_PATTERN","WATERCOOLER_GIT_REPO","WATERCOOLER_CODE_REPO"))
+        if threads_dir == fallback and dynamic_env:
+            return (
+                "Dynamic threads repo was not resolved from your git context.\n"
+                "Run from inside your code repo or set WATERCOOLER_CODE_REPO/WATERCOOLER_GIT_REPO."
+            )
 
         # Create threads directory if it doesn't exist
         if not threads_dir.exists():
             threads_dir.mkdir(parents=True, exist_ok=True)
 
-        # Cloud mode: pull latest before reading
+        # Cloud mode: ensure branch and pull latest before reading
         if sync:
+            code_ctx = get_code_context(code_root)
+            branch = code_ctx.get("code_branch")
+            if branch and os.getenv("WATERCOOLER_AUTO_BRANCH", "1") != "0":
+                try:
+                    sync.ensure_branch(branch)
+                except Exception:
+                    pass
             sync.pull()
 
         thread_path = fs.thread_path(topic, threads_dir)
@@ -357,7 +428,9 @@ def say(
     ctx: Context,
     role: str = "implementer",
     entry_type: str = "Note",
-    create_if_missing: bool = False
+    create_if_missing: bool = False,
+    code_path: str = "",
+    agent_func: str = "",
 ) -> str:
     """Add your response to a thread and flip the ball to your counterpart.
 
@@ -379,9 +452,18 @@ def say(
         say("feature-auth", "Implementation complete", "All tests passing. Ready for review.", role="implementer", entry_type="Note")
     """
     try:
-        threads_dir = get_threads_dir()
-        agent = get_agent_name(ctx.client_id)
-        sync = get_git_sync_manager()
+        code_root = Path(code_path) if code_path else None
+        if not code_path:
+            return "code_path required: provide repo root (e.g., '.')"
+        if not agent_func or ":" not in agent_func:
+            return "identity required: pass agent_func as '<AgentBase>:<spec>' (e.g., 'Claude:pm')"
+        agent_base, agent_spec = [p.strip() for p in agent_func.split(":", 1)]
+        if not agent_base or not agent_spec:
+            return "identity invalid: agent_func must be '<AgentBase>:<spec>'"
+
+        threads_dir = get_threads_dir_for(code_root)
+        agent = agent_base or get_agent_name(ctx.client_id)
+        sync = get_git_sync_manager_for(code_root)
 
         # Generate unique Entry-ID for idempotency
         entry_id = str(ULID())
@@ -396,17 +478,29 @@ def say(
                 title=title,
                 entry_type=entry_type,
                 body=body,
+                entry_id=entry_id,
             )
 
         if sync:
-            # Cloud mode: sync before and after
-            # Create commit message with Entry-ID footer
-            commit_message = (
-                f"{agent}: {title} ({topic})\n"
-                f"\n"
-                f"Watercooler-Entry-ID: {entry_id}\n"
-                f"Watercooler-Topic: {topic}"
-            )
+            code_ctx = get_code_context(code_root)
+            branch = code_ctx.get("code_branch")
+            if branch and os.getenv("WATERCOOLER_AUTO_BRANCH", "1") != "0":
+                try:
+                    sync.ensure_branch(branch)
+                except Exception:
+                    pass
+            footers = [
+                f"Watercooler-Entry-ID: {entry_id}",
+                f"Watercooler-Topic: {topic}",
+            ]
+            if code_ctx.get("code_repo"):
+                footers.append(f"Code-Repo: {code_ctx['code_repo']}")
+            if code_ctx.get("code_branch"):
+                footers.append(f"Code-Branch: {code_ctx['code_branch']}")
+            if code_ctx.get("code_commit"):
+                footers.append(f"Code-Commit: {code_ctx['code_commit']}")
+            footers.append(f"Spec: {agent_spec}")
+            commit_message = f"{agent}: {title} ({topic})\n\n" + "\n".join(footers)
             sync.with_sync(append_operation, commit_message)
         else:
             # Local mode: no sync
@@ -434,7 +528,9 @@ def ack(
     topic: str,
     ctx: Context,
     title: str = "",
-    body: str = ""
+    body: str = "",
+    code_path: str = "",
+    agent_func: str = "",
 ) -> str:
     """Acknowledge a thread without flipping the ball.
 
@@ -453,17 +549,47 @@ def ack(
         ack("feature-auth", "Noted", "Thanks for the update, looks good!")
     """
     try:
-        threads_dir = get_threads_dir()
-        agent = get_agent_name(ctx.client_id)
+        if not code_path:
+            return "code_path required: provide repo root (e.g., '.')"
+        if not agent_func or ":" not in agent_func:
+            return "identity required: pass agent_func as '<AgentBase>:<spec>'"
+        agent_base, agent_spec = [p.strip() for p in agent_func.split(":", 1)]
+        if not agent_base or not agent_spec:
+            return "identity invalid: agent_func must be '<AgentBase>:<spec>'"
+        code_root = Path(code_path)
+        threads_dir = get_threads_dir_for(code_root)
+        agent = agent_base or get_agent_name(ctx.client_id)
+        sync = get_git_sync_manager_for(code_root)
 
-        # Call watercooler ack command (preserves ball)
-        commands.ack(
-            topic,
-            threads_dir=threads_dir,
-            agent=agent,
-            title=title or None,  # Let command use default
-            body=body or None,    # Let command use default
-        )
+        def ack_operation():
+            commands.ack(
+                topic,
+                threads_dir=threads_dir,
+                agent=agent,
+                title=title or None,
+                body=body or None,
+            )
+
+        if sync:
+            code_ctx = get_code_context(code_root)
+            branch = code_ctx.get("code_branch")
+            if branch and os.getenv("WATERCOOLER_AUTO_BRANCH", "1") != "0":
+                try:
+                    sync.ensure_branch(branch)
+                except Exception:
+                    pass
+            footers = [f"Watercooler-Topic: {topic}"]
+            if code_ctx.get("code_repo"):
+                footers.append(f"Code-Repo: {code_ctx['code_repo']}")
+            if code_ctx.get("code_branch"):
+                footers.append(f"Code-Branch: {code_ctx['code_branch']}")
+            if code_ctx.get("code_commit"):
+                footers.append(f"Code-Commit: {code_ctx['code_commit']}")
+            footers.append(f"Spec: {agent_spec}")
+            commit_message = f"{agent}: {title or 'Ack'} ({topic})\n\n" + "\n".join(footers)
+            sync.with_sync(ack_operation, commit_message)
+        else:
+            ack_operation()
 
         # Get updated thread meta
         thread_path = fs.thread_path(topic, threads_dir)
@@ -487,7 +613,9 @@ def handoff(
     topic: str,
     ctx: Context,
     note: str = "",
-    target_agent: str | None = None
+    target_agent: str | None = None,
+    code_path: str = "",
+    agent_func: str = "",
 ) -> str:
     """Hand off the ball to another agent.
 
@@ -506,25 +634,54 @@ def handoff(
         handoff("feature-auth", "Ready for your review", target_agent="Claude")
     """
     try:
-        threads_dir = get_threads_dir()
-        agent = get_agent_name(ctx.client_id)
+        if not code_path:
+            return "code_path required: provide repo root (e.g., '.')"
+        if not agent_func or ":" not in agent_func:
+            return "identity required: pass agent_func as '<AgentBase>:<spec>'"
+        agent_base, agent_spec = [p.strip() for p in agent_func.split(":", 1)]
+        if not agent_base or not agent_spec:
+            return "identity invalid: agent_func must be '<AgentBase>:<spec>'"
+        code_root = Path(code_path)
+        threads_dir = get_threads_dir_for(code_root)
+        agent = agent_base or get_agent_name(ctx.client_id)
 
         if target_agent:
-            # Explicit target: use set_ball to directly assign
-            commands.set_ball(topic, threads_dir=threads_dir, ball=target_agent)
+            sync = get_git_sync_manager_for(code_root)
 
-            # Add a note about the handoff if provided
-            if note:
-                commands.append_entry(
-                    topic,
-                    threads_dir=threads_dir,
-                    agent=agent,
-                    role="pm",
-                    title=f"Handoff to {target_agent}",
-                    entry_type="Note",
-                    body=note,
-                    ball=target_agent,  # Keep ball with target
-                )
+            def op():
+                commands.set_ball(topic, threads_dir=threads_dir, ball=target_agent)
+                if note:
+                    commands.append_entry(
+                        topic,
+                        threads_dir=threads_dir,
+                        agent=agent,
+                        role="pm",
+                        title=f"Handoff to {target_agent}",
+                        entry_type="Note",
+                        body=note,
+                        ball=target_agent,
+                    )
+
+            if sync:
+                code_ctx = get_code_context(code_root)
+                branch = code_ctx.get("code_branch")
+                if branch and os.getenv("WATERCOOLER_AUTO_BRANCH", "1") != "0":
+                    try:
+                        sync.ensure_branch(branch)
+                    except Exception:
+                        pass
+                footers = [f"Watercooler-Topic: {topic}"]
+                if code_ctx.get("code_repo"):
+                    footers.append(f"Code-Repo: {code_ctx['code_repo']}")
+                if code_ctx.get("code_branch"):
+                    footers.append(f"Code-Branch: {code_ctx['code_branch']}")
+                if code_ctx.get("code_commit"):
+                    footers.append(f"Code-Commit: {code_ctx['code_commit']}")
+                footers.append(f"Spec: {agent_spec}")
+                commit_message = f"{agent}: Handoff to {target_agent} ({topic})\n\n" + "\n".join(footers)
+                sync.with_sync(op, commit_message)
+            else:
+                op()
 
             return (
                 f"✅ Ball handed off to: {target_agent}\n"
@@ -532,13 +689,36 @@ def handoff(
                 + (f"Note: {note}" if note else "")
             )
         else:
-            # Use default handoff command (flips to counterpart)
-            commands.handoff(
-                topic,
-                threads_dir=threads_dir,
-                agent=agent,
-                note=note or None,
-            )
+            sync = get_git_sync_manager_for(code_root)
+
+            def op():
+                commands.handoff(
+                    topic,
+                    threads_dir=threads_dir,
+                    agent=agent,
+                    note=note or None,
+                )
+
+            if sync:
+                code_ctx = get_code_context(code_root)
+                branch = code_ctx.get("code_branch")
+                if branch and os.getenv("WATERCOOLER_AUTO_BRANCH", "1") != "0":
+                    try:
+                        sync.ensure_branch(branch)
+                    except Exception:
+                        pass
+                footers = [f"Watercooler-Topic: {topic}"]
+                if code_ctx.get("code_repo"):
+                    footers.append(f"Code-Repo: {code_ctx['code_repo']}")
+                if code_ctx.get("code_branch"):
+                    footers.append(f"Code-Branch: {code_ctx['code_branch']}")
+                if code_ctx.get("code_commit"):
+                    footers.append(f"Code-Commit: {code_ctx['code_commit']}")
+                footers.append(f"Spec: {agent_spec}")
+                commit_message = f"{agent}: Handoff ({topic})\n\n" + "\n".join(footers)
+                sync.with_sync(op, commit_message)
+            else:
+                op()
 
             # Get updated thread meta
             thread_path = fs.thread_path(topic, threads_dir)
@@ -559,7 +739,9 @@ def handoff(
 @mcp.tool(name="watercooler_v1_set_status")
 def set_status(
     topic: str,
-    status: str
+    status: str,
+    code_path: str = "",
+    agent_func: str = "",
 ) -> str:
     """Update the status of a thread.
 
@@ -576,10 +758,40 @@ def set_status(
         set_status("feature-auth", "IN_REVIEW")
     """
     try:
-        threads_dir = get_threads_dir()
+        if not code_path:
+            return "code_path required: provide repo root (e.g., '.')"
+        if not agent_func or ":" not in agent_func:
+            return "identity required: pass agent_func as '<AgentBase>:<spec>'"
+        agent_base, agent_spec = [p.strip() for p in agent_func.split(":", 1)]
+        if not agent_base or not agent_spec:
+            return "identity invalid: agent_func must be '<AgentBase>:<spec>'"
+        code_root = Path(code_path)
+        threads_dir = get_threads_dir_for(code_root)
+        sync = get_git_sync_manager_for(code_root)
 
-        # Call watercooler set_status command
-        commands.set_status(topic, threads_dir=threads_dir, status=status)
+        def op():
+            commands.set_status(topic, threads_dir=threads_dir, status=status)
+
+        if sync:
+            code_ctx = get_code_context(code_root)
+            branch = code_ctx.get("code_branch")
+            if branch and os.getenv("WATERCOOLER_AUTO_BRANCH", "1") != "0":
+                try:
+                    sync.ensure_branch(branch)
+                except Exception:
+                    pass
+            footers = [f"Watercooler-Topic: {topic}"]
+            if code_ctx.get("code_repo"):
+                footers.append(f"Code-Repo: {code_ctx['code_repo']}")
+            if code_ctx.get("code_branch"):
+                footers.append(f"Code-Branch: {code_ctx['code_branch']}")
+            if code_ctx.get("code_commit"):
+                footers.append(f"Code-Commit: {code_ctx['code_commit']}")
+            footers.append(f"Spec: {agent_spec}")
+            commit_message = f"{agent_base}: Status changed to {status} ({topic})\n\n" + "\n".join(footers)
+            sync.with_sync(op, commit_message)
+        else:
+            op()
 
         return (
             f"✅ Status updated for '{topic}'\n"

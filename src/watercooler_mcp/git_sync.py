@@ -24,6 +24,7 @@ Usage:
 """
 
 import os
+import time
 import re
 import subprocess
 from pathlib import Path
@@ -118,6 +119,13 @@ class GitSyncManager:
             if self.local_path.exists() and not (self.local_path / ".git").exists():
                 import shutil
                 shutil.rmtree(self.local_path)
+
+            # Ensure parent directories exist for the clone target
+            parent = self.local_path.parent
+            try:
+                parent.mkdir(parents=True, exist_ok=True)
+            except Exception:
+                pass
 
             cmd = ["git", "clone", self.repo_url, str(self.local_path)]
             subprocess.run(cmd, env=self._env, check=True, capture_output=True, text=True)
@@ -276,12 +284,68 @@ class GitSyncManager:
                     if not self.pull():
                         # Pull failed (rebase conflict or no upstream yet)
                         # Give one more chance on next loop iteration
-                        continue
+                        pass
+                    # Small exponential backoff to reduce contention
+                    try:
+                        time.sleep(0.25 * (2 ** attempt))
+                    except Exception:
+                        pass
                     continue
                 # Max retries exceeded
                 return False
 
         return False
+
+    def ensure_branch(self, branch: str) -> bool:
+        """Ensure the local repo is on the given branch, creating it if needed.
+
+        Also sets upstream to origin/<branch> on first creation.
+        Returns True on success, False on failure (non-fatal; caller can proceed).
+        """
+        try:
+            # What branch are we on now?
+            current = subprocess.run(
+                ["git", "rev-parse", "--abbrev-ref", "HEAD"],
+                cwd=self.local_path,
+                env=self._env,
+                capture_output=True,
+                text=True,
+                check=True,
+            ).stdout.strip()
+            if current == branch:
+                return True
+
+            # Does the branch exist locally?
+            exists = subprocess.run(
+                ["git", "show-ref", "--verify", f"refs/heads/{branch}"],
+                cwd=self.local_path,
+                env=self._env,
+                capture_output=True,
+            ).returncode == 0
+
+            if exists:
+                subprocess.run(["git", "checkout", branch], cwd=self.local_path, env=self._env, check=True, capture_output=True)
+            else:
+                subprocess.run(["git", "checkout", "-b", branch], cwd=self.local_path, env=self._env, check=True, capture_output=True)
+
+            # Ensure upstream is set
+            upstream = subprocess.run(
+                ["git", "rev-parse", "--abbrev-ref", "@{u}"],
+                cwd=self.local_path,
+                env=self._env,
+                capture_output=True,
+                text=True,
+            )
+            if upstream.returncode != 0:
+                # First push with -u
+                try:
+                    subprocess.run(["git", "push", "-u", "origin", branch], cwd=self.local_path, env=self._env, check=True, capture_output=True, text=True)
+                except subprocess.CalledProcessError:
+                    # Upstream may not be available yet; ignore
+                    pass
+            return True
+        except Exception:
+            return False
 
     def with_sync(self, operation: Callable[[], T], commit_message: str) -> T:
         """Execute operation with git sync before and after.

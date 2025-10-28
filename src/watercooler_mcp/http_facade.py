@@ -239,6 +239,11 @@ async def mcp_list_threads(req: ListThreadsRequest, request: Request):
     threads_dir = derive_threads_dir(request.state.user_id, request.state.project_id)
     agent = request.state.agent_name
 
+    # Cloud/Git mode: pull latest before listing to reflect remote updates
+    sync = get_git_sync_manager()
+    if sync:
+        sync.pull()
+
     threads = commands.list_threads(threads_dir=threads_dir, open_only=req.open_only)
 
     if not threads:
@@ -338,15 +343,25 @@ async def mcp_say(req: SayRequest, request: Request):
             entry_type=req.entry_type,
             body=req.body,
             user_tag=request.state.user_tag,
+            entry_id=entry_id,
         )
 
     if sync:
-        commit_message = (
-            f"{agent}: {req.title} ({req.topic})\n"
-            f"\n"
-            f"Watercooler-Entry-ID: {entry_id}\n"
-            f"Watercooler-Topic: {req.topic}"
-        )
+        # Build commit message with idempotency and code context footers
+        from .config import get_code_context
+        code_ctx = get_code_context(threads_dir)
+        footers = [
+            f"Watercooler-Entry-ID: {entry_id}",
+            f"Watercooler-Topic: {req.topic}",
+        ]
+        if code_ctx.get("code_repo"):
+            footers.append(f"Code-Repo: {code_ctx['code_repo']}")
+        if code_ctx.get("code_branch"):
+            footers.append(f"Code-Branch: {code_ctx['code_branch']}")
+        if code_ctx.get("code_commit"):
+            footers.append(f"Code-Commit: {code_ctx['code_commit']}")
+
+        commit_message = f"{agent}: {req.title} ({req.topic})\n\n" + "\n".join(footers)
         sync.with_sync(append_operation, commit_message)
     else:
         append_operation()
@@ -384,11 +399,16 @@ async def mcp_ack(req: AckRequest, request: Request):
 
     if sync:
         ack_title = req.title or "Ack"
-        commit_message = (
-            f"{agent}: {ack_title} ({req.topic})\n"
-            f"\n"
-            f"Watercooler-Topic: {req.topic}"
-        )
+        from .config import get_code_context
+        code_ctx = get_code_context(threads_dir)
+        footers = [f"Watercooler-Topic: {req.topic}"]
+        if code_ctx.get("code_repo"):
+            footers.append(f"Code-Repo: {code_ctx['code_repo']}")
+        if code_ctx.get("code_branch"):
+            footers.append(f"Code-Branch: {code_ctx['code_branch']}")
+        if code_ctx.get("code_commit"):
+            footers.append(f"Code-Commit: {code_ctx['code_commit']}")
+        commit_message = f"{agent}: {ack_title} ({req.topic})\n\n" + "\n".join(footers)
         sync.with_sync(ack_operation, commit_message)
     else:
         ack_operation()
@@ -432,11 +452,16 @@ async def mcp_handoff(req: HandoffRequest, request: Request):
                 )
 
         if sync:
-            commit_message = (
-                f"{agent}: Handoff to {req.target_agent} ({req.topic})\n"
-                f"\n"
-                f"Watercooler-Topic: {req.topic}"
-            )
+            from .config import get_code_context
+            code_ctx = get_code_context(threads_dir)
+            footers = [f"Watercooler-Topic: {req.topic}"]
+            if code_ctx.get("code_repo"):
+                footers.append(f"Code-Repo: {code_ctx['code_repo']}")
+            if code_ctx.get("code_branch"):
+                footers.append(f"Code-Branch: {code_ctx['code_branch']}")
+            if code_ctx.get("code_commit"):
+                footers.append(f"Code-Commit: {code_ctx['code_commit']}")
+            commit_message = f"{agent}: Handoff to {req.target_agent} ({req.topic})\n\n" + "\n".join(footers)
             sync.with_sync(handoff_operation, commit_message)
         else:
             handoff_operation()
@@ -459,11 +484,16 @@ async def mcp_handoff(req: HandoffRequest, request: Request):
             )
 
         if sync:
-            commit_message = (
-                f"{agent}: Handoff ({req.topic})\n"
-                f"\n"
-                f"Watercooler-Topic: {req.topic}"
-            )
+            from .config import get_code_context
+            code_ctx = get_code_context(threads_dir)
+            footers = [f"Watercooler-Topic: {req.topic}"]
+            if code_ctx.get("code_repo"):
+                footers.append(f"Code-Repo: {code_ctx['code_repo']}")
+            if code_ctx.get("code_branch"):
+                footers.append(f"Code-Branch: {code_ctx['code_branch']}")
+            if code_ctx.get("code_commit"):
+                footers.append(f"Code-Commit: {code_ctx['code_commit']}")
+            commit_message = f"{agent}: Handoff ({req.topic})\n\n" + "\n".join(footers)
             sync.with_sync(handoff_operation, commit_message)
         else:
             handoff_operation()
@@ -492,11 +522,16 @@ async def mcp_set_status(req: SetStatusRequest, request: Request):
         commands.set_status(req.topic, threads_dir=threads_dir, status=req.status)
 
     if sync:
-        commit_message = (
-            f"{agent}: Status changed to {req.status} ({req.topic})\n"
-            f"\n"
-            f"Watercooler-Topic: {req.topic}"
-        )
+        from .config import get_code_context
+        code_ctx = get_code_context(threads_dir)
+        footers = [f"Watercooler-Topic: {req.topic}"]
+        if code_ctx.get("code_repo"):
+            footers.append(f"Code-Repo: {code_ctx['code_repo']}")
+        if code_ctx.get("code_branch"):
+            footers.append(f"Code-Branch: {code_ctx['code_branch']}")
+        if code_ctx.get("code_commit"):
+            footers.append(f"Code-Commit: {code_ctx['code_commit']}")
+        commit_message = f"{agent}: Status changed to {req.status} ({req.topic})\n\n" + "\n".join(footers)
         sync.with_sync(set_status_operation, commit_message)
     else:
         set_status_operation()
