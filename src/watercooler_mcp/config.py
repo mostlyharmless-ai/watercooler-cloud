@@ -72,26 +72,26 @@ def get_threads_dir() -> Path:
     """Get threads directory (never default inside the code repo).
 
     Resolution order:
-    0. Dynamic threads repo (universal dev mode) if resolvable
-    1. WATERCOOLER_DIR env var (explicit override)
-    2. Upward search from CWD for an existing .watercooler/ (stops at git root or HOME)
-    3. Fallback: a safe global path under WATERCOOLER_THREADS_BASE (not CWD)
+    1. WATERCOOLER_DIR env var (explicit override - highest priority)
+    2. Dynamic threads repo (universal dev mode) if resolvable
+    3. Upward search from CWD for an existing .watercooler/ (stops at git root or HOME)
+    4. Fallback: a safe global path under WATERCOOLER_THREADS_BASE (not CWD)
 
     Notes:
     - We intentionally do NOT default to CWD/.watercooler to avoid polluting the
       code repo with local thread state when dynamic resolution fails.
     """
-    # 0. Dynamic threads repo (universal dev mode)
-    dyn = get_dynamic_threads_dir()
-    if dyn:
-        return dyn
-
-    # 1. Explicit override
+    # 1. Explicit override (highest priority for backward compat and testing)
     dir_str = os.getenv("WATERCOOLER_DIR")
     if dir_str:
         return Path(dir_str)
 
-    # 2. Upward search for existing .watercooler/
+    # 2. Dynamic threads repo (universal dev mode)
+    dyn = get_dynamic_threads_dir()
+    if dyn:
+        return dyn
+
+    # 3. Upward search for existing .watercooler/
     cwd = Path.cwd()
     git_root = _find_git_root(cwd)
     home = Path.home()
@@ -119,7 +119,7 @@ def get_threads_dir() -> Path:
 
         current = current.parent
 
-    # 3. Fallback: Global-safe path under THREADS_BASE
+    # 4. Fallback: Global-safe path under THREADS_BASE
     base = Path(os.getenv("WATERCOOLER_THREADS_BASE", str(Path.home() / ".watercooler-threads")))
     return base / "_local"
 
