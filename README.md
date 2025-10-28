@@ -2,6 +2,28 @@
 
 File-based collaboration protocol for agentic coding projects.
 
+## Local MCP Quickstart (Recommended)
+
+Run the MCP server locally and sync threads to a dedicated GitHub repo. This is the default workflow for small teams.
+
+- Guide: `docs/LOCAL_QUICKSTART.md`
+- Remote (Cloudflare/Render) deployment is mothballed; see `docs/DEPLOYMENT_QUICK_START.md` for reactivation reference.
+
+### Branch Pairing
+Keep code and threads tightly linked:
+- Pair each code repo with `<repo>-threads`
+- Mirror branches 1:1 between code and threads
+- Use commit footers to record `Code-Repo`, `Code-Branch`, and `Code-Commit`
+- See `docs/BRANCH_PAIRING.md` for details
+
+### Tester Setup
+For a minimal, one‑liner install and usage flow (Claude; no per‑project configs), see:
+- `docs/TESTER_SETUP.md`
+
+### Archived Remote Stack
+The Cloudflare/Render remote deployment has been mothballed. All related code and docs are being
+gathered under `.mothballed/` for later deletion. Prefer the local stdio MCP universal dev mode.
+
 ## Status
 
 ✅ **Full feature parity with acpmonkey achieved** - All phases (L1-L3) complete with 56 passing tests covering all features including structured entries, agent registry, and template system.

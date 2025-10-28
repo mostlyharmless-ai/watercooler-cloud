@@ -1,4 +1,7 @@
-# Production Repo Sanitization & Deployment Playbook (Documentation‑First)
+# [ARCHIVED] Production Repo Sanitization & Deployment Playbook (Remote)
+
+> Archived remote deployment guidance. Preferred path: local stdio MCP universal
+> dev mode (docs/TESTER_SETUP.md).
 
 Repo naming note
 - Target production repo (final): `mostlyharmless-ai/watercooler-cloud`.
@@ -114,6 +117,16 @@ Policy
 Staging (new stack)
 1) Backend (Render)
 - Env: `INTERNAL_AUTH_SECRET`, `BASE_THREADS_ROOT=/data/wc-cloud`, `WATERCOOLER_DIR=/data/wc-cloud`.
+- **CRITICAL:** If using git sync (`WATERCOOLER_GIT_REPO`), initialize the threads repository first:
+  ```bash
+  # Create empty repo on GitHub, add deploy key with write access, then:
+  cd /tmp
+  git clone git@github.com:<org>/watercooler-cloud-threads[-staging].git
+  cd watercooler-cloud-threads[-staging]
+  git commit --allow-empty -m "Initialize threads repo"
+  git push -u origin main
+  ```
+  Without this, the Render service will fail to clone (repo has no refs/branches).
 - Start: `uvicorn src.watercooler_mcp.http_facade:app --host 0.0.0.0 --port $PORT`.
 
 2) Worker (Cloudflare)

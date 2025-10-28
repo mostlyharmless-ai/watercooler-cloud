@@ -1,4 +1,7 @@
-# Remote MCP Deployment Guide
+# [ARCHIVED] Remote MCP Deployment Guide (Mothballed)
+
+> This document describes the Cloudflare/Render remote stack, which is now mothballed.
+> Use the local stdio MCP (universal dev mode). See docs/TESTER_SETUP.md and docs/LOCAL_QUICKSTART.md.
 
 **A complete guide to deploying, securing, and operating Remote MCP with OAuth authentication and default-deny ACLs.**
 
@@ -389,6 +392,17 @@ Before deploying, you'll need accounts and credentials from three services. Here
    ```
 3. Add public key to repository as Deploy Key (with write access)
 4. Copy private key contents for Render environment variable
+5. **CRITICAL:** Initialize the main branch in the threads repository:
+   ```bash
+   cd /tmp
+   git clone git@github.com:<org>/watercooler-threads.git
+   cd watercooler-threads
+   git config user.name "Your Name"
+   git config user.email "your.email@example.com"
+   git commit --allow-empty -m "Initialize threads repo"
+   git push -u origin main
+   ```
+   ⚠️ **Why this is needed:** Without an initial commit/branch, the repo has no refs and the Render backend will fail to clone it.
 
 ---
 

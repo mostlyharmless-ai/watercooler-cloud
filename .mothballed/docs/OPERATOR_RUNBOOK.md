@@ -1,4 +1,7 @@
-# Watercooler Cloud — Operator Runbook (1‑Pager)
+# [ARCHIVED] Watercooler Cloud — Operator Runbook (Remote Stack)
+
+> Archived. Remote operator guidance retained for reference. Use the local stdio
+> MCP universal dev mode going forward (docs/TESTER_SETUP.md).
 
 This is a concise guide for operators to configure, deploy, test, roll back, and monitor the Watercooler cloud MCP stack (Cloudflare Worker + FastAPI Backend) with OAuth and default‑deny ACLs.
 
@@ -29,6 +32,13 @@ mkdir -p /data/secrets && printf '%s' "$GIT_SSH_PRIVATE_KEY" > /data/secrets/wc_
 - Seed via dashboard or CLI: `wrangler kv:key put --binding=KV_PROJECTS user:gh:<login> '["proj-agent"]'`
 
 ## Deploy
+**CRITICAL:** Before first deploy, initialize the thread repo with a main branch:
+```bash
+git clone git@github.com:org/watercooler-cloud-threads[-staging].git /tmp/repo
+cd /tmp/repo && git commit --allow-empty -m "Initialize" && git push -u origin main
+```
+Without this, the Render service will fail to clone (repo has no refs/branches).
+
 - Backend: set env + start command → Save/Deploy
 - Worker staging: `npx wrangler deploy --env staging` (auth‑only by default; dev session disabled unless explicitly enabled)
 - Worker production: `npx wrangler deploy --env production` (OAuth/tokens only)

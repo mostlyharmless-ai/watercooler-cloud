@@ -1,168 +1,380 @@
-"""Configuration for Watercooler MCP Server - Phase 1B
-
-Environment-based configuration with upward directory search for .watercooler/
-"""
+from __future__ import annotations
 
 import os
 import subprocess
+import threading
+from dataclasses import dataclass
 from pathlib import Path
+from typing import Dict, Optional, Tuple
+
+try:
+    from importlib import metadata as importlib_metadata  # type: ignore
+except ImportError:  # pragma: no cover - Python <3.8 fallback
+    import importlib_metadata  # type: ignore
+
+from watercooler.agents import _canonical_agent, _load_agents_registry
+
+from .git_sync import GitSyncManager
 
 
-def get_agent_name(client_id: str | None = None) -> str:
-    """Get agent identity with automatic client detection.
-
-    Args:
-        client_id: MCP client identifier from Context (e.g., "Claude Desktop")
-
-    Returns:
-        Agent name (e.g., "Claude", "Codex"). Defaults to "Agent" if not available.
-
-    Precedence:
-    1. WATERCOOLER_AGENT env var (explicit override)
-    2. client_id from MCP Context (automatic detection)
-    3. Fallback: "Agent"
-
-    Client ID mapping:
-    - "Claude Desktop" -> "Claude"
-    - "Claude Code" -> "Claude"
-    - Other values passed through as-is
-    """
-    # Explicit override
-    env_agent = os.getenv("WATERCOOLER_AGENT")
-    if env_agent:
-        return env_agent
-
-    # Automatic client detection
-    if client_id:
-        # Normalize common Claude clients to "Claude"
-        if "claude" in client_id.lower():
-            return "Claude"
-        # Otherwise use the client_id as-is
-        return client_id
-
-    # Fallback
-    return "Agent"
+__all__ = [
+    "ThreadContext",
+    "resolve_thread_context",
+    "get_threads_dir",
+    "get_threads_dir_for",
+    "get_git_sync_manager",
+    "get_git_sync_manager_for",
+    "get_git_sync_manager_from_context",
+    "get_code_context",
+    "get_agent_name",
+    "get_version",
+]
 
 
-def _find_git_root(start_path: Path) -> Path | None:
-    """Find git repository root by looking for .git directory.
+@dataclass(frozen=True)
+class ThreadContext:
+    """Resolved configuration for operating on watercooler threads."""
 
-    Args:
-        start_path: Directory to start searching from
+    code_root: Optional[Path]
+    threads_dir: Path
+    threads_repo_url: Optional[str]
+    code_repo: Optional[str]
+    code_branch: Optional[str]
+    code_commit: Optional[str]
+    code_remote: Optional[str]
+    threads_slug: Optional[str]
+    explicit_dir: bool
 
-    Returns:
-        Path to git root if found, None otherwise
-    """
+
+@dataclass(frozen=True)
+class _GitDetails:
+    root: Optional[Path]
+    branch: Optional[str]
+    commit: Optional[str]
+    remote: Optional[str]
+
+
+_SYNC_MANAGER_CACHE: Dict[Tuple[str, str], GitSyncManager] = {}
+_SYNC_MANAGER_LOCK = threading.Lock()
+
+
+def _expand_path(value: str) -> Path:
+    expanded = os.path.expandvars(os.path.expanduser(value))
+    return Path(expanded)
+
+
+def _resolve_path(path: Path) -> Path:
+    try:
+        return path.resolve(strict=False)
+    except Exception:
+        return path
+
+
+def _default_threads_base() -> Path:
+    base_env = os.getenv("WATERCOOLER_THREADS_BASE")
+    if base_env:
+        return _resolve_path(_expand_path(base_env))
+    try:
+        return _resolve_path(Path.home() / ".watercooler-threads")
+    except Exception:
+        # Fallback without relying on home directory
+        return _resolve_path(Path("~/.watercooler-threads").expanduser())
+
+
+def _normalize_code_root(code_root: Optional[Path]) -> Optional[Path]:
+    if code_root is None:
+        return None
+    if not isinstance(code_root, Path):
+        code_root = Path(code_root)
+    try:
+        code_root = code_root.expanduser()
+    except Exception:
+        pass
+    return _resolve_path(code_root)
+
+
+def _run_git(args: list[str], cwd: Path) -> Optional[str]:
     try:
         result = subprocess.run(
-            ["git", "rev-parse", "--show-toplevel"],
-            cwd=start_path,
+            ["git", *args],
+            cwd=str(cwd),
+            check=True,
             capture_output=True,
             text=True,
-            timeout=1.0
         )
-        if result.returncode == 0:
-            return Path(result.stdout.strip())
-    except (subprocess.TimeoutExpired, FileNotFoundError, OSError):
-        pass
-    return None
+        return result.stdout.strip()
+    except (subprocess.CalledProcessError, FileNotFoundError):
+        return None
+
+
+def _discover_git(code_root: Optional[Path]) -> _GitDetails:
+    if code_root is None:
+        return _GitDetails(None, None, None, None)
+    cwd = code_root
+    if not cwd.exists():
+        return _GitDetails(None, None, None, None)
+
+    is_repo = _run_git(["rev-parse", "--is-inside-work-tree"], cwd)
+    if not is_repo or is_repo.lower() != "true":
+        return _GitDetails(None, None, None, None)
+
+    root_str = _run_git(["rev-parse", "--show-toplevel"], cwd)
+    root = Path(root_str) if root_str else None
+    branch = _run_git(["rev-parse", "--abbrev-ref", "HEAD"], cwd)
+    commit = _run_git(["rev-parse", "--short", "HEAD"], cwd)
+    remote = _run_git(["remote", "get-url", "origin"], cwd)
+
+    if branch == "HEAD":
+        branch = None
+
+    if root is not None:
+        root = _resolve_path(root)
+
+    return _GitDetails(root=root, branch=branch, commit=commit, remote=remote)
+
+
+def _strip_repo_suffix(value: str) -> str:
+    value = value.strip()
+    if value.endswith(".git"):
+        value = value[:-4]
+    return value.rstrip("/")
+
+
+def _extract_repo_path(remote: str) -> Optional[str]:
+    remote = remote.strip()
+    if not remote:
+        return None
+    remote = _strip_repo_suffix(remote)
+    if remote.startswith("git@"):
+        remote = remote.split(":", 1)[-1]
+    elif "://" in remote:
+        remote = remote.split("://", 1)[-1]
+        if "/" in remote:
+            remote = remote.split("/", 1)[-1]
+        else:
+            remote = ""
+    remote = remote.lstrip("/")
+    return remote or None
+
+
+def _split_namespace_repo(slug: str) -> Tuple[Optional[str], str]:
+    parts = [p for p in slug.split("/") if p]
+    if not parts:
+        return (None, slug)
+    if len(parts) == 1:
+        return (None, parts[0])
+    namespace = "/".join(parts[:-1])
+    return (namespace, parts[-1])
+
+
+def _compose_threads_slug_from_code(code_repo: str) -> str:
+    namespace, repo = _split_namespace_repo(code_repo)
+    if repo.endswith("-threads"):
+        slug_repo = repo
+    else:
+        slug_repo = f"{repo}-threads"
+    if namespace:
+        return f"{namespace}/{slug_repo}"
+    return slug_repo
+
+
+def _compose_local_threads_path(base: Path, slug: str) -> Path:
+    parts = [p for p in slug.split("/") if p]
+    path = base
+    for part in parts[:-1]:
+        path = path / part
+    if parts:
+        path = path / parts[-1]
+    return _resolve_path(path)
+
+
+def resolve_thread_context(code_root: Optional[Path] = None) -> ThreadContext:
+    normalized_root = _normalize_code_root(code_root)
+    git_details = _discover_git(normalized_root)
+
+    explicit_dir_env = os.getenv("WATERCOOLER_DIR")
+    explicit_dir = bool(explicit_dir_env)
+    if explicit_dir_env:
+        threads_dir = _resolve_path(_expand_path(explicit_dir_env))
+    else:
+        threads_dir = None
+
+    code_repo_env = os.getenv("WATERCOOLER_CODE_REPO")
+
+    code_remote = git_details.remote
+    code_repo = code_repo_env or None
+
+    if code_repo is None and code_remote:
+        repo_path = _extract_repo_path(code_remote)
+        if repo_path:
+            parts = [p for p in repo_path.split("/") if p]
+            if parts:
+                code_repo = "/".join(parts)
+
+    threads_repo_env = os.getenv("WATERCOOLER_GIT_REPO")
+    threads_repo_url = threads_repo_env or None
+
+    if not threads_repo_url and code_repo:
+        namespace, repo = _split_namespace_repo(code_repo)
+        pattern = os.getenv(
+            "WATERCOOLER_THREADS_PATTERN",
+            "git@github.com:{org}/{repo}-threads.git",
+        )
+        format_kwargs = {
+            "repo": repo,
+            "namespace": namespace or "",
+            "org": (namespace.split("/", 1)[0] if namespace else repo),
+        }
+        try:
+            threads_repo_url = pattern.format(**format_kwargs)
+        except (KeyError, IndexError, ValueError):
+            threads_repo_url = None
+
+    threads_slug = None
+    if threads_repo_url:
+        repo_path = _extract_repo_path(threads_repo_url)
+        if repo_path:
+            threads_slug = repo_path
+    elif code_repo:
+        threads_slug = _compose_threads_slug_from_code(code_repo)
+
+    if threads_dir is None:
+        if threads_slug:
+            threads_dir = _compose_local_threads_path(_default_threads_base(), threads_slug)
+        elif normalized_root:
+            threads_dir = _resolve_path(normalized_root / ".watercooler")
+        else:
+            threads_dir = _resolve_path(Path.cwd() / ".watercooler")
+
+    return ThreadContext(
+        code_root=git_details.root or normalized_root,
+        threads_dir=threads_dir,
+        threads_repo_url=threads_repo_url,
+        code_repo=code_repo,
+        code_branch=git_details.branch,
+        code_commit=git_details.commit,
+        code_remote=code_remote,
+        threads_slug=threads_slug,
+        explicit_dir=explicit_dir,
+    )
 
 
 def get_threads_dir() -> Path:
-    """Get threads directory with upward search.
+    return resolve_thread_context().threads_dir
 
-    Returns:
-        Path to threads directory.
 
-    Resolution order (Phase 1B):
-    1. WATERCOOLER_DIR env var (explicit override)
-    2. Upward search from CWD for .watercooler/ (stops at git root or HOME)
-    3. Fallback: Path.cwd() / ".watercooler" (for auto-creation)
+def get_threads_dir_for(code_root: Optional[Path]) -> Path:
+    return resolve_thread_context(code_root).threads_dir
 
-    The upward search looks for an existing .watercooler/ directory starting
-    from the current working directory and moving up the tree. It stops at:
-    - The git repository root (if in a git repo)
-    - The user's HOME directory
-    - The filesystem root (as a safety limit)
 
-    If no existing .watercooler/ is found, returns CWD/.watercooler for
-    auto-creation by watercooler commands.
-    """
-    # 1. Explicit override
-    dir_str = os.getenv("WATERCOOLER_DIR")
-    if dir_str:
-        return Path(dir_str)
+def _get_cache_key(threads_dir: Path, repo_url: str) -> Tuple[str, str]:
+    resolved_dir = _resolve_path(threads_dir)
+    return (str(resolved_dir), repo_url)
 
-    # 2. Upward search for existing .watercooler/
-    cwd = Path.cwd()
-    git_root = _find_git_root(cwd)
-    home = Path.home()
 
-    # Determine search boundary (stop at git root or HOME, whichever is closer)
-    if git_root and cwd.is_relative_to(git_root):
-        search_limit = git_root
+def _get_git_identity() -> Tuple[str, str]:
+    author = os.getenv("WATERCOOLER_GIT_AUTHOR")
+    if not author:
+        author = os.getenv("WATERCOOLER_AGENT", "Watercooler MCP")
+    email = os.getenv("WATERCOOLER_GIT_EMAIL", "mcp@watercooler.dev")
+    return author, email
+
+
+def _get_git_ssh_key() -> Optional[Path]:
+    key = os.getenv("WATERCOOLER_GIT_SSH_KEY")
+    if not key:
+        return None
+    return _resolve_path(_expand_path(key))
+
+
+def get_git_sync_manager() -> Optional[GitSyncManager]:
+    ctx = resolve_thread_context()
+    return _build_sync_manager(ctx)
+
+
+def get_git_sync_manager_for(code_root: Optional[Path]) -> Optional[GitSyncManager]:
+    ctx = resolve_thread_context(code_root)
+    return _build_sync_manager(ctx)
+
+
+def get_git_sync_manager_from_context(ctx: ThreadContext) -> Optional[GitSyncManager]:
+    return _build_sync_manager(ctx)
+
+
+def _build_sync_manager(ctx: ThreadContext) -> Optional[GitSyncManager]:
+    if not ctx.threads_repo_url:
+        return None
+
+    key = _get_cache_key(ctx.threads_dir, ctx.threads_repo_url)
+    with _SYNC_MANAGER_LOCK:
+        manager = _SYNC_MANAGER_CACHE.get(key)
+        if manager:
+            return manager
+
+        # Clear any stale cache entry for this directory (repo URL changed)
+        stale_keys = [k for k in _SYNC_MANAGER_CACHE if k[0] == key[0]]
+        for stale in stale_keys:
+            _SYNC_MANAGER_CACHE.pop(stale, None)
+
+        author, email = _get_git_identity()
+        ssh_key = _get_git_ssh_key()
+
+        manager = GitSyncManager(
+            repo_url=ctx.threads_repo_url,
+            local_path=ctx.threads_dir,
+            ssh_key_path=ssh_key,
+            author_name=author,
+            author_email=email,
+        )
+        _SYNC_MANAGER_CACHE[key] = manager
+        return manager
+
+
+def get_code_context(code_root: Optional[Path]) -> Dict[str, str]:
+    ctx = resolve_thread_context(code_root)
+    return {
+        "code_root": str(ctx.code_root) if ctx.code_root else "",
+        "code_repo": ctx.code_repo or "",
+        "code_branch": ctx.code_branch or "",
+        "code_commit": ctx.code_commit or "",
+        "threads_repo": ctx.threads_repo_url or "",
+        "threads_dir": str(ctx.threads_dir),
+    }
+
+
+def get_agent_name(client_id: Optional[str] = None) -> str:
+    agent_env = os.getenv("WATERCOOLER_AGENT")
+    if agent_env:
+        base_agent = agent_env
     else:
-        search_limit = home
+        base_agent = _infer_agent_from_client(client_id)
+    registry_path = os.getenv("WATERCOOLER_AGENT_REGISTRY")
+    registry = _load_agents_registry(registry_path)
+    explicit_tag = os.getenv("WATERCOOLER_AGENT_TAG")
+    return _canonical_agent(base_agent, registry, user_tag=explicit_tag)
 
-    # Search upward from CWD to search_limit
-    current = cwd
-    while True:
-        candidate = current / ".watercooler"
-        if candidate.exists() and candidate.is_dir():
-            return candidate
 
-        # Stop if we've reached the search limit
-        if current == search_limit:
-            break
-
-        # Stop if we've reached filesystem root (safety)
-        if current == current.parent:
-            break
-
-        current = current.parent
-
-    # 3. Fallback: CWD/.watercooler (for auto-creation)
-    return cwd / ".watercooler"
+def _infer_agent_from_client(client_id: Optional[str]) -> str:
+    if not client_id:
+        return "Agent"
+    lowered = client_id.strip().lower()
+    if not lowered:
+        return "Agent"
+    if lowered.startswith("claude"):
+        return "Claude"
+    if lowered.startswith("codex"):
+        return "Codex"
+    if lowered.startswith("gpt"):
+        return "GPT"
+    return client_id.split()[0]
 
 
 def get_version() -> str:
-    """Get the watercooler_mcp version."""
-    from . import __version__
-    return __version__
-
-
-def get_git_sync_manager():
-    """Get git sync manager if configured (cloud mode).
-
-    Returns:
-        GitSyncManager instance if WATERCOOLER_GIT_REPO is set, None otherwise
-
-    Environment Variables:
-        WATERCOOLER_GIT_REPO: Git repository URL (enables cloud mode)
-        WATERCOOLER_GIT_SSH_KEY: Optional path to SSH private key
-        WATERCOOLER_GIT_AUTHOR: Git commit author name (default: "Watercooler MCP")
-        WATERCOOLER_GIT_EMAIL: Git commit author email (default: "mcp@watercooler.dev")
-
-    Example:
-        sync = get_git_sync_manager()
-        if sync:
-            # Cloud mode: use git sync
-            sync.with_sync(operation, commit_message)
-        else:
-            # Local mode: no sync
-            operation()
-    """
-    repo_url = os.getenv("WATERCOOLER_GIT_REPO")
-    if not repo_url:
-        return None  # Local mode
-
-    from .git_sync import GitSyncManager
-
-    ssh_key = os.getenv("WATERCOOLER_GIT_SSH_KEY")
-    return GitSyncManager(
-        repo_url=repo_url,
-        local_path=get_threads_dir(),
-        ssh_key_path=Path(ssh_key) if ssh_key else None,
-        author_name=os.getenv("WATERCOOLER_GIT_AUTHOR", "Watercooler MCP"),
-        author_email=os.getenv("WATERCOOLER_GIT_EMAIL", "mcp@watercooler.dev")
-    )
+    for dist_name in ("watercooler-collab", "watercooler-mcp"):
+        try:
+            return importlib_metadata.version(dist_name)
+        except importlib_metadata.PackageNotFoundError:
+            continue
+        except Exception:
+            break
+    return os.getenv("WATERCOOLER_MCP_VERSION", "0.0.0")

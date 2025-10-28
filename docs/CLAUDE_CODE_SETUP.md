@@ -48,6 +48,14 @@ claude mcp add watercooler \
   -e WATERCOOLER_DIR=/path/to/project/.watercooler \
   -- python3 -m watercooler_mcp
 
+#### Universal Dev Mode (single-line, Linux/macOS)
+
+Register a context-aware dev server that adapts to any repo/branch automatically:
+
+```bash
+claude mcp add --transport stdio watercooler-cloud-test --scope user -e WATERCOOLER_AGENT="Claude@Code" -e WATERCOOLER_THREADS_BASE="$HOME/.watercooler-threads" -e WATERCOOLER_THREADS_PATTERN="git@github.com:{org}/{repo}-threads.git" -e WATERCOOLER_GIT_AUTHOR="Caleb Howard" -e WATERCOOLER_GIT_EMAIL="caleb@mostlyharmless.ai" -e WATERCOOLER_AUTO_BRANCH=1 -- python3 -m watercooler_mcp
+```
+
 # Using full Python path from conda environment
 claude mcp add watercooler \
   -e WATERCOOLER_AGENT=Claude \

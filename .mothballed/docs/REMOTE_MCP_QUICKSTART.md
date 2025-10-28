@@ -1,4 +1,7 @@
-# Remote MCP Quickstart
+# [ARCHIVED] Remote MCP Quickstart (Mothballed)
+
+> The Remote MCP flow via Cloudflare Worker is archived. Use the local
+> stdio MCP universal dev mode instead. See docs/TESTER_SETUP.md.
 
 Quick guide to using Watercooler via Remote MCP with OAuth authentication and per-project isolation.
 

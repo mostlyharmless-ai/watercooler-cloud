@@ -1,4 +1,7 @@
-# Watercooler Cloud - Dual Stack Deployment Guide
+# [ARCHIVED] Watercooler Cloud - Dual Stack Deployment Guide (Mothballed)
+
+> This guide pertains to the remote Cloudflare/Render stack. It is archived.
+> Preferred path: local stdio MCP (universal dev mode). See docs/TESTER_SETUP.md.
 
 **Version:** 1.0
 **Date:** 2025-10-25
@@ -209,6 +212,24 @@ Key: <paste contents of .secrets/staging_deploy_key.pub>
 ```
 
 Click **"Add key"**
+
+### Step 3a: Initialize Main Branch in Threads Repository
+
+**CRITICAL:** GitHub repos created empty (no README/license) have no branches. The Render start command expects a cloneable repo with at least one branch.
+
+**Manual Step:** Initialize the main branch locally:
+
+```bash
+cd /tmp
+git clone git@github.com:mostlyharmless-ai/watercooler-cloud-threads-staging.git
+cd watercooler-cloud-threads-staging
+git config user.name "Your Name"
+git config user.email "your.email@example.com"
+git commit --allow-empty -m "Initialize staging threads repo"
+git push -u origin main
+```
+
+⚠️ **Why this is needed:** Without this step, the Render service will fail to clone because the repository has no refs/branches. The start command can handle empty repos with a main branch, but not repos with zero branches.
 
 ### Step 4: Create Staging OAuth App
 
@@ -455,6 +476,24 @@ Key: <paste contents of .secrets/production_deploy_key.pub>
 ```
 
 Click **"Add key"**
+
+### Step 3a: Initialize Main Branch in Threads Repository
+
+**CRITICAL:** GitHub repos created empty (no README/license) have no branches. The Render start command expects a cloneable repo with at least one branch.
+
+**Manual Step:** Initialize the main branch locally:
+
+```bash
+cd /tmp
+git clone git@github.com:mostlyharmless-ai/watercooler-cloud-threads.git
+cd watercooler-cloud-threads
+git config user.name "Your Name"
+git config user.email "your.email@example.com"
+git commit --allow-empty -m "Initialize production threads repo"
+git push -u origin main
+```
+
+⚠️ **Why this is needed:** Without this step, the Render service will fail to clone because the repository has no refs/branches. The start command can handle empty repos with a main branch, but not repos with zero branches.
 
 ### Step 4: Create Production OAuth App
 

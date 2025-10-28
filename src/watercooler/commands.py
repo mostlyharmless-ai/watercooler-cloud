@@ -104,6 +104,7 @@ def append_entry(
     templates_dir: Path | None = None,
     registry: dict | None = None,
     user_tag: str | None = None,
+    entry_id: str | None = None,
 ) -> Path:
     """Append a structured entry to a thread.
 
@@ -143,6 +144,8 @@ def append_entry(
             canonical = _canonical_agent(agent, registry, user_tag=user_tag)
             who = f" by {canonical}"
             entry = f"\n\n---\n\n- Updated: {now}{who}\n\n{body}\n"
+            if entry_id:
+                entry = entry.rstrip() + f"\n<!-- Entry-ID: {entry_id} -->\n"
             s = bump_header(s, status=status, ball=ball)
             write(tp, s + entry)
             return tp
@@ -171,7 +174,9 @@ def append_entry(
         # Update header
         s = bump_header(s, status=status, ball=final_ball)
 
-        # Append entry
+        # Append entry (with optional idempotency marker)
+        if entry_id:
+            filled_entry = filled_entry.rstrip() + f"\n<!-- Entry-ID: {entry_id} -->\n"
         new_text = s.rstrip() + "\n\n" + filled_entry
         write(tp, new_text)
         return tp
@@ -232,6 +237,7 @@ def say(
     templates_dir: Path | None = None,
     registry: dict | None = None,
     user_tag: str | None = None,
+    entry_id: str | None = None,
 ) -> Path:
     """Quick team note with auto-ball-flip.
 
@@ -270,6 +276,7 @@ def say(
         templates_dir=templates_dir,
         registry=registry,
         user_tag=user_tag,
+        entry_id=entry_id,
     )
 
 

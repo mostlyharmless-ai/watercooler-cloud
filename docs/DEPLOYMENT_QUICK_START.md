@@ -1,5 +1,7 @@
 # Watercooler Cloud - Quick Start Deployment Guide
 
+> NOTE (MOTHBALLED): The remote stack (Cloudflare Worker + Render backend) is currently paused in favor of a simpler local MCP + GitHub threads workflow. See `docs/LOCAL_QUICKSTART.md` for the recommended setup. The instructions below remain for reference and fast reactivation if needed.
+
 One-page guide for deploying staging and production environments.
 
 ## Prerequisites
@@ -27,7 +29,57 @@ cd watercooler-cloud/cloudflare-worker
 npm install
 ```
 
-## Step 2: Configure Environments
+## Step 2: Initialize Threads Repository (CRITICAL)
+
+**CRITICAL:** Create and initialize the threads repository for thread storage. The Render backend will fail to clone repos with no branches.
+
+**Note:** The current architecture uses a **single threads repo** (`watercooler-cloud-threads`) with branches for environments (e.g., `main`, `staging`), following the 1:1 code-to-threads pairing principle. See `docs/BRANCH_PAIRING.md`.
+
+### Create Threads Repository
+1. Go to https://github.com/organizations/mostlyharmless-ai/repositories/new
+2. Create repository:
+   - Name: `watercooler-cloud-threads`
+   - Visibility: **Private**
+   - **DO NOT** initialize with README/license (create empty repo)
+3. Add deploy key with write access:
+   - Settings → Deploy keys → Add deploy key
+   - Paste contents of `.secrets/production_deploy_key.pub` (or appropriate deploy key)
+   - ✅ **CHECK "Allow write access"**
+
+### Initialize with Union Merge Policy
+```bash
+cd /tmp
+git clone git@github.com:mostlyharmless-ai/watercooler-cloud-threads.git
+cd watercooler-cloud-threads
+git config user.name "Your Name"
+git config user.email "your.email@example.com"
+
+# Add .gitattributes for union merge
+cat > .gitattributes <<EOF
+# Union merge for watercooler thread files
+*.md    merge=union
+*.jsonl merge=union
+EOF
+
+# Add .gitignore
+cat > .gitignore <<EOF
+# Watercooler threads repo - ignore backups and locks
+.backups/
+.*.lock
+EOF
+
+git add .gitattributes .gitignore
+git commit -m "chore: add union merge policy and gitignore"
+git push -u origin main
+
+# Create staging branch if needed for dual-environment remote deployment
+git checkout -b staging
+git push -u origin staging
+```
+
+⚠️ **Why this is needed:** Without the initial commit/branch, the repo has no refs and git clone will fail on the Render backend.
+
+## Step 3: Configure Environments
 
 The repo includes pre-configured environment files:
 - `.env.staging` - Staging configuration
@@ -41,7 +93,7 @@ Both are already populated with correct values for:
 
 **No manual configuration needed** - proceed to deployment.
 
-## Step 3: Deploy Workers
+## Step 4: Deploy Workers
 
 ### Deploy Staging
 ```bash
@@ -58,7 +110,7 @@ Expected output shows bindings for:
 - KV Namespace (KV_PROJECTS)
 - Environment Variables (BACKEND_URL, etc.)
 
-## Step 4: Set Secrets (CRITICAL)
+## Step 5: Set Secrets (CRITICAL)
 
 ⚠️ **Known Issue**: Piping values to `wrangler secret put` fails - secrets upload but don't bind at runtime.
 
@@ -94,7 +146,7 @@ npx wrangler secret put INTERNAL_AUTH_SECRET --name watercooler-cloud
 
 **Note**: Values can also be found in `.env.staging` and `.env.production` files.
 
-## Step 5: Verify Deployment
+## Step 6: Verify Deployment
 
 ### Test Staging Health
 ```bash
@@ -120,7 +172,7 @@ curl https://watercooler-cloud.mostlyharmless-ai.workers.dev/health
 curl -sI https://watercooler-cloud.mostlyharmless-ai.workers.dev/auth/login | grep location
 ```
 
-## Step 6: Seed User ACLs
+## Step 7: Seed User ACLs
 
 Add your GitHub username to both environments:
 
@@ -132,7 +184,7 @@ npx wrangler kv key put "user:gh:YOUR_GITHUB_USERNAME" '{"user_id":"YOUR_GITHUB_
 npx wrangler kv key put "user:gh:YOUR_GITHUB_USERNAME" '{"user_id":"YOUR_GITHUB_USERNAME","default":"watercooler-cloud","projects":["watercooler-cloud"]}' --namespace-id=2f2d304b3d8c4522830a9460098b5559 --remote
 ```
 
-## Step 7: Configure MCP in Claude Code and Codex
+## Step 8: Configure MCP in Claude Code and Codex
 
 The `get-token.sh` script automatically configures both Claude CLI and Codex CLI with the MCP server:
 
