@@ -33,3 +33,34 @@
 ## Security & Configuration Tips
 - Never commit secrets; use environment files like `.env.local` (gitignored). Document required vars in `README`.
 - Validate external input and sanitize user-rendered content. Review dependencies regularly with `npm audit`.
+
+## Codex Watercooler Protocol (Session Rules)
+- Purpose: Standardize how Codex (this assistant) uses Watercooler tools so entries remain attributable and contextually accurate.
+- Pre‑flight (required before any write: say/ack/handoff/set_status):
+  - Ensure Agent base is set to `Codex`.
+  - Ensure a clear specialization `spec` is set to match the current task (examples below).
+  - If either is missing/unclear, do not post; set/confirm first.
+- Setting identity:
+  - Preferred (cloud context): call `watercooler_v1_set_agent` with `base="Codex"` and an appropriate `spec` (e.g., `pm`, `planner-architecture`, `implementer-code`, `tester`, `security-audit`, `docs`, `ops`, or `general-purpose`).
+  - Local context (no explicit setter): still enforce the rule by selecting the matching entry Role and adding a visible `Spec: <value>` line at the top of the entry body.
+- Role alignment:
+  - Keep `spec` (session specialization) and Watercooler entry `Role` distinct but aligned (e.g., `spec=pm` → Role `pm`; `planner-architecture` → Role `planner`; `implementer-code` → Role `implementer`; `docs` → Role `scribe`).
+- Default taxonomy (examples):
+  - `pm`, `planner-architecture`, `implementer-code`, `tester`, `security-audit`, `debugger`, `docs`, `ops`, `general-purpose`.
+- Entry formatting requirement:
+  - Include a first-line marker in the entry body: `Spec: <spec>` to make specialization explicit in the thread record.
+- Failure policy:
+  - If `base` and suitable `spec` are not set, Codex will block the write and prompt to set them before proceeding.
+
+## Branch Pairing Contract (Team Invariant)
+- Repositories: Pair each code repo with a dedicated threads repo named `<repo>-threads`.
+- Branches: Mirror code branches in the threads repo (same branch name).
+- Write behavior: Before a write, ensure the threads repo is on the same‑named branch; push with rebase+retry.
+- Commit footer convention (in threads repo):
+  - `Code-Repo: <org>/<repo>`
+  - `Code-Branch: <branch>`
+  - `Code-Commit: <short-sha>`
+  - `Watercooler-Entry-ID: <ULID>`
+  - `Watercooler-Topic: <topic>`
+- Authoring: Include a visible `Spec: <value>` in the entry body and align the Role to the specialization (pm/planner/implementer/tester/docs/ops/etc.).
+- Closure: On merge, post a Closure entry referencing the PR; optionally consolidate to `threads:main` with a brief summary.

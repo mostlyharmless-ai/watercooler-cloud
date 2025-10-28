@@ -95,6 +95,16 @@ Backend (Render)
 - Create a new Web Service bound to NEW repo.
 - Disk: attach `/data` and set `BASE_THREADS_ROOT=/data/wc-cloud`, `WATERCOOLER_DIR=/data/wc-cloud`.
 - Secrets: set `INTERNAL_AUTH_SECRET` (match Worker), and any git sync secrets if used.
+- **CRITICAL:** If using git sync (`WATERCOOLER_GIT_REPO`), initialize the threads repository first:
+  ```bash
+  # Create empty repo on GitHub, add deploy key with write access, then:
+  cd /tmp
+  git clone git@github.com:<org>/watercooler-cloud-threads[-staging].git
+  cd watercooler-cloud-threads[-staging]
+  git commit --allow-empty -m "Initialize threads repo"
+  git push -u origin main
+  ```
+  Without this, the Render service will fail to clone (repo has no refs/branches).
 - Start: `uvicorn src.watercooler_mcp.http_facade:app --host 0.0.0.0 --port $PORT`
 
 Worker (Cloudflare)

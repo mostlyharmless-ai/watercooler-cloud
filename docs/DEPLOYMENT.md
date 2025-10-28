@@ -389,6 +389,17 @@ Before deploying, you'll need accounts and credentials from three services. Here
    ```
 3. Add public key to repository as Deploy Key (with write access)
 4. Copy private key contents for Render environment variable
+5. **CRITICAL:** Initialize the main branch in the threads repository:
+   ```bash
+   cd /tmp
+   git clone git@github.com:<org>/watercooler-threads.git
+   cd watercooler-threads
+   git config user.name "Your Name"
+   git config user.email "your.email@example.com"
+   git commit --allow-empty -m "Initialize threads repo"
+   git push -u origin main
+   ```
+   ⚠️ **Why this is needed:** Without an initial commit/branch, the repo has no refs and the Render backend will fail to clone it.
 
 ---
 
