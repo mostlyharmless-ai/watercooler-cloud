@@ -59,8 +59,8 @@ def test_list_threads_creates_directory_if_missing(temp_project_dir, mock_contex
     # Mock get_threads_dir to return our test directory
     monkeypatch.setenv("WATERCOOLER_DIR", str(watercooler_dir))
 
-    # Call list_threads - access the underlying function
-    result = list_threads.fn(mock_context)
+    # Call list_threads with required code_path parameter
+    result = list_threads.fn(mock_context, code_path=str(temp_project_dir))
 
     # Verify directory was created
     assert watercooler_dir.exists()
@@ -79,8 +79,8 @@ def test_read_thread_creates_directory_if_missing(temp_project_dir, monkeypatch)
     # Mock get_threads_dir to return our test directory
     monkeypatch.setenv("WATERCOOLER_DIR", str(watercooler_dir))
 
-    # Call read_thread (it should fail to find the thread, but create the directory)
-    result = read_thread.fn("test-topic")
+    # Call read_thread with required code_path parameter
+    result = read_thread.fn("test-topic", code_path=str(temp_project_dir))
 
     # Verify directory was created
     assert watercooler_dir.exists()
@@ -119,12 +119,13 @@ def test_say_creates_directory_via_init_thread(temp_project_dir, mock_context, m
     # Mock get_threads_dir to return our test directory
     monkeypatch.setenv("WATERCOOLER_DIR", str(watercooler_dir))
 
-    # Call say to create a new thread - access the underlying function
+    # Call say to create a new thread with required code_path parameter
     result = say.fn(
         topic="test-topic",
         title="Test Entry",
         body="This is a test",
-        ctx=mock_context
+        ctx=mock_context,
+        code_path=str(temp_project_dir)
     )
 
     # Verify directory was created
