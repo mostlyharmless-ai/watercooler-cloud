@@ -20,6 +20,10 @@ Keep code and threads tightly linked:
 For a minimal, one‑liner install and usage flow (Claude; no per‑project configs), see:
 - `docs/TESTER_SETUP.md`
 
+### Archived Remote Stack
+The Cloudflare/Render remote deployment has been mothballed. All related code and docs are being
+gathered under `.mothballed/` for later deletion. Prefer the local stdio MCP universal dev mode.
+
 ## Status
 
 ✅ **Full feature parity with acpmonkey achieved** - All phases (L1-L3) complete with 56 passing tests covering all features including structured entries, agent registry, and template system.

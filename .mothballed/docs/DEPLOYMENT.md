@@ -1,4 +1,7 @@
-# Remote MCP Deployment Guide
+# [ARCHIVED] Remote MCP Deployment Guide (Mothballed)
+
+> This document describes the Cloudflare/Render remote stack, which is now mothballed.
+> Use the local stdio MCP (universal dev mode). See docs/TESTER_SETUP.md and docs/LOCAL_QUICKSTART.md.
 
 **A complete guide to deploying, securing, and operating Remote MCP with OAuth authentication and default-deny ACLs.**
 

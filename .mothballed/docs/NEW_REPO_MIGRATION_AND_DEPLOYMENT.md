@@ -1,4 +1,7 @@
-# New Repo Creation + Sanitized Migration (Option B) — Zero‑to‑Deployed Dry Run
+# [ARCHIVED] New Repo Creation + Sanitized Migration (Remote) — Zero‑to‑Deployed Dry Run
+
+> Archived content for the remote deployment path. For local MCP, see
+> docs/TESTER_SETUP.md and docs/LOCAL_QUICKSTART.md.
 
 Repo naming note
 - NEW_REPO for this plan is fixed to: `mostlyharmless-ai/watercooler-cloud`.

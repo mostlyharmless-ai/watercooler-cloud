@@ -1,4 +1,7 @@
-# Cloudflare Remote MCP Playbook (Authorization‑First, Proxy‑First)
+# [ARCHIVED] Cloudflare Remote MCP Playbook (Authorization‑First, Proxy‑First)
+
+> Archived with the remote stack. Preferred path: local stdio MCP universal
+> dev mode. See docs/TESTER_SETUP.md and docs/LOCAL_QUICKSTART.md.
 
 **Intent:** Make **authorization and per‑request identity** the primary objective while exposing the existing **watercooler‑collab** MCP server as a **Remote MCP** behind **Cloudflare Workers** — **without changing tool logic**. The Worker provides the Remote MCP transport (SSE/Streamable HTTP) and enforces **user identity via OAuth** (best compatibility with `mcp-remote`). **Cloudflare Access** can be added later for org‑wide SSO (defense‑in‑depth). The Worker **proxies** tool calls to a thin **Python HTTP facade** that invokes the current Watercooler functions.
 

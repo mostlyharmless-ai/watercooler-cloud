@@ -18,13 +18,18 @@ This guide sets up a local MCP server that syncs watercooler threads to a dedica
 
 See `docs/BRANCH_PAIRING.md` for full contract details.
 
-## Environment
-Set these per user/agent (shell profile or .env):
+## Optional Environment Overrides
+Universal dev mode does not require any per‑project environment variables. The server discovers repo/branch
+from the `code_path` you pass on each call. You may optionally set these global overrides:
 
 ```bash
-export WATERCOOLER_DIR=~/.watercooler-threads
-export WATERCOOLER_GIT_REPO=git@github.com:org/watercooler-cloud-threads.git
-export WATERCOOLER_AGENT="<Name@Client>"
+# where local thread clones are created (default: ~/.watercooler-threads)
+export WATERCOOLER_THREADS_BASE="$HOME/.watercooler-threads"
+
+# how to build the threads repo URL from org/repo (default SSH pattern shown)
+export WATERCOOLER_THREADS_PATTERN="git@github.com:{org}/{repo}-threads.git"
+
+# optional global author identity for commits in the threads repo
 export WATERCOOLER_GIT_AUTHOR="<Your Name>"
 export WATERCOOLER_GIT_EMAIL="you@example.com"
 ```

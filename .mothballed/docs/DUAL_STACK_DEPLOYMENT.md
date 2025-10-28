@@ -1,4 +1,7 @@
-# Watercooler Cloud - Dual Stack Deployment Guide
+# [ARCHIVED] Watercooler Cloud - Dual Stack Deployment Guide (Mothballed)
+
+> This guide pertains to the remote Cloudflare/Render stack. It is archived.
+> Preferred path: local stdio MCP (universal dev mode). See docs/TESTER_SETUP.md.
 
 **Version:** 1.0
 **Date:** 2025-10-25

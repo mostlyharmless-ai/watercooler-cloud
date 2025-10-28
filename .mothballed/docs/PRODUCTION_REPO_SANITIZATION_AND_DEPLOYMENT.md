@@ -1,4 +1,7 @@
-# Production Repo Sanitization & Deployment Playbook (Documentation‑First)
+# [ARCHIVED] Production Repo Sanitization & Deployment Playbook (Remote)
+
+> Archived remote deployment guidance. Preferred path: local stdio MCP universal
+> dev mode (docs/TESTER_SETUP.md).
 
 Repo naming note
 - Target production repo (final): `mostlyharmless-ai/watercooler-cloud`.

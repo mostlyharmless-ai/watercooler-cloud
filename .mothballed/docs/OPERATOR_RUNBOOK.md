@@ -1,4 +1,7 @@
-# Watercooler Cloud — Operator Runbook (1‑Pager)
+# [ARCHIVED] Watercooler Cloud — Operator Runbook (Remote Stack)
+
+> Archived. Remote operator guidance retained for reference. Use the local stdio
+> MCP universal dev mode going forward (docs/TESTER_SETUP.md).
 
 This is a concise guide for operators to configure, deploy, test, roll back, and monitor the Watercooler cloud MCP stack (Cloudflare Worker + FastAPI Backend) with OAuth and default‑deny ACLs.
 
