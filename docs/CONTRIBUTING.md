@@ -326,7 +326,7 @@ pytest tests/test_commands.py::test_say_command
 def test_feature_name():
     """Test description of what this validates."""
     # Arrange
-    threads_dir = tmp_path / ".watercooler"
+    threads_dir = tmp_path / "threads"
     threads_dir.mkdir()
 
     # Act
@@ -352,7 +352,7 @@ Use pytest fixtures for common setup:
 @pytest.fixture
 def temp_threads_dir(tmp_path: Path) -> Path:
     """Create temporary threads directory."""
-    threads_dir = tmp_path / ".watercooler"
+    threads_dir = tmp_path / "threads"
     threads_dir.mkdir()
     return threads_dir
 ```
@@ -386,7 +386,7 @@ Update these files as needed:
 
 #### 3. API Documentation
 
-- `docs/api.md` - Python API reference
+- `docs/integration.md#python-api-reference` - Python API reference
 - Keep examples current
 - Document all public APIs
 

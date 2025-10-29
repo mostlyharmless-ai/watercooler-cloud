@@ -2,6 +2,8 @@
 
 Watercooler-collab uses customizable templates for thread initialization and entry formatting. This guide covers template syntax, customization, and discovery.
 
+> **Note:** Older examples referenced a repo-local hidden directory. Replace that with your threads repository path (e.g., `$HOME/.watercooler-threads/<org>/<repo>-threads`).
+
 ## Table of Contents
 
 - [Overview](#overview)
@@ -30,7 +32,7 @@ Templates are discovered in this order (highest precedence first):
 
 1. **CLI argument**: `--templates-dir /path/to/templates`
 2. **Environment variable**: `WATERCOOLER_TEMPLATES=/path/to/templates`
-3. **Project-local**: `./.watercooler/templates/`
+3. **Project-local**: `$THREADS_DIR/templates/`
 4. **Bundled**: Built-in templates from the package
 
 This allows per-command overrides, per-project customization, or global defaults.
@@ -52,17 +54,19 @@ watercooler say topic --title "Note" --body "Using custom templates"
 ### Example: Project-Local
 
 ```bash
+THREADS_DIR="$HOME/.watercooler-threads/<org>/<repo>-threads"
+
 # Create local templates directory
-mkdir -p .watercooler/templates
+mkdir -p "$THREADS_DIR"/templates
 
 # Copy bundled templates as starting point
-cp $(python3 -c "import watercooler; import os; print(os.path.dirname(watercooler.__file__))")/templates/_TEMPLATE_*.md .watercooler/templates/
+cp $(python3 -c "import watercooler; import os; print(os.path.dirname(watercooler.__file__))")/templates/_TEMPLATE_*.md "$THREADS_DIR"/templates/
 
 # Edit templates as needed
-# vim .watercooler/templates/_TEMPLATE_topic_thread.md
+# vim "$THREADS_DIR"/templates/_TEMPLATE_topic_thread.md
 
 # Commands will now use your custom templates automatically
-watercooler init-thread topic  # Uses .watercooler/templates/
+watercooler init-thread topic --threads-dir "$THREADS_DIR"  # Uses $THREADS_DIR/templates/
 ```
 
 ## Placeholder Syntax
@@ -118,7 +122,7 @@ Created: {{UTC}}
 
 ### Custom Thread Template Example
 
-Create `.watercooler/templates/_TEMPLATE_topic_thread.md`:
+Create `$THREADS_DIR/templates/_TEMPLATE_topic_thread.md`:
 
 ```markdown
 ---
@@ -221,7 +225,7 @@ Title: {{TITLE}}
 
 #### Minimal Format
 
-Create `.watercooler/templates/_TEMPLATE_entry_block.md`:
+Create `$THREADS_DIR/templates/_TEMPLATE_entry_block.md`:
 
 ```markdown
 ---
@@ -325,12 +329,12 @@ If template file exists but is empty or contains only whitespace, watercooler-co
 
 ```bash
 # Create project-local templates
-mkdir -p .watercooler/templates
+mkdir -p "$THREADS_DIR"/templates
 ```
 
 ### Thread Template
 
-`.watercooler/templates/_TEMPLATE_topic_thread.md`:
+`$THREADS_DIR/templates/_TEMPLATE_topic_thread.md`:
 
 ```markdown
 # {{Short title}}
@@ -351,7 +355,7 @@ mkdir -p .watercooler/templates
 
 ### Entry Template
 
-`.watercooler/templates/_TEMPLATE_entry_block.md`:
+`$THREADS_DIR/templates/_TEMPLATE_entry_block.md`:
 
 ```markdown
 
@@ -487,7 +491,7 @@ To verify which template is used:
 
 ```bash
 # Check template discovery
-ls .watercooler/templates/_TEMPLATE_*.md
+ls "$THREADS_DIR"/templates/_TEMPLATE_*.md
 echo $WATERCOOLER_TEMPLATES
 ```
 
@@ -513,8 +517,8 @@ If body content doesn't appear:
 Copy bundled templates as starting point:
 
 ```bash
-mkdir -p .watercooler/templates
-cp src/watercooler/templates/_TEMPLATE_*.md .watercooler/templates/
+mkdir -p "$THREADS_DIR"/templates
+cp src/watercooler/templates/_TEMPLATE_*.md "$THREADS_DIR"/templates/
 ```
 
 ### 2. Keep Templates Consistent
@@ -535,7 +539,7 @@ Templates support full markdown:
 Commit project-local templates to git:
 
 ```bash
-git add .watercooler/templates/
+git add "$THREADS_DIR"/templates/
 git commit -m "Add custom watercooler templates"
 ```
 

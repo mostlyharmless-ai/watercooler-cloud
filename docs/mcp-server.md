@@ -27,11 +27,11 @@ This installs `fastmcp>=2.0` and creates the `watercooler-mcp` command.
 
 **Codex (`~/.codex/config.toml`):**
 ```toml
-[mcp_servers.watercooler]
+[mcp_servers.wc_universal]
 command = "python3"
 args = ["-m", "watercooler_mcp"]
 
-[mcp_servers.watercooler.env]
+[mcp_servers.wc_universal.env]
 WATERCOOLER_AGENT = "Codex"
 ```
 
@@ -39,7 +39,7 @@ WATERCOOLER_AGENT = "Codex"
 ```json
 {
   "mcpServers": {
-    "watercooler": {
+    "watercooler-universal": {
       "command": "python3",
       "args": ["-m", "watercooler_mcp"],
       "env": {
@@ -54,7 +54,7 @@ WATERCOOLER_AGENT = "Codex"
 ```json
 {
   "mcpServers": {
-    "watercooler": {
+    "watercooler-universal": {
       "command": "python3",
       "args": ["-m", "watercooler_mcp"],
       "env": {
@@ -71,49 +71,40 @@ WATERCOOLER_AGENT = "Codex"
 Your agent identity (e.g., "Claude", "Codex"). Set in MCP config.
 
 ### WATERCOOLER_DIR (Optional)
-Explicit threads directory override.
+Explicit override for bespoke setups. Universal mode clones threads into `~/.watercooler-threads/<org>/<repo>-threads/`; you usually do not need to set this variable.
 
-**Resolution order (Phase 1B):**
-1. `WATERCOOLER_DIR` env var (highest priority)
-2. Upward search from CWD for existing `.watercooler/` (stops at git root or HOME)
-3. Fallback: `{CWD}/.watercooler` (for auto-creation)
+Only set `WATERCOOLER_DIR` when you require a fixed threads directory (for example, while debugging environments where the server cannot infer the correct repository).
 
-**The upward search is automatic** - works from any subdirectory in your repo without configuration.
+### Universal thread location controls
 
-**Claude Desktop** (`~/Library/Application Support/Claude/claude_desktop_config.json` on macOS):
+| Variable | Purpose | Default |
+|----------|---------|---------|
+| `WATERCOOLER_THREADS_BASE` | Root directory for local thread clones | `~/.watercooler-threads` |
+| `WATERCOOLER_THREADS_PATTERN` | Remote URL pattern for auto-clone | `git@github.com:{org}/{repo}-threads.git` |
+| `WATERCOOLER_AUTO_BRANCH` | Auto create / checkout matching branch | `1` |
+
+Example (Claude Desktop, macOS):
+
 ```json
 {
   "mcpServers": {
-    "watercooler": {
-      "command": "/opt/anaconda3/envs/watercooler/bin/watercooler-mcp",
+    "watercooler-universal": {
+      "command": "python3",
+      "args": ["-m", "watercooler_mcp"],
       "env": {
-        "WATERCOOLER_AGENT": "Claude",
-        "WATERCOOLER_DIR": "/Users/agent/projects/watercooler-test/.watercooler"
+        "WATERCOOLER_AGENT": "Claude@Desktop",
+        "WATERCOOLER_THREADS_BASE": "$HOME/.watercooler-threads",
+        "WATERCOOLER_THREADS_PATTERN": "git@github.com:{org}/{repo}-threads.git",
+        "WATERCOOLER_AUTO_BRANCH": "1"
       }
     }
   }
 }
 ```
 
-**Cline** (`.vscode/settings.json` or VS Code settings):
-```json
-{
-  "mcp.servers": {
-    "watercooler": {
-      "command": "/opt/anaconda3/envs/watercooler/bin/watercooler-mcp",
-      "args": [],
-      "env": {
-        "WATERCOOLER_AGENT": "Codex",
-        "WATERCOOLER_DIR": "${workspaceFolder}/.watercooler"
-      }
-    }
-  }
-}
-```
+**Manual override:**
 
-**Note:** Adjust paths for your system:
-- Use `which watercooler-mcp` to find the command path
-- Use absolute paths for `WATERCOOLER_DIR` or relative to project root
+If you set `WATERCOOLER_DIR`, that path takes priority and the sibling repo rules are skipped. Use the override sparingly—it's easy to create stray repo-local thread folders inside the code repo when this variable stays set.
 
 ## Available Tools
 
@@ -128,11 +119,12 @@ Check server health and configuration.
 
 **Example output:**
 ```
-Watercooler MCP Server v0.1.0
+Watercooler MCP Server v0.2.0
 Status: Healthy
 Agent: Codex
-Threads Dir: /path/to/.watercooler
+Threads Dir: /home/agent/.watercooler-threads/mostlyharmless-ai/watercooler-cloud-threads
 Threads Dir Exists: True
+Resolution Source: pattern
 ```
 
 #### `watercooler_v1_whoami`
@@ -236,13 +228,22 @@ Generate index summary of all threads.
 
 ### Environment Variables
 
-- **`WATERCOOLER_AGENT`**: Your agent identity (default: "Agent")
-  - Used when creating entries
-  - Determines which threads show as "Your Turn"
+- **`WATERCOOLER_AGENT`**: Agent identity (default: `Agent`). Determines entry authorship and ball ownership.
 
-- **`WATERCOOLER_DIR`**: Threads directory path (default: `./.watercooler`)
-  - Can be absolute or relative path
-  - Server auto-creates if it doesn't exist
+- **Universal overrides (optional):**
+  - `WATERCOOLER_THREADS_BASE` — directory for local clones of threads repos (defaults to `~/.watercooler-threads`)
+  - `WATERCOOLER_THREADS_PATTERN` — pattern for building the remote URL (`git@github.com:{org}/{repo}-threads.git` by default)
+  - `WATERCOOLER_AUTO_BRANCH` — set to `0` to skip auto-creating the matching branch
+  - `WATERCOOLER_GIT_AUTHOR` / `WATERCOOLER_GIT_EMAIL` — override commit metadata in the threads repo
+
+- **Manual override:** `WATERCOOLER_DIR` forces a specific threads directory. Use only if you must disable universal repo discovery.
+
+### Required parameters
+
+Every tool call must include:
+
+- `code_path` — points to the code repository root (e.g., `"."`). The server resolves repo/branch/commit from this path.
+- `agent_func` — required on write operations; format `<AgentBase>:<spec>` (e.g., `"Claude:pm"`). Supplies the specialization recorded in thread entries.
 
 ### Deferred Features
 
@@ -258,55 +259,45 @@ These features will be implemented if real-world usage demonstrates the need.
 ### Example 1: Check Server Health
 
 ```python
-# AI agent calls
-health()
+watercooler_v1_health(code_path=".")
 
-# Returns:
-# Watercooler MCP Server v0.1.0
+# Sample response:
+# Watercooler MCP Server v0.2.0
 # Status: Healthy
 # Agent: Codex
-# Threads Dir: /path/to/.watercooler
+# Threads Dir: /home/agent/.watercooler-threads/org/repo-threads
 # Threads Dir Exists: True
 ```
 
-### Example 2: List Threads Where You Have the Ball
+### Example 2: List threads where you have the ball
 
 ```python
-# AI agent calls
-list_threads(open_only=True)
-
-# Returns organized list showing:
-# - Threads where you have the ball (🎾)
-# - Threads with NEW entries (🆕)
-# - Threads waiting on others (⏳)
+watercooler_v1_list_threads(code_path=".")
 ```
 
-### Example 3: Respond to a Thread
+### Example 3: Respond to a thread
 
 ```python
-# AI agent reads thread
-content = read_thread("feature-auth")
-
-# AI agent responds
-say(
-    "feature-auth",
-    "Implementation complete",
-    "All unit tests passing. Integration tests added. Ready for code review.",
+watercooler_v1_say(
+    topic="feature-auth",
+    title="Implementation complete",
+    body="Spec: implementer-code — unit tests passing, integration tests added.",
     role="implementer",
-    entry_type="Note"
+    entry_type="Note",
+    code_path=".",
+    agent_func="Claude:implementer-code"
 )
-
-# Ball automatically flips to counterpart
 ```
 
-### Example 4: Hand Off to Specific Team Member
+### Example 4: Hand off to a specific teammate
 
 ```python
-# AI agent hands off to specific reviewer
-handoff(
-    "feature-auth",
-    "Security review needed for OAuth implementation",
-    target_agent="SecurityBot"
+watercooler_v1_handoff(
+    topic="feature-auth",
+    note="Security review needed for OAuth implementation",
+    target_agent="SecurityBot",
+    code_path=".",
+    agent_func="Claude:pm"
 )
 ```
 
@@ -343,17 +334,17 @@ export WATERCOOLER_AGENT="YourAgentName"
 
 ### Threads Directory Not Found
 
-If server can't find threads:
+If the server can't resolve the threads repository:
 
 ```bash
-# Check current directory
-python -c "from watercooler_mcp.config import get_threads_dir; print(get_threads_dir())"
-
-# Set explicit path
-export WATERCOOLER_DIR="/full/path/to/.watercooler"
-
-# Or use relative path from project root
+# Inspect resolved context
+python -c "from pathlib import Path; from watercooler_mcp.config import resolve_thread_context; print(resolve_thread_context(Path('.')).threads_dir)"
 ```
+
+- Ensure `code_path` points inside a git repository with a configured remote.
+- Run `watercooler_v1_health(code_path=".")` to confirm the expected path under `~/.watercooler-threads/<org>/<repo>-threads`.
+- If health reports any location inside the code repository (for example `./threads-local`), remove stale overrides, copy the data into `~/.watercooler-threads/<org>/<repo>-threads`, and delete the stray directory.
+- As a last resort, set `WATERCOOLER_DIR` to a specific path (see Environment Variables) while you move data into the sibling `<repo>-threads` repository.
 
 ### Format Not Supported Error
 
@@ -417,7 +408,7 @@ asyncio.run(show_tools())
 
 - [watercooler-collab README](../README.md) - Main project documentation
 - [L5 MCP Plan](../L5_MCP_PLAN.md) - Detailed implementation plan
-- [Python API Reference](./api.md) - Watercooler library API
+- [Python API Reference](./integration.md#python-api-reference) - Watercooler library API
 - [Integration Guide](./integration.md) - Using watercooler-collab in projects
 
 ## Support

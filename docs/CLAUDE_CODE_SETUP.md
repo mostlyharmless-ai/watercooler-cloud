@@ -17,62 +17,35 @@ This guide shows you how to configure **Claude Code** (the CLI tool you're using
 
 ## Quick Setup (Recommended)
 
-### Method 1: FastMCP Install (Easiest)
+### 1. Follow the canonical quickstart
 
-The simplest way to register the watercooler MCP server:
+Complete the steps in [SETUP_AND_QUICKSTART.md](./SETUP_AND_QUICKSTART.md). That guide installs the package, explains branch pairing, and introduces the identity rules that Claude Code must follow.
 
-```bash
-# Navigate to watercooler-collab directory
-cd /path/to/watercooler-collab
+### 2. Register the universal server (one command)
 
-# Install the server with fastmcp CLI
-fastmcp install claude-code src/watercooler_mcp/server.py \
-  --server-name watercooler \
-  --env WATERCOOLER_AGENT=Claude \
-  --env WATERCOOLER_DIR=/path/to/your/project/.watercooler
-```
-
-**Done!** Claude Code will now have access to watercooler tools.
-
-### Method 2: Manual Configuration with `claude mcp add`
-
-If you prefer manual control:
+Run this once; it applies to every repo you open in Claude Code:
 
 ```bash
-# Basic registration
-claude mcp add watercooler -- python3 -m watercooler_mcp
-
-# With environment variables
-claude mcp add watercooler \
-  -e WATERCOOLER_AGENT=Claude \
-  -e WATERCOOLER_DIR=/path/to/project/.watercooler \
+claude mcp add --transport stdio watercooler-universal --scope user \
+  -e WATERCOOLER_AGENT="Claude@Code" \
+  -e WATERCOOLER_THREADS_BASE="$HOME/.watercooler-threads" \
+  -e WATERCOOLER_THREADS_PATTERN="git@github.com:{org}/{repo}-threads.git" \
+  -e WATERCOOLER_AUTO_BRANCH=1 \
   -- python3 -m watercooler_mcp
+```
 
-#### Universal Dev Mode (single-line, Linux/macOS)
-
-Register a context-aware dev server that adapts to any repo/branch automatically:
+Use `fastmcp install` if you prefer an installer-style workflow:
 
 ```bash
-claude mcp add --transport stdio watercooler-cloud-test --scope user -e WATERCOOLER_AGENT="Claude@Code" -e WATERCOOLER_THREADS_BASE="$HOME/.watercooler-threads" -e WATERCOOLER_THREADS_PATTERN="git@github.com:{org}/{repo}-threads.git" -e WATERCOOLER_GIT_AUTHOR="Caleb Howard" -e WATERCOOLER_GIT_EMAIL="caleb@mostlyharmless.ai" -e WATERCOOLER_AUTO_BRANCH=1 -- python3 -m watercooler_mcp
+fastmcp install claude-code src/watercooler_mcp/server.py \
+  --server-name watercooler-universal \
+  --env WATERCOOLER_AGENT="Claude@Code" \
+  --env WATERCOOLER_THREADS_BASE="$HOME/.watercooler-threads" \
+  --env WATERCOOLER_THREADS_PATTERN="git@github.com:{org}/{repo}-threads.git" \
+  --env WATERCOOLER_AUTO_BRANCH=1
 ```
 
-# Using full Python path from conda environment
-claude mcp add watercooler \
-  -e WATERCOOLER_AGENT=Claude \
-  -e WATERCOOLER_DIR=/path/to/project/.watercooler \
-  -- /opt/anaconda3/envs/watercooler/bin/python -m watercooler_mcp
-```
-
-### Method 3: Using uv for Dependency Management
-
-If you use `uv`:
-
-```bash
-claude mcp add watercooler \
-  -e WATERCOOLER_AGENT=Claude \
-  -e WATERCOOLER_DIR=/path/to/project/.watercooler \
-  -- uv run --with fastmcp fastmcp run /path/to/watercooler-collab/src/watercooler_mcp/server.py
-```
+That’s it—Claude Code now discovers Watercooler tools for any repo/branch you open. No per-project `WATERCOOLER_DIR` settings are required in universal mode.
 
 ## Configuration Details
 
@@ -84,21 +57,19 @@ Configure the MCP server's behavior:
 Your agent identity for thread entries and ball ownership:
 
 ```bash
--e WATERCOOLER_AGENT=Claude
+-e WATERCOOLER_AGENT="Claude@Code"
 ```
 
-Common values: `Claude`, `Codex`, `Assistant`
+Common values: `Claude`, `Codex`, `Assistant`. Include the specialization suffix (`@Code`, `@Desk`, etc.) if you want it to appear in thread entries.
 
-#### `WATERCOOLER_DIR` (Optional)
-Path to `.watercooler` directory:
+#### Universal-mode overrides (Optional)
 
-```bash
--e WATERCOOLER_DIR=/absolute/path/to/project/.watercooler
-```
+- `WATERCOOLER_THREADS_BASE` — root directory for local thread clones (`~/.watercooler-threads` by default)
+- `WATERCOOLER_THREADS_PATTERN` — pattern for resolving the remote threads repo (defaults to `git@github.com:{org}/{repo}-threads.git`)
+- `WATERCOOLER_AUTO_BRANCH` — set to `0` to disable branch auto-creation
+- `WATERCOOLER_GIT_AUTHOR` / `WATERCOOLER_GIT_EMAIL` — override commit identity in the threads repo
 
-**Default:** `./.watercooler` (current working directory)
-
-**Important:** Use absolute paths for reliability!
+Avoid setting `WATERCOOLER_DIR` unless you require a fixed override. Universal mode automatically locates the correct threads repo based on `code_path`.
 
 ### Configuration Scopes
 
@@ -111,58 +82,19 @@ Claude Code supports three configuration scopes:
 Example with scope:
 
 ```bash
-claude mcp add watercooler --scope user \
-  -e WATERCOOLER_AGENT=Claude \
+claude mcp add --transport stdio watercooler-universal --scope user \
+  -e WATERCOOLER_AGENT="Claude@Code" \
+  -e WATERCOOLER_THREADS_BASE="$HOME/.watercooler-threads" \
+  -e WATERCOOLER_THREADS_PATTERN="git@github.com:{org}/{repo}-threads.git" \
+  -e WATERCOOLER_AUTO_BRANCH=1 \
   -- python3 -m watercooler_mcp
 ```
 
 ## Managing Multiple Projects
 
-### Option A: Per-Project Configuration
+Universal dev mode already adapts to whichever repo you open. No further configuration is required when you switch projects.
 
-Register the server with `--scope local` in each project directory:
-
-```bash
-# In project A
-cd /path/to/projectA
-claude mcp add watercooler --scope local \
-  -e WATERCOOLER_DIR=/path/to/projectA/.watercooler \
-  -- python3 -m watercooler_mcp
-
-# In project B
-cd /path/to/projectB
-claude mcp add watercooler --scope local \
-  -e WATERCOOLER_DIR=/path/to/projectB/.watercooler \
-  -- python3 -m watercooler_mcp
-```
-
-### Option B: Dynamic Directory (Recommended)
-
-Register once at user scope without specifying `WATERCOOLER_DIR`:
-
-```bash
-claude mcp add watercooler --scope user \
-  -e WATERCOOLER_AGENT=Claude \
-  -- python3 -m watercooler_mcp
-```
-
-The server will use `./.watercooler` relative to where Claude Code is launched, automatically adapting to each project.
-
-### Option C: Environment Variable Override
-
-Register at user scope with a default, but override per-session:
-
-```bash
-# Register with default
-claude mcp add watercooler --scope user \
-  -e WATERCOOLER_AGENT=Claude \
-  -e WATERCOOLER_DIR=/path/to/default/.watercooler \
-  -- python3 -m watercooler_mcp
-
-# Then in your shell session, override for specific project:
-export WATERCOOLER_DIR=/path/to/special-project/.watercooler
-# Launch Claude Code in this session
-```
+**Advanced workflows**: If you still maintain per-project registrations (for example, to force a bespoke threads directory), you can keep those `WATERCOOLER_DIR` overrides in place. Just note that the canonical flow—and all MCP tooling tests—assume the universal pattern described above.
 
 ## Verification
 
@@ -173,21 +105,21 @@ After setup, verify the MCP server is working:
    claude mcp list
    ```
 
-   You should see `watercooler` in the list.
+   You should see `watercooler-universal` in the list.
 
 2. **In a Claude Code session, test the health tool:**
 
-   Ask me (Claude):
+   Ask the assistant:
    ```
-   Can you use the watercooler_v1_health tool?
+   Can you call watercooler_v1_health with code_path="."?
    ```
 
    Expected response:
    ```
-   Watercooler MCP Server v0.1.0
+   Watercooler MCP Server v0.2.0
    Status: Healthy
-   Agent: Claude
-   Threads Dir: /path/to/.watercooler
+   Agent: Claude@Code
+   Threads Dir: /home/<user>/.watercooler-threads/<org>/<repo>-threads
    Threads Dir Exists: True
    ```
 
@@ -196,16 +128,7 @@ After setup, verify the MCP server is working:
    What watercooler tools do you have access to?
    ```
 
-   I should see all 9 tools:
-  - watercooler_v1_health
-  - watercooler_v1_whoami
-  - watercooler_v1_list_threads
-  - watercooler_v1_read_thread
-  - watercooler_v1_say
-  - watercooler_v1_ack
-  - watercooler_v1_handoff
-  - watercooler_v1_set_status
-  - watercooler_v1_reindex
+   Claude should list the complete `watercooler_v1_*` tool suite.
 
 ## Using Watercooler with Claude Code
 
@@ -243,10 +166,15 @@ Once configured, you can ask me to use watercooler naturally:
 claude mcp list
 ```
 
-**If watercooler is missing:**
+**If `watercooler-universal` is missing:**
 ```bash
-# Re-register
-fastmcp install claude-code src/watercooler_mcp/server.py
+# Re-register with the universal command
+claude mcp add --transport stdio watercooler-universal --scope user \
+  -e WATERCOOLER_AGENT="Claude@Code" \
+  -e WATERCOOLER_THREADS_BASE="$HOME/.watercooler-threads" \
+  -e WATERCOOLER_THREADS_PATTERN="git@github.com:{org}/{repo}-threads.git" \
+  -e WATERCOOLER_AUTO_BRANCH=1 \
+  -- python3 -m watercooler_mcp
 ```
 
 ### Wrong Agent Identity
@@ -259,11 +187,14 @@ fastmcp install claude-code src/watercooler_mcp/server.py
 **If wrong, update configuration:**
 ```bash
 # Remove old registration
-claude mcp remove watercooler
+claude mcp remove watercooler-universal
 
-# Re-add with correct agent
-claude mcp add watercooler \
-  -e WATERCOOLER_AGENT=CorrectName \
+# Re-add with the correct agent base/spec suffix
+claude mcp add --transport stdio watercooler-universal --scope user \
+  -e WATERCOOLER_AGENT="Claude@Code" \
+  -e WATERCOOLER_THREADS_BASE="$HOME/.watercooler-threads" \
+  -e WATERCOOLER_THREADS_PATTERN="git@github.com:{org}/{repo}-threads.git" \
+  -e WATERCOOLER_AUTO_BRANCH=1 \
   -- python3 -m watercooler_mcp
 ```
 
@@ -274,16 +205,12 @@ claude mcp add watercooler \
 # Ask me to call watercooler_v1_health
 ```
 
-Check the "Threads Dir" in the output.
+Check the "Threads Dir" in the output. It should point into `~/.watercooler-threads/<org>/<repo>-threads`.
 
-**If wrong directory:**
-```bash
-# Update with correct path
-claude mcp remove watercooler
-claude mcp add watercooler \
-  -e WATERCOOLER_DIR=/correct/absolute/path/.watercooler \
-  -- python -m watercooler_mcp
-```
+**If it shows a path inside your code repo (for example `.../threads-local`):**
+- Confirm you are passing `code_path` on every tool call
+- Remove any lingering `WATERCOOLER_DIR` overrides from your registration or environment
+- Delete the stray directory in the repo after copying its contents into the sibling `<repo>-threads` repository. The canonical clones belong under `~/.watercooler-threads/<org>/<repo>-threads`.
 
 ### Python Environment Issues
 
@@ -298,8 +225,11 @@ which python
 # Output: /opt/anaconda3/envs/watercooler/bin/python
 
 # Use full path in registration
-claude mcp add watercooler \
-  -e WATERCOOLER_AGENT=Claude \
+claude mcp add --transport stdio watercooler-universal --scope user \
+  -e WATERCOOLER_AGENT="Claude@Code" \
+  -e WATERCOOLER_THREADS_BASE="$HOME/.watercooler-threads" \
+  -e WATERCOOLER_THREADS_PATTERN="git@github.com:{org}/{repo}-threads.git" \
+  -e WATERCOOLER_AUTO_BRANCH=1 \
   -- /opt/anaconda3/envs/watercooler/bin/python -m watercooler_mcp
 ```
 
@@ -334,19 +264,21 @@ claude mcp list
 
 ### Remove a Server
 ```bash
-claude mcp remove watercooler
+claude mcp remove watercooler-universal
 ```
 
 ### Update Server Configuration
 ```bash
 # Remove old configuration
-claude mcp remove watercooler
+claude mcp remove watercooler-universal
 
-# Add new configuration
-claude mcp add watercooler \
-  -e WATERCOOLER_AGENT=NewName \
-  -e WATERCOOLER_DIR=/new/path/.watercooler \
-  -- python -m watercooler_mcp
+# Add new configuration (example: change agent identity)
+claude mcp add --transport stdio watercooler-universal --scope user \
+  -e WATERCOOLER_AGENT="Claude@Code" \
+  -e WATERCOOLER_THREADS_BASE="$HOME/.watercooler-threads" \
+  -e WATERCOOLER_THREADS_PATTERN="git@github.com:{org}/{repo}-threads.git" \
+  -e WATERCOOLER_AUTO_BRANCH=1 \
+  -- python3 -m watercooler_mcp
 ```
 
 ## Advanced Configuration
@@ -356,43 +288,46 @@ claude mcp add watercooler \
 ```bash
 fastmcp install claude-code src/watercooler_mcp/server.py \
   --python 3.11 \
-  --env WATERCOOLER_AGENT=Claude
+  --env WATERCOOLER_AGENT="Claude@Code"
 ```
 
-### Using Project-Specific Context
+### Project-specific overrides
+
+If you must target a bespoke threads directory, you can still provide `WATERCOOLER_DIR`, but note that doing so disables universal repo discovery. Prefer the default flow unless you have a concrete requirement.
+
+### Loading Environment from `.env`
+
+Prefer storing overrides in a file? Create `.env` with only the variables you need:
+
+```bash
+WATERCOOLER_AGENT="Claude@Code"
+WATERCOOLER_THREADS_BASE="$HOME/.watercooler-threads"
+WATERCOOLER_THREADS_PATTERN="git@github.com:{org}/{repo}-threads.git"
+WATERCOOLER_AUTO_BRANCH=1
+```
+
+Install with the env file:
 
 ```bash
 fastmcp install claude-code src/watercooler_mcp/server.py \
-  --project /path/to/project \
-  --env WATERCOOLER_AGENT=Claude \
-  --env WATERCOOLER_DIR=/path/to/project/.watercooler
-```
-
-### Loading Environment from .env File
-
-Create `.env` file:
-```bash
-WATERCOOLER_AGENT=Claude
-WATERCOOLER_DIR=/path/to/project/.watercooler
-```
-
-Install with env file:
-```bash
-fastmcp install claude-code src/watercooler_mcp/server.py \
+  --server-name watercooler-universal \
   --env-file .env
 ```
 
-### Using watercooler-mcp Command Directly
+### Using `watercooler-mcp` directly
 
-If you prefer using the installed command:
+If you prefer referencing the installed entry point explicitly:
 
 ```bash
 # Find command path
 which watercooler-mcp
 
 # Register with Claude Code
-claude mcp add watercooler \
-  -e WATERCOOLER_AGENT=Claude \
+claude mcp add --transport stdio watercooler-universal --scope user \
+  -e WATERCOOLER_AGENT="Claude@Code" \
+  -e WATERCOOLER_THREADS_BASE="$HOME/.watercooler-threads" \
+  -e WATERCOOLER_THREADS_PATTERN="git@github.com:{org}/{repo}-threads.git" \
+  -e WATERCOOLER_AUTO_BRANCH=1 \
   -- /full/path/to/watercooler-mcp
 ```
 
@@ -401,28 +336,28 @@ claude mcp add watercooler \
 ### Installation Commands
 
 ```bash
-# Recommended: FastMCP install
-fastmcp install claude-code src/watercooler_mcp/server.py \
-  --env WATERCOOLER_AGENT=Claude \
-  --env WATERCOOLER_DIR=/path/to/.watercooler
-
-# Manual: claude mcp add
-claude mcp add watercooler \
-  -e WATERCOOLER_AGENT=Claude \
-  -- python -m watercooler_mcp
+# One-and-done universal registration
+claude mcp add --transport stdio watercooler-universal --scope user \
+  -e WATERCOOLER_AGENT="Claude@Code" \
+  -e WATERCOOLER_THREADS_BASE="$HOME/.watercooler-threads" \
+  -e WATERCOOLER_THREADS_PATTERN="git@github.com:{org}/{repo}-threads.git" \
+  -e WATERCOOLER_AUTO_BRANCH=1 \
+  -- python3 -m watercooler_mcp
 
 # Check registration
 claude mcp list
 
 # Remove server
-claude mcp remove watercooler
+claude mcp remove watercooler-universal
 ```
 
 ### Essential Environment Variables
 
 ```bash
-WATERCOOLER_AGENT=Claude      # Your agent identity (required)
-WATERCOOLER_DIR=/path/.watercooler  # Threads directory (optional)
+WATERCOOLER_AGENT="Claude@Code"               # Required agent identity
+WATERCOOLER_THREADS_BASE="$HOME/.watercooler-threads"  # Optional override
+WATERCOOLER_THREADS_PATTERN="git@github.com:{org}/{repo}-threads.git"  # Optional override
+WATERCOOLER_AUTO_BRANCH=1                     # Ensure branch mirroring
 ```
 
 ## What's Next?

@@ -2,6 +2,12 @@
 
 This guide provides practical use cases demonstrating when and how to use watercooler-collab effectively in your development workflows.
 
+> Examples may reference `$THREADS_DIR/`. Substitute your actual threads directory (for example, `$HOME/.watercooler-threads/<org>/<repo>-threads`).
+
+```bash
+THREADS_DIR="$HOME/.watercooler-threads/<org>/<repo>-threads"
+```
+
 ## Table of Contents
 
 - [Multi-Agent Collaboration](#multi-agent-collaboration)
@@ -234,7 +240,7 @@ watercooler say database-migration \
 # Just reference the thread!
 
 # Human prompt to Claude:
-"Please read .watercooler/database-migration.md and continue implementation.
+"Please read $THREADS_DIR/database-migration.md and continue implementation.
 Focus on the dual-write pattern we decided on."
 
 # Claude reads the thread, sees:
@@ -257,7 +263,7 @@ watercooler search "dual-write"
 # Returns: database-migration.md:42: Use dual-write pattern during transition
 
 # Read specific thread
-cat .watercooler/database-migration.md
+cat $THREADS_DIR/database-migration.md
 # Entire history available - no context lost!
 
 # Continue work exactly where we left off
@@ -283,7 +289,7 @@ We decided to use a feature flag for gradual rollout. The team includes..."
 
 **Do this** (efficient):
 ```
-Human: "Read .watercooler/database-migration.md for full context.
+Human: "Read $THREADS_DIR/database-migration.md for full context.
 Now implement the migration script focusing on rollback safety."
 
 Claude: *reads 50 structured entries in thread file*
@@ -296,7 +302,7 @@ mechanism using the versioning strategy you approved..."
 
 1. **Reference Threads in Prompts**:
    ```
-   "Read .watercooler/feature-auth.md then implement OAuth2 flow"
+   "Read $THREADS_DIR/feature-auth.md then implement OAuth2 flow"
    ```
 
 2. **Use Search to Find Relevant Threads**:
@@ -316,7 +322,7 @@ mechanism using the versioning strategy you approved..."
    Type: Note
 
    Implemented in: src/auth/oauth.py:145-230
-   Related threads: .watercooler/security-review.md
+   Related threads: $THREADS_DIR/security-review.md
    ```
 
 5. **Update Threads as Context Evolves**:
@@ -521,7 +527,7 @@ watercooler say api-versioning \
 6. **Track Handoff Chains**:
    Read thread file to see full handoff history:
    ```bash
-   grep "^Entry:" .watercooler/feature-auth.md
+   grep "^Entry:" $THREADS_DIR/feature-auth.md
    # Entry: Team (agent) 2025-10-07T10:00:00Z
    # Entry: Claude (agent) 2025-10-07T11:00:00Z
    # Entry: Codex (agent) 2025-10-07T12:00:00Z
@@ -564,7 +570,7 @@ watercooler list
 # 2025-10-07T01:00:00Z  open  alice  NEW  Bug #789  bug-789.md
 
 # Read thread to see West Coast progress
-cat .watercooler/bug-789.md
+cat $THREADS_DIR/bug-789.md
 # Last entry: Bob (West Coast) identified root cause at 1am ET
 
 # Continue work
@@ -575,7 +581,7 @@ watercooler say bug-789 \
   --body "Fixed off-by-one error in pagination. Added regression test."
 
 # Commit and push (ball flips to Bob - counterpart)
-git add .watercooler/bug-789.md
+git add $THREADS_DIR/bug-789.md
 git commit -m "watercooler: bug-789 fix applied"
 git push
 ```
@@ -590,7 +596,7 @@ watercooler list
 # 2025-10-07T13:00:00Z  open  bob  NEW  Bug #789  bug-789.md
 
 # Read Alice's fix
-cat .watercooler/bug-789.md
+cat $THREADS_DIR/bug-789.md
 # Last entry: Alice applied fix + test
 
 # Verify and approve
@@ -604,7 +610,7 @@ watercooler say bug-789 \
 watercooler handoff bug-789 \
   --note "Tested and approved - ready for production"
 
-git add .watercooler/bug-789.md
+git add $THREADS_DIR/bug-789.md
 git commit -m "watercooler: bug-789 verified"
 git push
 ```
@@ -620,7 +626,7 @@ watercooler say bug-789 \
   --body "Deployed at 2025-10-07T14:00:00Z. Monitoring for 24h." \
   --status closed
 
-git add .watercooler/bug-789.md
+git add $THREADS_DIR/bug-789.md
 git commit -m "watercooler: bug-789 deployed"
 git push
 ```
@@ -635,7 +641,7 @@ watercooler say feature-search \
   --title "Backend API Complete" \
   --body "Search API implemented. Returns JSON. Endpoint: /api/search"
 
-git add .watercooler/feature-search.md
+git add $THREADS_DIR/feature-search.md
 git commit -m "watercooler: backend API done"
 git push
 ```
@@ -648,17 +654,17 @@ watercooler say feature-search \
   --title "Frontend UI Complete" \
   --body "Search box with autocomplete. Debounced at 300ms."
 
-git add .watercooler/feature-search.md
+git add $THREADS_DIR/feature-search.md
 git commit -m "watercooler: frontend UI done"
 git pull  # Merge happens here!
 ```
 
 **Git Merge (Automatic!)**
 ```bash
-# Git uses merge=union for .watercooler/*.md files
+# Git uses merge=union for $THREADS_DIR/*.md files
 # Both entries preserved automatically:
 
-Auto-merging .watercooler/feature-search.md
+Auto-merging $THREADS_DIR/feature-search.md
 Merge made by the 'ort' strategy.
 ```
 
@@ -692,7 +698,7 @@ No manual conflict resolution needed! Both entries preserved in chronological or
 2. **Push Frequently**:
    ```bash
    # After each significant watercooler entry:
-   git add .watercooler/*.md
+   git add $THREADS_DIR/*.md
    git commit -m "watercooler: [topic] [brief summary]"
    git push
    ```
@@ -716,14 +722,14 @@ No manual conflict resolution needed! Both entries preserved in chronological or
    ```bash
    git pull
    watercooler reindex  # Update index.md with latest threads
-   git add .watercooler/index.md
+   git add $THREADS_DIR/index.md
    git commit -m "watercooler: reindex after merge"
    ```
 
 6. **Use HTML Export for Team Dashboard**:
    ```bash
    watercooler web-export
-   # Creates .watercooler/index.html
+   # Creates $THREADS_DIR/index.html
    # Open in browser to see all threads + NEW markers
    ```
 
@@ -731,13 +737,13 @@ No manual conflict resolution needed! Both entries preserved in chronological or
    ```bash
    # Thread lifecycle milestones:
    watercooler init-thread new-feature
-   git add .watercooler/new-feature.md
+   git add $THREADS_DIR/new-feature.md
    git commit -m "watercooler: start new-feature thread"
 
    # ... work happens ...
 
    watercooler say new-feature --type Closure --status closed --body "Complete"
-   git add .watercooler/new-feature.md
+   git add $THREADS_DIR/new-feature.md
    git commit -m "watercooler: close new-feature thread"
    ```
 
@@ -817,10 +823,10 @@ watercooler say db-migration-decision \
   --status closed
 
 # Record rationale in commit
-git add .watercooler/db-migration-decision.md
+git add $THREADS_DIR/db-migration-decision.md
 git commit -m "decision: stay with PostgreSQL for now
 
-See .watercooler/db-migration-decision.md for full analysis.
+See $THREADS_DIR/db-migration-decision.md for full analysis.
 Key factors: security model, team expertise, query flexibility.
 Will revisit in 6 months if scale requires."
 ```
@@ -832,7 +838,7 @@ watercooler search "DynamoDB"
 # Returns: db-migration-decision.md:35: Database: PostgreSQL to DynamoDB?
 
 # Read previous analysis
-cat .watercooler/db-migration-decision.md
+cat $THREADS_DIR/db-migration-decision.md
 # Full context available: analysis, concerns, decision, rationale
 
 # Start new thread referencing old decision
@@ -844,7 +850,7 @@ watercooler say db-scaling-2025 \
   --agent Team \
   --role pm \
   --title "Context" \
-  --body "6 months ago we decided to stay with PostgreSQL (see .watercooler/db-migration-decision.md). Now at 10M users, need to revisit. Claude, please analyze current bottlenecks."
+  --body "6 months ago we decided to stay with PostgreSQL (see $THREADS_DIR/db-migration-decision.md). Now at 10M users, need to revisit. Claude, please analyze current bottlenecks."
 ```
 
 ### Example: Architectural Decision Record (ADR) Style
@@ -958,7 +964,7 @@ watercooler say caching-strategy \
    ```bash
    watercooler say topic --type Decision --body "..."
    ```
-   Makes decisions searchable: `grep "Type: Decision" .watercooler/*.md`
+   Makes decisions searchable: `grep "Type: Decision" $THREADS_DIR/*.md`
 
 2. **Structure Decision Threads**:
    - Context: Problem statement and requirements
@@ -972,14 +978,14 @@ watercooler say caching-strategy \
    ```bash
    git commit -m "implement auth with JWT
 
-   Decision recorded in .watercooler/adr-auth-approach.md
+   Decision recorded in $THREADS_DIR/adr-auth-approach.md
    See thread for full rationale and alternatives considered."
    ```
 
 4. **Search for Past Decisions**:
    ```bash
    # Find all decisions
-   grep -r "Type: Decision" .watercooler/
+   grep -r "Type: Decision" $THREADS_DIR/
 
    # Search by keyword
    watercooler search "authentication"
@@ -1134,7 +1140,7 @@ watercooler say pr-search-feature \
   --status closed
 
 # Commit final state
-git add .watercooler/pr-search-feature.md
+git add $THREADS_DIR/pr-search-feature.md
 git commit -m "watercooler: pr-search-feature deployed"
 git push
 ```
@@ -1282,7 +1288,7 @@ watercooler handoff pr-api-endpoint \
 1. **One Thread Per PR**:
    - Thread name matches PR scope (not PR number)
    - Link PR number in entries: "PR #456"
-   - Cross-reference in PR description: "See .watercooler/pr-search-feature.md"
+   - Cross-reference in PR description: "See $THREADS_DIR/pr-search-feature.md"
 
 2. **Pre-PR Design Discussion**:
    - Start thread before writing code
@@ -1311,7 +1317,7 @@ watercooler handoff pr-api-endpoint \
    ```bash
    git commit -m "implement full-text search
 
-   Implements design from .watercooler/pr-search-feature.md
+   Implements design from $THREADS_DIR/pr-search-feature.md
    PR #456"
    ```
 
@@ -1346,5 +1352,4 @@ watercooler handoff pr-api-endpoint \
 - [AGENT_REGISTRY.md](AGENT_REGISTRY.md) - Agent configuration and counterpart mappings
 - [TEMPLATES.md](TEMPLATES.md) - Customizing thread and entry templates
 - [.github/WATERCOOLER_SETUP.md](../.github/WATERCOOLER_SETUP.md) - Git configuration for collaboration
-- [MIGRATION.md](MIGRATION.md) - Migration guide from acpmonkey
 - [README.md](../README.md) - Quick start and command reference

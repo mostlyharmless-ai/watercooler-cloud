@@ -9,15 +9,16 @@ File-based collaboration protocol for agentic coding projects with CLI tools and
 ## 🚀 Quick Start (Choose Your Path)
 
 ### I want to use watercooler with AI agents (Claude, Codex)
-**→ [MCP Server Guide](mcp-server.md)** - 5-minute overview
-**→ [Claude Code Setup](CLAUDE_CODE_SETUP.md)** - Step-by-step MCP installation
-**→ [Claude Desktop Setup](CLAUDE_DESKTOP_SETUP.md)** - Desktop app configuration
+**→ [Setup & Quickstart](SETUP_AND_QUICKSTART.md)** - Universal dev mode + first-call walkthrough
+**→ [MCP Server Guide](mcp-server.md)** - Tool reference and parameters
+**→ [Claude Code Setup](CLAUDE_CODE_SETUP.md)** - Client-specific appendix
+**→ [Claude Desktop Setup](CLAUDE_DESKTOP_SETUP.md)** - Desktop appendix
 **→ [Troubleshooting](TROUBLESHOOTING.md)** - MCP setup issues
 
 **Why MCP?** AI agents automatically discover watercooler tools - no manual commands needed.
 
 ### I want to use watercooler CLI commands
-**→ [QUICKSTART](QUICKSTART.md)** - 5-minute intro to CLI
+**→ [Setup & Quickstart](SETUP_AND_QUICKSTART.md)** - Same universal guide (CLI applies the same rules)
 **→ [Main README](../README.md)** - Installation and command reference
 **→ [Claude Collaboration (CLI)](claude-collab.md)** - Manual CLI workflows
 
@@ -25,7 +26,7 @@ File-based collaboration protocol for agentic coding projects with CLI tools and
 
 ### I want to integrate watercooler in my Python project
 **→ [Integration Guide](integration.md)** - Library usage and configuration
-**→ [API Reference](api.md)** - Complete Python API documentation
+**→ [API Reference](integration.md#python-api-reference)** - Complete Python API documentation
 
 ---
 
@@ -91,7 +92,7 @@ File-based collaboration protocol for agentic coding projects with CLI tools and
 ## 📖 Complete Documentation Index
 
 ### Getting Started
-- **[QUICKSTART](QUICKSTART.md)** - 5-minute intro to watercooler CLI
+- **[Setup & Quickstart](SETUP_AND_QUICKSTART.md)** - 5-minute intro and standard workflow
 - **[Main README](../README.md)** - Installation, examples, command reference
 - **[FAQ](FAQ.md)** - Common questions and troubleshooting
 
@@ -100,7 +101,7 @@ File-based collaboration protocol for agentic coding projects with CLI tools and
 - **[Claude Code Setup](CLAUDE_CODE_SETUP.md)** - Register with Claude Code CLI
 - **[Claude Desktop Setup](CLAUDE_DESKTOP_SETUP.md)** - Register with Claude Desktop app
 - **[Troubleshooting](TROUBLESHOOTING.md)** - MCP setup issues and solutions
-- **[Claude Collaboration (CLI)](claude-collab.md)** - Manual CLI workflows (legacy)
+- **[Claude Collaboration (CLI)](claude-collab.md)** - Manual CLI workflows
 
 ### Guides & Workflows
 - **[Use Cases Guide](USE_CASES.md)** ⭐ - 6 comprehensive practical examples:
@@ -113,7 +114,7 @@ File-based collaboration protocol for agentic coding projects with CLI tools and
 - **[Integration Guide](integration.md)** - Python library usage and configuration
 
 ### Reference Documentation
-- **[API Reference](api.md)** - Complete Python library API
+- **[API Reference](integration.md#python-api-reference)** - Complete Python library API
 - **[Structured Entries](STRUCTURED_ENTRIES.md)** - Entry format, 6 roles, 5 types
 - **[Agent Registry](AGENT_REGISTRY.md)** - Agent configuration and counterparts
 - **[Templates](TEMPLATES.md)** - Template syntax and customization
@@ -121,9 +122,9 @@ File-based collaboration protocol for agentic coding projects with CLI tools and
 ### Advanced Topics
 - **[Cloud Sync Strategy](.mothballed/docs/CLOUD_SYNC_STRATEGY.md)** - Git-based cloud sync (Phase 2A)
 - **[Git Configuration](../.github/WATERCOOLER_SETUP.md)** - Merge strategies and pre-commit hooks
+- Historical docs (design overviews, rollout plans) are archived under `.mothballed/docs/`
 
 ### Migration & History
-- **[Migration Guide](MIGRATION.md)** - Moving from acpmonkey to watercooler-collab
 - **[Testing Results](TESTING_RESULTS.md)** - Phase 1A validation (historical)
 
 ---
@@ -164,7 +165,7 @@ See **[ROADMAP.md](ROADMAP.md)** for detailed phase status.
 
 ### Advanced
 7. Enable [Cloud Sync](.mothballed/docs/CLOUD_SYNC_STRATEGY.md) - Team collaboration
-8. Study [API Reference](api.md) - Python library integration
+8. Study [API Reference](integration.md#python-api-reference) - Python library integration
 9. Read [Architecture](.mothballed/docs/CLOUD_SYNC_STRATEGY.md) - Implementation deep-dive
 
 ---

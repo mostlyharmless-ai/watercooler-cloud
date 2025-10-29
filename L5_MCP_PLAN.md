@@ -678,7 +678,7 @@ Can you confirm you can see this and respond?
 - `/Users/agent/projects/watercooler-collab/` - Main library
 - `/Users/agent/projects/watercooler-test/` - Test project
 - `/Users/agent/projects/watercooler-collab/IMPLEMENTATION_PLAN.md` - Original L1-L4 plan
-- `/Users/agent/projects/watercooler-collab/docs/api.md` - Python API reference
+- `/Users/agent/projects/watercooler-collab/docs/integration.md#python-api-reference` - Python API reference
 - `/Users/agent/projects/watercooler-collab/docs/integration.md` - Integration guide
 
 ## Success Criteria

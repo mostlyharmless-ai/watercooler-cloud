@@ -211,6 +211,9 @@ __marimo__/
 # Local dev threads (facade tests)
 .wc-cloud/
 
+# Local watercooler threads produced during docs/testing
+.watercooler/
+
 # Additional coverage artifacts
 coverage/
 

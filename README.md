@@ -6,8 +6,8 @@ File-based collaboration protocol for agentic coding projects.
 
 Run the MCP server locally and sync threads to a dedicated GitHub repo. This is the default workflow for small teams.
 
-- Guide: `docs/LOCAL_QUICKSTART.md`
-- Remote (Cloudflare/Render) deployment is mothballed; see `docs/DEPLOYMENT_QUICK_START.md` for reactivation reference.
+- Canonical guide: `docs/SETUP_AND_QUICKSTART.md`
+- Remote (Cloudflare/Render) deployment is mothballed; see `.mothballed/docs/DEPLOYMENT_QUICK_START.md` for the archival instructions.
 
 ### Branch Pairing
 Keep code and threads tightly linked:
@@ -17,7 +17,7 @@ Keep code and threads tightly linked:
 - See `docs/BRANCH_PAIRING.md` for details
 
 ### Tester Setup
-For a minimal, one‑liner install and usage flow (Claude; no per‑project configs), see:
+For a minimal validation loop (Claude + universal dev server) see:
 - `docs/TESTER_SETUP.md`
 
 ### Archived Remote Stack
@@ -27,6 +27,8 @@ gathered under `.mothballed/` for later deletion. Prefer the local stdio MCP uni
 ## Status
 
 ✅ **Full feature parity with acpmonkey achieved** - All phases (L1-L3) complete with 56 passing tests covering all features including structured entries, agent registry, and template system.
+
+📋 Prerelease checklist lives in `docs/PRE_RELEASE_TODO.md` — keep it current as we finalize polish.
 
 ## Design Principles
 
@@ -69,20 +71,9 @@ cd watercooler-collab
 pip install -e .
 ```
 
-## Remote MCP Deployment — Quick Checklist
+## Remote MCP Deployment — Archived
 
-- Full guide: see `docs/DEPLOYMENT.md`.
-- Cloudflare Worker
-  - Set `BACKEND_URL` to your Render URL and `INTERNAL_AUTH_SECRET` (via Wrangler Secret or CF UI).
-  - Deploy: `npx wrangler secret put INTERNAL_AUTH_SECRET` then `npx wrangler deploy`.
-- Render Backend
-  - Env: `INTERNAL_AUTH_SECRET` (match Worker), `BASE_THREADS_ROOT=/data/wc-cloud`, `WATERCOOLER_DIR=/data/wc-cloud`.
-  - Optional Git backup: `WATERCOOLER_GIT_REPO`, `WATERCOOLER_GIT_AUTHOR`, `WATERCOOLER_GIT_EMAIL`, `GIT_SSH_PRIVATE_KEY` (PEM).
-  - Start: copy a one‑liner from `scratch.txt` into Render → Settings → Start command.
-  - Disk: attach a persistent disk mounted at `/data`.
-- Test end‑to‑end
-  - Backend direct: `POST /mcp/watercooler_v1_health | _say | _read_thread` with `X-Internal-Auth`.
-  - Worker path: `GET /sse` → `initialize` → `tools/list` → `tools/call`.
+The hosted Cloudflare/Render deployment has been mothballed in favor of local universal dev mode. Historical notes and reactivation steps live under `.mothballed/` if you need to resurrect the stack.
 
 ### MCP Server (AI Agent Integration)
 
@@ -255,7 +246,7 @@ pytest tests/test_structured_entries.py -v
 - **[FAQ](docs/FAQ.md)** - Frequently asked questions and troubleshooting
 
 ### Configuration & Reference
-- **[API Reference](docs/api.md)** - Python library API documentation
+- **[API Reference](docs/integration.md#python-api-reference)** - Python library API documentation
 - **[Integration Guide](docs/integration.md)** - Installation and integration tutorial
 - **[MCP Server Guide](docs/mcp-server.md)** - AI agent integration via Model Context Protocol
 - **[Claude Code Setup](docs/CLAUDE_CODE_SETUP.md)** - Register watercooler with Claude Code

@@ -1,10 +1,10 @@
 # Claude Collaboration Workflow (CLI)
 
-**Note:** This guide covers **manual CLI workflows** using the `watercooler` command-line tool. For **automated MCP server integration** (where Claude automatically uses watercooler tools), see:
+**Note:** This guide covers **manual CLI workflows** using the `watercooler` command-line tool. Replace any repo-local thread folders with your threads repository (for example, `$HOME/.watercooler-threads/<org>/<repo>-threads`). For **automated MCP server integration** (where Claude automatically uses watercooler tools), see:
 - [Claude Code Setup](./CLAUDE_CODE_SETUP.md) - For Claude Code CLI
 - [Claude Desktop Setup](./CLAUDE_DESKTOP_SETUP.md) - For Claude Desktop app
 
-This guide shows practical patterns for collaborating with Claude using the watercooler CLI **manually** (useful for automation scripts, legacy workflows, or understanding the underlying commands).
+This guide shows practical patterns for collaborating with Claude using the watercooler CLI **manually** (useful for automation scripts or understanding the underlying commands).
 
 ## Table of Contents
 
@@ -21,14 +21,10 @@ This guide shows practical patterns for collaborating with Claude using the wate
 
 ### Directory Configuration
 
-Choose a threads directory (default `.watercooler` or set `WATERCOOLER_DIR`):
+Choose a threads directory (mirror repository):
 
 ```bash
-# Use default .watercooler directory
-# (No configuration needed)
-
-# Or customize:
-export WATERCOOLER_DIR=./my-threads
+THREADS_DIR="$HOME/.watercooler-threads/<org>/<repo>-threads"
 ```
 
 ### Agent Names
@@ -57,13 +53,13 @@ See [.github/WATERCOOLER_SETUP.md](../.github/WATERCOOLER_SETUP.md) for details.
 
 ```bash
 # Initialize thread for Claude discussion
-watercooler init-thread claude-integration \
+watercooler --threads-dir "$THREADS_DIR" init-thread claude-integration \
   --title "Claude Integration Features" \
   --owner Team \
   --participants "Team, Claude, Codex" \
   --ball claude
 
-# Thread created at: .watercooler/claude-integration.md
+# Thread created at: $THREADS_DIR/claude-integration.md
 ```
 
 ---
@@ -74,7 +70,7 @@ watercooler init-thread claude-integration \
 
 ```bash
 # Human asks Claude for review
-watercooler say claude-integration \
+watercooler --threads-dir "$THREADS_DIR" say claude-integration \
   --agent Team \
   --role pm \
   --title "Review Request" \
@@ -89,7 +85,7 @@ After Claude provides analysis (via API or interactive session):
 
 ```bash
 # Record Claude's insights
-watercooler say claude-integration \
+watercooler --threads-dir "$THREADS_DIR" say claude-integration \
   --agent Claude \
   --role planner \
   --title "L4 Recommendations" \
@@ -103,7 +99,7 @@ watercooler say claude-integration \
 
 ```bash
 # Acknowledge without changing ball owner
-watercooler ack claude-integration \
+watercooler --threads-dir "$THREADS_DIR" ack claude-integration \
   --agent Team \
   --role pm \
   --title "Acknowledged" \
@@ -116,7 +112,7 @@ watercooler ack claude-integration \
 
 ```bash
 # Explicit handoff to Codex for implementation
-watercooler handoff claude-integration \
+watercooler --threads-dir "$THREADS_DIR" handoff claude-integration \
   --agent Team \
   --role pm \
   --note "Codex, please implement handoff command per Claude's design"
@@ -134,7 +130,7 @@ When Claude's context window fills up, use watercooler threads as persistent mem
 
 ```bash
 # Session 1: Initial planning (context fills up)
-watercooler say feature-design \
+watercooler --threads-dir "$THREADS_DIR" say feature-design \
   --agent Claude \
   --role planner \
   --title "Architecture Design" \
@@ -147,10 +143,10 @@ watercooler say feature-design \
 ```bash
 # Session 2: Resume work (new context, read thread)
 # Human prompt to Claude:
-"Read .watercooler/feature-design.md for context, then implement phase 1"
+"Read $THREADS_DIR/feature-design.md for context, then implement phase 1"
 
 # Claude reads thread, continues work:
-watercooler say feature-design \
+watercooler --threads-dir "$THREADS_DIR" say feature-design \
   --agent Claude \
   --role implementer \
   --title "Phase 1 Implementation" \
@@ -166,7 +162,7 @@ Instead of re-explaining context:
 We decided on token rotation every 15 minutes. The security concerns were..."
 (Wastes 500+ tokens re-explaining)
 
-✅ Good: "Read .watercooler/auth-design.md then implement the OAuth2 flow"
+✅ Good: "Read $THREADS_DIR/auth-design.md then implement the OAuth2 flow"
 (Claude reads structured thread history, 0 wasted tokens)
 ```
 
@@ -178,7 +174,7 @@ We decided on token rotation every 15 minutes. The security concerns were..."
 
 ```bash
 # Claude plans
-watercooler say api-redesign \
+watercooler --threads-dir "$THREADS_DIR" say api-redesign \
   --agent Claude \
   --role planner \
   --title "API v2 Design" \
@@ -187,7 +183,7 @@ watercooler say api-redesign \
 # Ball auto-flips to: codex
 
 # Codex implements
-watercooler say api-redesign \
+watercooler --threads-dir "$THREADS_DIR" say api-redesign \
   --agent Codex \
   --role implementer \
   --title "Implementation Complete" \
@@ -195,7 +191,7 @@ watercooler say api-redesign \
 # Ball auto-flips to: claude
 
 # Claude reviews
-watercooler say api-redesign \
+watercooler --threads-dir "$THREADS_DIR" say api-redesign \
   --agent Claude \
   --role critic \
   --title "Review Complete" \
@@ -233,7 +229,7 @@ Configure counterpart mappings in `agents.json`:
 Use with commands:
 
 ```bash
-watercooler say feature-design \
+watercooler --threads-dir "$THREADS_DIR" say feature-design \
   --agents-file ./agents.json \
   --agent claude \
   --title "Design Complete"
@@ -248,10 +244,10 @@ watercooler say feature-design \
 
 ```bash
 # List all open threads
-watercooler list
+watercooler --threads-dir "$THREADS_DIR" list
 
 # List with NEW markers
-watercooler list --open-only
+watercooler --threads-dir "$THREADS_DIR" list --open-only
 # 2025-10-07T12:00:00Z  open  claude  NEW  Claude Integration  claude-integration.md
 
 # NEW marker means: ball is with claude, but last entry wasn't from claude
@@ -261,8 +257,8 @@ watercooler list --open-only
 
 ```bash
 # Find threads by keyword
-watercooler search "authentication"
-watercooler search "Claude"
+watercooler --threads-dir "$THREADS_DIR" search "authentication"
+watercooler --threads-dir "$THREADS_DIR" search "Claude"
 
 # Returns: file:line: matching text
 ```
@@ -271,12 +267,12 @@ watercooler search "Claude"
 
 ```bash
 # Markdown index
-watercooler reindex
-# Creates: .watercooler/index.md
+watercooler --threads-dir "$THREADS_DIR" reindex
+# Creates: $THREADS_DIR/index.md
 
 # HTML web export
-watercooler web-export
-# Creates: .watercooler/index.html
+watercooler --threads-dir "$THREADS_DIR" web-export
+# Creates: $THREADS_DIR/index.html
 # Open in browser for dashboard view
 ```
 
@@ -284,13 +280,13 @@ watercooler web-export
 
 ```bash
 # After each significant update
-git add .watercooler/
+git add "$THREADS_DIR"/
 git commit -m "watercooler: claude-integration design review"
 git push
 
 # Team members pull to see updates
 git pull
-watercooler list --open-only
+watercooler --threads-dir "$THREADS_DIR" list --open-only
 ```
 
 ---
@@ -299,16 +295,16 @@ watercooler list --open-only
 
 ```bash
 # 1. Human requests feature from Claude
-watercooler init-thread feature-search --ball claude
+watercooler --threads-dir "$THREADS_DIR" init-thread feature-search --ball claude
 
-watercooler say feature-search \
+watercooler --threads-dir "$THREADS_DIR" say feature-search \
   --agent Team \
   --role pm \
   --title "Feature Request: Search" \
   --body "Need full-text search for blog. Requirements: fuzzy match, autocomplete."
 
 # 2. Claude designs approach
-watercooler say feature-search \
+watercooler --threads-dir "$THREADS_DIR" say feature-search \
   --agent Claude \
   --role planner \
   --title "Search Design" \
@@ -316,19 +312,19 @@ watercooler say feature-search \
   --body "Use PostgreSQL tsvector + GIN index. Frontend: debounced autocomplete."
 
 # 3. Human approves and delegates to Codex
-watercooler handoff feature-search \
+watercooler --threads-dir "$THREADS_DIR" handoff feature-search \
   --agent Team \
   --note "Approved. Codex, please implement."
 
 # 4. Codex implements
-watercooler say feature-search \
+watercooler --threads-dir "$THREADS_DIR" say feature-search \
   --agent Codex \
   --role implementer \
   --title "Implementation Complete" \
   --body "Search implemented. PR #456. Tests passing."
 
 # 5. Claude reviews code
-watercooler say feature-search \
+watercooler --threads-dir "$THREADS_DIR" say feature-search \
   --agent Claude \
   --role critic \
   --title "Code Review" \
@@ -336,14 +332,14 @@ watercooler say feature-search \
   --body "Looks good. Request: add input sanitization."
 
 # 6. Codex fixes
-watercooler say feature-search \
+watercooler --threads-dir "$THREADS_DIR" say feature-search \
   --agent Codex \
   --role implementer \
   --title "Sanitization Added" \
   --body "Added input validation. Updated tests."
 
 # 7. Claude approves
-watercooler say feature-search \
+watercooler --threads-dir "$THREADS_DIR" say feature-search \
   --agent Claude \
   --role critic \
   --title "Approved" \
@@ -351,7 +347,7 @@ watercooler say feature-search \
   --body "LGTM"
 
 # 8. Human merges and closes
-watercooler say feature-search \
+watercooler --threads-dir "$THREADS_DIR" say feature-search \
   --agent Team \
   --role pm \
   --title "Deployed" \
@@ -359,7 +355,7 @@ watercooler say feature-search \
   --body "PR merged. Deployed to production." \
   --status closed
 
-git add .watercooler/feature-search.md
+git add "$THREADS_DIR"/feature-search.md
 git commit -m "watercooler: feature-search deployed"
 git push
 ```
@@ -372,4 +368,3 @@ git push
 - [STRUCTURED_ENTRIES.md](STRUCTURED_ENTRIES.md) - Entry format and metadata
 - [AGENT_REGISTRY.md](AGENT_REGISTRY.md) - Agent configuration details
 - [README.md](../README.md) - Command reference and installation
-

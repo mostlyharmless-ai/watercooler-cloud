@@ -89,14 +89,19 @@ See [MCP Server Guide](./mcp-server.md) for complete tool reference.
 
 #### Initialize a Thread
 
+Set a threads directory that lives alongside your code repo (matching the MCP layout):
+
 ```bash
+THREADS_DIR="$HOME/.watercooler-threads/demo-project-threads"
+
 watercooler init-thread feature-auth \
+  --threads-dir "$THREADS_DIR" \
   --owner agent \
   --participants "agent, Claude, Codex" \
   --ball codex
 ```
 
-This creates `.watercooler/feature-auth.md`:
+This creates `$THREADS_DIR/feature-auth.md`:
 
 ```markdown
 Title: Feature auth
@@ -113,6 +118,7 @@ Participants: agent, Claude, Codex
 
 ```bash
 watercooler say feature-auth \
+  --threads-dir "$THREADS_DIR" \
   --agent Claude \
   --role critic \
   --title "Design Review" \
@@ -122,15 +128,15 @@ watercooler say feature-auth \
 #### Update Status
 
 ```bash
-watercooler set-status feature-auth in-review
+watercooler set-status feature-auth in-review --threads-dir "$THREADS_DIR"
 ```
 
 #### List Threads
 
 ```bash
-watercooler list
+watercooler list --threads-dir "$THREADS_DIR"
 # Output:
-# 2025-10-07T10:00:00Z    open    codex        feature-auth    .watercooler/feature-auth.md
+# 2025-10-07T10:00:00Z    open    codex        feature-auth    $THREADS_DIR/feature-auth.md
 ```
 
 See [README.md](../README.md) for complete CLI reference.
@@ -145,8 +151,8 @@ See [README.md](../README.md) for complete CLI reference.
 from pathlib import Path
 from watercooler import read, write, thread_path, bump_header, AdvisoryLock
 
-# Configuration
-threads_dir = Path(".watercooler")
+# Configuration (matches CLI/MCP sibling repo pattern)
+threads_dir = Path.home() / ".watercooler-threads" / "demo-project-threads"
 topic = "feature-auth"
 
 # Get thread path
@@ -173,7 +179,7 @@ For higher-level operations:
 from pathlib import Path
 from watercooler.commands import init_thread, say, set_status
 
-threads_dir = Path(".watercooler")
+threads_dir = Path.home() / ".watercooler-threads" / "demo-project-threads"
 
 # Initialize thread
 init_thread(
@@ -198,7 +204,48 @@ say(
 set_status("feature-auth", threads_dir=threads_dir, status="closed")
 ```
 
-See [API Reference](api.md) for complete documentation.
+#### Python API Reference
+
+Import the core helpers directly from the package:
+
+```python
+from watercooler import read, write, thread_path, bump_header, AdvisoryLock
+```
+
+- `read(path: Path) -> str` – load a thread file
+- `write(path: Path, text: str)` – write text (parents auto-created)
+- `thread_path(topic: str, threads_dir: Path) -> Path` – resolve topic → file path
+- `bump_header(text: str, *, status=None, ball=None) -> str` – update header metadata
+- `AdvisoryLock(path: Path, timeout=5, ttl=30)` – PID-aware lock used in CLI and MCP flows
+
+For higher-level operations use the `commands` module:
+
+```python
+from watercooler.commands import init_thread, say, set_status, append_entry
+```
+
+- `init_thread(topic, threads_dir, **kwargs)` – create a thread using templates
+- `say(...)` / `append_entry(...)` – append structured entries, handling templates, agent registry, and idempotency markers
+- `set_status(topic, threads_dir, status)` – adjust Status header
+- `set_ball(topic, threads_dir, ball)` – change Ball owner explicitly
+
+Most applications only need these helpers; the CLI and MCP server are built on top of them.
+
+##### Locking example
+
+```python
+from pathlib import Path
+from watercooler import read, write, AdvisoryLock
+
+threads_dir = Path.home() / ".watercooler-threads" / "demo-project-threads"
+thread = threads_dir / "feature-auth.md"
+lock = threads_dir / ".feature-auth.lock"
+
+with AdvisoryLock(lock, timeout=5):
+    text = read(thread)
+    text = bump_header(text, status="IN_REVIEW")
+    write(thread, text)
+```
 
 ---
 
@@ -206,28 +253,17 @@ See [API Reference](api.md) for complete documentation.
 
 ### Threads Directory
 
-Watercooler uses a **threads directory** to store thread files.
-
-**Default:** `./.watercooler/` (hidden directory)
-
-**Configuration precedence:**
-1. CLI argument: `--threads-dir <path>`
-2. Environment variable: `WATERCOOLER_DIR`
-3. Default: `.watercooler`
-
-**Examples:**
+The CLI stores threads wherever you point `--threads-dir`. To stay consistent with the MCP server, use the sibling repo layout:
 
 ```bash
-# Use default
-watercooler list
-
-# Override with CLI
-watercooler list --threads-dir ./my-threads
-
-# Override with environment variable
-export WATERCOOLER_DIR=./my-threads
-watercooler list
+THREADS_DIR="$HOME/.watercooler-threads/<org>/<repo>-threads"
+watercooler list --threads-dir "$THREADS_DIR"
 ```
+
+Configuration precedence:
+1. CLI argument: `--threads-dir <path>` (recommended)
+2. Environment variable: `WATERCOOLER_DIR` (manual override for a fixed location)
+3. If neither is set, the current prerelease resolves the sibling `<repo>-threads` repository under `~/.watercooler-threads/`. If you still observe a repo-local fallback such as `./threads-local`, upgrade the package and clean up the stray directory—it’s treated as a misconfiguration going forward.
 
 **Python usage:**
 
@@ -235,11 +271,8 @@ watercooler list
 from pathlib import Path
 from watercooler.config import resolve_threads_dir
 
-# Get configured threads directory
-threads_dir = resolve_threads_dir()  # Uses env var or default
-
-# Override in code
-threads_dir = resolve_threads_dir(cli_value="./my-threads")
+recommended = Path.home() / ".watercooler-threads" / "demo-project-threads"
+threads_dir = resolve_threads_dir(cli_value=str(recommended))
 ```
 
 ---
@@ -253,7 +286,7 @@ Templates customize thread and entry formatting.
 **Configuration precedence:**
 1. CLI argument: `--templates-dir <path>`
 2. Environment variable: `WATERCOOLER_TEMPLATES`
-3. Project-local: `./.watercooler/templates/` (if exists)
+3. Project-local: `$THREADS_DIR/templates/` (if exists)
 4. Package bundled templates (fallback)
 
 **Template files:**
@@ -264,14 +297,16 @@ Templates customize thread and entry formatting.
 
 ```bash
 # Create project-local templates
-mkdir -p .watercooler/templates
-cp $(python3 -c "from pathlib import Path; import watercooler; print(Path(watercooler.__file__).parent / 'templates')") .watercooler/templates/_TEMPLATE_topic_thread.md
+mkdir -p "$THREADS_DIR"/templates
+
+TEMPLATE_DIR=$(python3 -c "from pathlib import Path; import watercooler; print(Path(watercooler.__file__).parent / 'templates')")
+cp "$TEMPLATE_DIR"/_TEMPLATE_*.md "$THREADS_DIR"/templates/
 
 # Edit template
-vim .watercooler/templates/_TEMPLATE_topic_thread.md
+vim "$THREADS_DIR"/templates/_TEMPLATE_topic_thread.md
 
 # Will be used automatically
-watercooler init-thread new-topic
+watercooler init-thread new-topic --threads-dir "$THREADS_DIR"
 ```
 
 See [Templates Guide](TEMPLATES.md) for complete customization reference.
@@ -286,8 +321,11 @@ Watercooler supports multiple environment variables for configuration. For compl
 
 **Core Configuration:**
 - `WATERCOOLER_AGENT` - Agent identity (required for MCP, optional for CLI)
-- `WATERCOOLER_DIR` - Threads directory with upward search (default: `.watercooler`)
+- `WATERCOOLER_THREADS_BASE` - Root for local thread clones (default: `~/.watercooler-threads`)
+- `WATERCOOLER_THREADS_PATTERN` - Remote repo pattern (`git@github.com:{org}/{repo}-threads.git` default)
+- `WATERCOOLER_AUTO_BRANCH` - Enable/disable automatic branch creation (`1` by default)
 - `WATERCOOLER_TEMPLATES` - Custom templates directory
+- `WATERCOOLER_DIR` - Manual override for a fixed threads directory (disables universal discovery)
 
 **Cloud Sync (Optional):**
 - `WATERCOOLER_GIT_REPO` - Git repository URL (enables cloud mode)
@@ -306,8 +344,10 @@ Watercooler supports multiple environment variables for configuration. For compl
 
 ```bash
 # MCP configuration
-WATERCOOLER_AGENT=Claude
-WATERCOOLER_DIR=/absolute/path/to/.watercooler
+WATERCOOLER_AGENT="Claude@Code"
+WATERCOOLER_THREADS_BASE="$HOME/.watercooler-threads"
+WATERCOOLER_THREADS_PATTERN="git@github.com:{org}/{repo}-threads.git"
+WATERCOOLER_AUTO_BRANCH=1
 
 # Optional: Cloud sync
 WATERCOOLER_GIT_REPO=git@github.com:org/watercooler-threads.git
@@ -316,7 +356,7 @@ WATERCOOLER_GIT_AUTHOR="Agent Name"
 WATERCOOLER_GIT_EMAIL=agent@example.com
 
 # Optional: Custom templates
-WATERCOOLER_TEMPLATES=./templates/watercooler
+WATERCOOLER_TEMPLATES="$HOME/.watercooler-threads/demo-project-threads/templates"
 
 # Optional: Lock tuning
 WCOOLER_LOCK_TTL=60
@@ -338,17 +378,17 @@ Copy bundled templates and customize:
 python3 -c "from pathlib import Path; import watercooler; print(Path(watercooler.__file__).parent / 'templates')"
 
 # Copy to project
-mkdir -p .watercooler/templates
-cp <bundled-path>/_TEMPLATE_topic_thread.md .watercooler/templates/
-cp <bundled-path>/_TEMPLATE_entry_block.md .watercooler/templates/
+mkdir -p "$THREADS_DIR"/templates
+cp <bundled-path>/_TEMPLATE_topic_thread.md "$THREADS_DIR"/templates/
+cp <bundled-path>/_TEMPLATE_entry_block.md "$THREADS_DIR"/templates/
 
 # Customize
-vim .watercooler/templates/_TEMPLATE_topic_thread.md
+vim "$THREADS_DIR"/templates/_TEMPLATE_topic_thread.md
 ```
 
 ### Thread Template
 
-`.watercooler/templates/_TEMPLATE_topic_thread.md`:
+`$THREADS_DIR/templates/_TEMPLATE_topic_thread.md`:
 
 ```markdown
 Title: {{Short title}}
@@ -374,7 +414,7 @@ Initial body here...
 
 ### Entry Template
 
-`.watercooler/templates/_TEMPLATE_entry_block.md`:
+`$THREADS_DIR/templates/_TEMPLATE_entry_block.md`:
 
 ```markdown
 ---
@@ -449,7 +489,7 @@ See [Agent Registry Guide](AGENT_REGISTRY.md) for complete reference.
 
 For multi-user collaboration, configure git merge strategies.
 
-### Required: Enable "ours" Merge Driver
+### Required: Enable "ours" merge driver (for generated indexes)
 
 ```bash
 git config merge.ours.driver true
@@ -462,13 +502,17 @@ git config merge.ours.driver true
 git config core.hooksPath .githooks
 ```
 
-### Create `.gitattributes`
+### `.gitattributes` template
 
 ```
-.watercooler/*.md merge=ours
+# Append-only thread files
+*.md merge=union
+
+# Generated indexes
+index.md merge=ours
 ```
 
-This ensures append-only semantics - last writer wins.
+This keeps thread entries from both sides during merges while allowing the index to regenerate cleanly after branch joins.
 
 See [Git Setup Guide](../.github/WATERCOOLER_SETUP.md) for detailed configuration.
 
@@ -488,7 +532,7 @@ Watercooler supports **git-based cloud sync** for distributed team collaboration
    git remote add origin git@github.com:org/watercooler-threads.git
 
    # Option B: Use existing project repo
-   # (threads will be in .watercooler/ subdirectory)
+   # (place threads under a dedicated subdirectory such as threads/)
    ```
 
 2. **Configure environment variables:**
@@ -504,7 +548,7 @@ Watercooler supports **git-based cloud sync** for distributed team collaboration
 ### How It Works
 
 **Local Mode (default):**
-- Reads/writes directly to local `.watercooler/` directory
+- Reads/writes directly to the sibling threads repo on disk
 - No network operations
 - Fast and simple
 
@@ -516,7 +560,7 @@ Watercooler supports **git-based cloud sync** for distributed team collaboration
 
 ### Documentation
 
-> **Note**: Cloud sync features have been mothballed in favor of local-first architecture. See [LOCAL_QUICKSTART.md](./LOCAL_QUICKSTART.md) for current setup.
+> **Note**: Cloud sync features have been mothballed in favor of local-first architecture. See [SETUP_AND_QUICKSTART.md](./SETUP_AND_QUICKSTART.md) for current setup.
 
 - **[Cloud Sync Guide](../.mothballed/docs/CLOUD_SYNC_GUIDE.md)** - 5-minute setup walkthrough (archived)
 - **[Cloud Sync Strategy](../.mothballed/docs/CLOUD_SYNC_STRATEGY.md)** - Decision rationale and trade-offs (archived)
@@ -535,7 +579,7 @@ from pathlib import Path
 from watercooler.commands import set_status
 from watercooler.metadata import thread_meta, is_closed
 
-threads_dir = Path(".watercooler")
+threads_dir = Path.home() / ".watercooler-threads" / "demo-project-threads"
 
 # Find all open threads
 for thread_file in threads_dir.glob("*.md"):
@@ -561,13 +605,21 @@ name: Watercooler Index
 on:
   push:
     paths:
-      - '.watercooler/*.md'
+      - 'threads/*.md'
 
 jobs:
   update-index:
     runs-on: ubuntu-latest
     steps:
-      - uses: actions/checkout@v3
+      - name: Checkout code repo
+        uses: actions/checkout@v3
+        with:
+          path: repo
+      - name: Checkout threads repo
+        uses: actions/checkout@v3
+        with:
+          repository: ${{ github.repository }}-threads
+          path: threads
       - name: Setup Python
         uses: actions/setup-python@v4
         with:
@@ -576,13 +628,14 @@ jobs:
         run: pip install git+https://github.com/mostlyharmless-ai/watercooler-collab.git
       - name: Generate index
         run: |
-          watercooler reindex
-          watercooler web-export
+          watercooler reindex --threads-dir threads
+          watercooler web-export --threads-dir threads
       - name: Commit updates
+        working-directory: threads
         run: |
           git config user.name "Bot"
           git config user.email "bot@example.com"
-          git add .watercooler/index.{md,html}
+          git add index.{md,html}
           git commit -m "chore: update watercooler index" || true
           git push
 ```
@@ -599,17 +652,20 @@ set -e
 
 echo "Validating watercooler threads..."
 
+# Path to threads repo (adjust as needed)
+THREADS_DIR="$HOME/.watercooler-threads/<org>/<repo>-threads"
+
 # Check for merge conflicts in threads
-if git diff --cached .watercooler/*.md | grep -q '<<<<<<<'; then
+if git diff --cached "$THREADS_DIR"/*.md | grep -q '<<<<<<<'; then
     echo "Error: Merge conflict markers found in threads"
     exit 1
 fi
 
 # Regenerate index
-watercooler reindex --threads-dir .watercooler
+watercooler reindex --threads-dir "$THREADS_DIR"
 
 # Stage index if changed
-git add .watercooler/index.md
+git add "$THREADS_DIR"/index.md
 
 echo "✓ Watercooler validation passed"
 ```
@@ -631,7 +687,12 @@ git config core.hooksPath .githooks
 
 set -e
 
-THREADS_DIR="${WATERCOOLER_DIR:-.watercooler}"
+THREADS_DIR="${THREADS_DIR:-$HOME/.watercooler-threads/<org>/<repo>-threads}"
+
+if [ ! -d "$THREADS_DIR" ]; then
+    echo "Threads directory '$THREADS_DIR' does not exist. Set THREADS_DIR before running." >&2
+    exit 1
+fi
 
 if [ -z "$1" ]; then
     echo "Usage: wc-say <topic> <message>"
@@ -691,30 +752,30 @@ FileNotFoundError: Template '_TEMPLATE_topic_thread.md' not found
 ```
 
 **Solutions:**
-- Check template location: `ls .watercooler/templates/`
+- Check template location: `ls "$THREADS_DIR"/templates/`
 - Verify `WATERCOOLER_TEMPLATES` if set
 - Reset to bundled: `unset WATERCOOLER_TEMPLATES`
 
 ### Issue: Permission denied
 
 ```
-PermissionError: [Errno 13] Permission denied: '.watercooler/thread.md'
+PermissionError: [Errno 13] Permission denied: '$THREADS_DIR/feature-auth.md'
 ```
 
 **Solutions:**
-- Check file permissions: `ls -la .watercooler/`
-- Ensure directory is writable: `chmod u+w .watercooler/`
+- Check file permissions: `ls -la "$THREADS_DIR"`
+- Ensure directory is writable: `chmod u+w "$THREADS_DIR"`
 - Check lock file isn't orphaned: `watercooler unlock <topic>`
 
 ### Issue: Git merge conflicts
 
 ```
-CONFLICT (content): Merge conflict in .watercooler/thread.md
+CONFLICT (content): Merge conflict in threads/feature-auth.md
 ```
 
 **Solutions:**
 - Configure merge driver: `git config merge.ours.driver true`
-- Create `.gitattributes`: `.watercooler/*.md merge=ours`
+- Create `.gitattributes`: `*.md merge=union` and `index.md merge=ours`
 - See [Git Setup Guide](../.github/WATERCOOLER_SETUP.md)
 
 ---
@@ -738,7 +799,7 @@ CONFLICT (content): Merge conflict in .watercooler/thread.md
 
 ### Reference
 - [MCP Server Guide](./mcp-server.md) - MCP tool documentation
-- [API Reference](api.md) - Python API documentation
+- [Python API Reference](#python-api-reference) - Library usage summary
 - [Troubleshooting](./TROUBLESHOOTING.md) - Common issues and solutions
 - [Roadmap](../ROADMAP.md) - Project status and future plans
 

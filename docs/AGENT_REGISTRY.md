@@ -2,6 +2,12 @@
 
 The agent registry configures how watercooler-collab manages agents, their canonical names, counterpart relationships, and multi-agent collaboration chains.
 
+> Replace any repo-local threads folder in the examples with the canonical path to your threads repository (e.g., `$HOME/.watercooler-threads/<org>/<repo>-threads`).
+
+```bash
+THREADS_DIR="$HOME/.watercooler-threads/<org>/<repo>-threads"
+```
+
 ## Table of Contents
 
 - [Overview](#overview)
@@ -104,7 +110,7 @@ Add your own agents:
 Usage:
 
 ```bash
-watercooler say topic \
+watercooler --threads-dir "$THREADS_DIR" say topic \
   --agents-file agents.json \
   --agent gpt4 \
   --title "Review" \
@@ -158,15 +164,15 @@ Usage:
 
 ```bash
 # Planner starts
-watercooler say topic --agent Planner --title "Design" --body "Plan created"
+watercooler --threads-dir "$THREADS_DIR" say topic --agent Planner --title "Design" --body "Plan created"
 # Ball now with Reviewer
 
 # Reviewer provides feedback
-watercooler say topic --agent Reviewer --title "Review" --body "Approved"
+watercooler --threads-dir "$THREADS_DIR" say topic --agent Reviewer --title "Review" --body "Approved"
 # Ball now with Implementer
 
 # Implementer codes
-watercooler say topic --agent Implementer --title "Done" --body "Implemented"
+watercooler --threads-dir "$THREADS_DIR" say topic --agent Implementer --title "Done" --body "Implemented"
 # Ball back to Planner
 ```
 
@@ -267,11 +273,11 @@ Usage:
 
 ```bash
 # Without specifying --ball
-watercooler init-thread topic --agents-file agents.json
+watercooler --threads-dir "$THREADS_DIR" init-thread topic --agents-file agents.json
 # Ball defaults to "Team"
 
 # With explicit --ball
-watercooler init-thread topic --agents-file agents.json --ball codex
+watercooler --threads-dir "$THREADS_DIR" init-thread topic --agents-file agents.json --ball codex
 # Ball is "codex" (overrides default)
 ```
 
@@ -280,7 +286,7 @@ watercooler init-thread topic --agents-file agents.json --ball codex
 ### CLI Argument
 
 ```bash
-watercooler say topic \
+watercooler --threads-dir "$THREADS_DIR" say topic \
   --agents-file /path/to/agents.json \
   --agent codex \
   --title "Done" \
@@ -291,14 +297,14 @@ watercooler say topic \
 
 ```bash
 # Use custom registry for specific command
-watercooler say feature-auth \
+watercooler --threads-dir "$THREADS_DIR" say feature-auth \
   --agents-file ./team-agents.json \
   --agent backend \
   --title "API Ready" \
   --body "Endpoints implemented"
 
 # Use default registry for another command
-watercooler say feature-ui \
+watercooler --threads-dir "$THREADS_DIR" say feature-ui \
   --agent claude \
   --title "UI Sketch" \
   --body "Wireframes attached"
@@ -310,7 +316,9 @@ Create a project-specific registry:
 
 ```bash
 # Create project registry
-cat > .watercooler/agents.json <<EOF
+THREADS_DIR="$HOME/.watercooler-threads/<org>/<repo>-threads"
+
+cat > "$THREADS_DIR"/agents.json <<EOF
 {
   "canonical": {
     "claude": "Claude",
@@ -327,7 +335,7 @@ cat > .watercooler/agents.json <<EOF
 EOF
 
 # Use in commands
-watercooler say topic --agents-file .watercooler/agents.json --agent codex --title "Update" --body "Done"
+watercooler say topic --threads-dir "$THREADS_DIR" --agents-file "$THREADS_DIR"/agents.json --agent codex --title "Update" --body "Done"
 ```
 
 ## Complete Examples
@@ -358,24 +366,24 @@ watercooler say topic --agents-file .watercooler/agents.json --agent codex --tit
 **Workflow**:
 ```bash
 # Team creates plan
-watercooler init-thread feature-x --agents-file agents.json --ball team
-watercooler say feature-x --agents-file agents.json --agent team --title "Kickoff" --body "Build feature X"
+watercooler --threads-dir "$THREADS_DIR" init-thread feature-x --agents-file agents.json --ball team
+watercooler --threads-dir "$THREADS_DIR" say feature-x --agents-file agents.json --agent team --title "Kickoff" --body "Build feature X"
 # Ball → Claude
 
 # Claude designs
-watercooler say feature-x --agents-file agents.json --agent claude --title "Design" --body "Architecture proposal"
+watercooler --threads-dir "$THREADS_DIR" say feature-x --agents-file agents.json --agent claude --title "Design" --body "Architecture proposal"
 # Ball → Codex
 
 # Codex implements
-watercooler say feature-x --agents-file agents.json --agent codex --title "Implementation" --body "Core logic done"
+watercooler --threads-dir "$THREADS_DIR" say feature-x --agents-file agents.json --agent codex --title "Implementation" --body "Core logic done"
 # Ball → Copilot
 
 # Copilot reviews
-watercooler say feature-x --agents-file agents.json --agent copilot --title "Review" --body "LGTM"
+watercooler --threads-dir "$THREADS_DIR" say feature-x --agents-file agents.json --agent copilot --title "Review" --body "LGTM"
 # Ball → Team
 
 # Team closes
-watercooler say feature-x --agents-file agents.json --agent team --title "Complete" --body "Shipped!"
+watercooler --threads-dir "$THREADS_DIR" say feature-x --agents-file agents.json --agent team --title "Complete" --body "Shipped!"
 ```
 
 ### Example 2: Human + AI Pair Programming
@@ -400,20 +408,20 @@ watercooler say feature-x --agents-file agents.json --agent team --title "Comple
 **Workflow**:
 ```bash
 # agent starts
-watercooler init-thread bug-fix --agents-file agents.json --ball agent
-watercooler say bug-fix --agents-file agents.json --agent agent --title "Bug Found" --body "Login fails on Safari"
+watercooler --threads-dir "$THREADS_DIR" init-thread bug-fix --agents-file agents.json --ball agent
+watercooler --threads-dir "$THREADS_DIR" say bug-fix --agents-file agents.json --agent agent --title "Bug Found" --body "Login fails on Safari"
 # Ball → Claude
 
 # Claude analyzes
-watercooler say bug-fix --agents-file agents.json --agent claude --title "Root Cause" --body "Cookie SameSite issue"
+watercooler --threads-dir "$THREADS_DIR" say bug-fix --agents-file agents.json --agent claude --title "Root Cause" --body "Cookie SameSite issue"
 # Ball → agent
 
 # agent implements fix
-watercooler say bug-fix --agents-file agents.json --agent agent --title "Fixed" --body "Updated cookie settings"
+watercooler --threads-dir "$THREADS_DIR" say bug-fix --agents-file agents.json --agent agent --title "Fixed" --body "Updated cookie settings"
 # Ball → Claude
 
 # Claude verifies
-watercooler say bug-fix --agents-file agents.json --agent claude --title "Verified" --body "Tests pass"
+watercooler --threads-dir "$THREADS_DIR" say bug-fix --agents-file agents.json --agent claude --title "Verified" --body "Tests pass"
 # Ball → agent
 ```
 
@@ -443,23 +451,23 @@ watercooler say bug-fix --agents-file agents.json --agent claude --title "Verifi
 **Workflow**:
 ```bash
 # Developer implements
-watercooler say feature --agents-file agents.json --agent developer --title "Feature Done" --body "Login with OAuth"
+watercooler --threads-dir "$THREADS_DIR" say feature --agents-file agents.json --agent developer --title "Feature Done" --body "Login with OAuth"
 # Ball → Security-AI
 
 # Security review
-watercooler say feature --agents-file agents.json --agent security --title "Security Check" --body "CSRF protection needed"
+watercooler --threads-dir "$THREADS_DIR" say feature --agents-file agents.json --agent security --title "Security Check" --body "CSRF protection needed"
 # Ball → Performance-AI
 
 # Performance review
-watercooler say feature --agents-file agents.json --agent performance --title "Perf Check" --body "Response time good"
+watercooler --threads-dir "$THREADS_DIR" say feature --agents-file agents.json --agent performance --title "Perf Check" --body "Response time good"
 # Ball → UX-AI
 
 # UX review
-watercooler say feature --agents-file agents.json --agent ux --title "UX Check" --body "Error messages unclear"
+watercooler --threads-dir "$THREADS_DIR" say feature --agents-file agents.json --agent ux --title "UX Check" --body "Error messages unclear"
 # Ball → Developer
 
 # Developer addresses feedback
-watercooler say feature --agents-file agents.json --agent developer --title "Updated" --body "CSRF + UX fixes"
+watercooler --threads-dir "$THREADS_DIR" say feature --agents-file agents.json --agent developer --title "Updated" --body "CSRF + UX fixes"
 ```
 
 ## User Tagging
@@ -472,7 +480,7 @@ User tags are automatically appended to agent names:
 # Agent name: codex
 # Git user: agent
 # Result: Codex (agent)
-watercooler say topic --agent codex --title "Update" --body "Done"
+watercooler --threads-dir "$THREADS_DIR" say topic --agent codex --title "Update" --body "Done"
 ```
 
 Entry appears as:
@@ -487,7 +495,7 @@ Entry: Codex (agent) 2025-10-06T12:34:56Z
 Provide tag directly:
 
 ```bash
-watercooler say topic --agent "Claude (sarah)" --title "Review" --body "Approved"
+watercooler --threads-dir "$THREADS_DIR" say topic --agent "Claude (sarah)" --title "Review" --body "Approved"
 ```
 
 Entry appears as:
@@ -503,11 +511,11 @@ In shared environments, tagging identifies who invoked which agent:
 
 ```bash
 # agent uses Claude
-watercooler say topic --agent claude --title "Analysis" --body "Findings..."
+watercooler --threads-dir "$THREADS_DIR" say topic --agent claude --title "Analysis" --body "Findings..."
 # Entry: Claude (agent)
 
 # Sarah uses Codex
-watercooler say topic --agent codex --title "Implementation" --body "Code..."
+watercooler --threads-dir "$THREADS_DIR" say topic --agent codex --title "Implementation" --body "Code..."
 # Entry: Codex (sarah)
 ```
 
@@ -561,7 +569,7 @@ User tag requires:
 Commit registry to git:
 
 ```bash
-git add .watercooler/agents.json
+git add "$THREADS_DIR"/agents.json
 git commit -m "Add watercooler agent registry"
 ```
 
@@ -595,9 +603,9 @@ Verify multi-agent chains work:
 
 ```bash
 # Test each step in chain
-watercooler say test --agents-file agents.json --agent a --title "A" --body "From A"
-watercooler say test --agents-file agents.json --agent b --title "B" --body "From B"
-watercooler say test --agents-file agents.json --agent c --title "C" --body "From C"
+watercooler --threads-dir "$THREADS_DIR" say test --agents-file agents.json --agent a --title "A" --body "From A"
+watercooler --threads-dir "$THREADS_DIR" say test --agents-file agents.json --agent b --title "B" --body "From B"
+watercooler --threads-dir "$THREADS_DIR" say test --agents-file agents.json --agent c --title "C" --body "From C"
 ```
 
 ### 5. Default to Simple
@@ -619,10 +627,10 @@ While registry doesn't support conditionals, you can use different registry file
 
 ```bash
 # Code review workflow
-watercooler say topic --agents-file review-agents.json --agent dev --title "PR" --body "Ready"
+watercooler --threads-dir "$THREADS_DIR" say topic --agents-file review-agents.json --agent dev --title "PR" --body "Ready"
 
 # Security workflow
-watercooler say topic --agents-file security-agents.json --agent dev --title "Scan" --body "Running"
+watercooler --threads-dir "$THREADS_DIR" say topic --agents-file security-agents.json --agent dev --title "Scan" --body "Running"
 ```
 
 ### Role-Based Routing
@@ -647,9 +655,9 @@ Combine with structured entries:
 Match agent names to roles:
 
 ```bash
-watercooler say topic --agents-file agents.json --agent planner --role planner --title "Design" --body "Plan..."
-watercooler say topic --agents-file agents.json --agent implementer --role implementer --title "Code" --body "Done..."
-watercooler say topic --agents-file agents.json --agent critic --role critic --title "Review" --body "LGTM..."
+watercooler --threads-dir "$THREADS_DIR" say topic --agents-file agents.json --agent planner --role planner --title "Design" --body "Plan..."
+watercooler --threads-dir "$THREADS_DIR" say topic --agents-file agents.json --agent implementer --role implementer --title "Code" --body "Done..."
+watercooler --threads-dir "$THREADS_DIR" say topic --agents-file agents.json --agent critic --role critic --title "Review" --body "LGTM..."
 ```
 
 ## See Also

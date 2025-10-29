@@ -1,6 +1,6 @@
 # Watercooler – Tester Setup (Universal Dev Mode)
 
-This guide shows how a tester can install and run the local MCP server with zero per‑project configuration. The MCP discovers the correct threads repository and branch from the code context you pass on each call.
+This guide shows how a tester can install and run the local MCP server with zero per‑project configuration. Read [SETUP_AND_QUICKSTART.md](./SETUP_AND_QUICKSTART.md) first; this document assumes the universal flow is already familiar.
 
 ## Prerequisites
 - Python 3.10+
@@ -19,7 +19,7 @@ pip install -e .[mcp]
 ## Register MCP in Claude (user-scope)
 One-line command (context-aware, no per‑project config):
 ```bash
-claude mcp add --transport stdio watercooler-dev --scope user \
+claude mcp add --transport stdio watercooler-universal --scope user \
   -e WATERCOOLER_AGENT="Claude@Code" \
   -e WATERCOOLER_THREADS_BASE="$HOME/.watercooler-threads" \
   -e WATERCOOLER_THREADS_PATTERN="git@github.com:{org}/{repo}-threads.git" \
@@ -29,7 +29,7 @@ claude mcp add --transport stdio watercooler-dev --scope user \
 
 Alternate (guarantee latest code from this repo file):
 ```bash
-claude mcp add --transport stdio watercooler-dev --scope user \
+claude mcp add --transport stdio watercooler-universal --scope user \
   -e WATERCOOLER_AGENT="Claude@Code" \
   -e WATERCOOLER_THREADS_BASE="$HOME/.watercooler-threads" \
   -e WATERCOOLER_THREADS_PATTERN="git@github.com:{org}/{repo}-threads.git" \
@@ -72,7 +72,7 @@ watercooler_v1_set_status(topic="trial-run", status="IN_REVIEW", code_path=".", 
   - Reinstall to ensure latest server: `pip install -e .[mcp]`
   - Or point Claude to the repo file: `-- python3 /path/to/src/watercooler_mcp/server.py`
   - Always pass `code_path` (or set `WATERCOOLER_GIT_REPO` to force a specific threads repo)
-- Do not set `WATERCOOLER_DIR` on this server; it forces legacy behavior
+- Do not set `WATERCOOLER_DIR` on this server; it disables automatic repository discovery
 
 ## One‑Minute Validation
 1) `watercooler_v1_whoami`
@@ -80,4 +80,3 @@ watercooler_v1_set_status(topic="trial-run", status="IN_REVIEW", code_path=".", 
 3) `watercooler_v1_list_threads(code_path=".")`
 4) `watercooler_v1_say(..., code_path=".", agent_func="Claude:pm")`
 5) Terminal: `cd ~/.watercooler-threads/{org}/{repo}-threads && git log -1 --pretty=raw` → footers present
-

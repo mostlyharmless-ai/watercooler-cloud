@@ -93,7 +93,7 @@ Implementation blueprint (minimal, powerful)
 - Identity pre‑flight rule: call `watercooler_v1_set_agent(base="Claude|Codex", spec="<pm|planner|implementer|tester|docs|ops|general-purpose>")` before any write.
 
 6) Documentation and protocol (Codex)
-- Update `docs/LOCAL_QUICKSTART.md` with “Universal dev mode” and the single add command above.
+- Update `docs/SETUP_AND_QUICKSTART.md` with “Universal dev mode” and the single add command above.
 - Keep `docs/BRANCH_PAIRING.md` as the conceptual anchor.
 - Ensure `AGENTS.md` and `~/.claude/CLAUDE.md` reflect identity pre‑flight and branch pairing.
 - Keep remote path mothballed in `.mothballed/docs/DEPLOYMENT_QUICK_START.md`.
