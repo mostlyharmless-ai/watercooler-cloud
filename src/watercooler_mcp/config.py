@@ -369,7 +369,7 @@ def _infer_agent_from_client(client_id: Optional[str]) -> str:
 
 
 def get_version() -> str:
-    for dist_name in ("watercooler-collab", "watercooler-mcp"):
+    for dist_name in ("watercooler-cloud", "watercooler-mcp"):
         try:
             return importlib_metadata.version(dist_name)
         except importlib_metadata.PackageNotFoundError:

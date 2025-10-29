@@ -30,7 +30,7 @@ Add to your `settings.json` (usually at `~/.config/claude-code/settings.json`):
       "command": "npx",
       "args": [
         "mcp-remote",
-        "https://<worker>.<account>.workers.dev/sse?project=watercooler-collab"
+        "https://<worker>.<account>.workers.dev/sse?project=watercooler-cloud"
       ]
     }
   }
@@ -52,7 +52,7 @@ To work with multiple projects, create separate server entries:
       "command": "npx",
       "args": [
         "mcp-remote",
-        "https://<worker>.<account>.workers.dev/sse?project=watercooler-collab"
+        "https://<worker>.<account>.workers.dev/sse?project=watercooler-cloud"
       ]
     },
     "watercooler-alpha": {

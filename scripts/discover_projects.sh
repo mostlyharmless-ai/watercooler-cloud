@@ -8,9 +8,9 @@ set -e
 ENV="${1:-staging}"
 
 if [ "$ENV" = "staging" ]; then
-    BACKEND_URL="https://watercooler-collab.onrender.com"
+    BACKEND_URL="https://watercooler-cloud.onrender.com"
 elif [ "$ENV" = "production" ]; then
-    BACKEND_URL="https://watercooler-collab.onrender.com"
+    BACKEND_URL="https://watercooler-cloud.onrender.com"
 else
     echo "Usage: $0 [staging|production]"
     exit 1

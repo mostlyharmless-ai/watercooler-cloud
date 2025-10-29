@@ -98,17 +98,17 @@ class TestProjectIsolation:
         derive_threads_dir = http_facade.derive_threads_dir
 
         user_id = "gh:octocat"
-        project_id = "watercooler-collab"
+        project_id = "watercooler-cloud"
 
         threads_dir = derive_threads_dir(user_id, project_id)
 
         # Check full path structure
-        expected = temp_base_root / "gh:octocat" / "watercooler-collab"
+        expected = temp_base_root / "gh:octocat" / "watercooler-cloud"
         assert threads_dir == expected
 
         # Verify all parts exist
         assert (temp_base_root / "gh:octocat").exists()
-        assert (temp_base_root / "gh:octocat" / "watercooler-collab").exists()
+        assert (temp_base_root / "gh:octocat" / "watercooler-cloud").exists()
 
     def test_idempotent_directory_creation(self, temp_base_root):
         """Multiple calls should safely handle existing directories."""

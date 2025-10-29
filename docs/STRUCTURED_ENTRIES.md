@@ -1,6 +1,6 @@
 # Structured Entries Guide
 
-Watercooler-collab uses structured entries to provide rich metadata and context for collaboration between human developers and AI agents.
+Watercooler-cloud uses structured entries to provide rich metadata and context for collaboration between human developers and AI agents.
 
 ## Table of Contents
 
@@ -64,7 +64,7 @@ Can span multiple lines and include markdown formatting.
 
 ## Agent Roles
 
-Watercooler-collab supports six distinct agent roles:
+Watercooler-cloud supports six distinct agent roles:
 
 ### `planner`
 **Purpose**: Architecture and design decisions

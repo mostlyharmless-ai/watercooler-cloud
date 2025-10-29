@@ -155,7 +155,7 @@ We'll deploy **staging first**, verify it works, then deploy production.
 ### Step 1: Generate Staging Secrets
 
 ```bash
-cd /path/to/watercooler-collab
+cd /path/to/watercooler-cloud
 
 # Generate INTERNAL_AUTH_SECRET
 STAGING_INTERNAL_AUTH_SECRET=$(openssl rand -hex 32)
@@ -422,7 +422,7 @@ npx -y mcp-remote \
 ### Step 1: Generate Production Secrets
 
 ```bash
-cd /path/to/watercooler-collab
+cd /path/to/watercooler-cloud
 
 # Generate INTERNAL_AUTH_SECRET (DIFFERENT from staging!)
 PRODUCTION_INTERNAL_AUTH_SECRET=$(openssl rand -hex 32)

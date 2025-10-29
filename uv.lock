@@ -1476,7 +1476,7 @@ wheels = [
 ]
 
 [[package]]
-name = "watercooler-collab"
+name = "watercooler-cloud"
 version = "0.0.1"
 source = { editable = "." }
 

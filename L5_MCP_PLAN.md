@@ -2,11 +2,11 @@
 
 **Date:** 2025-10-07 (Updated: 2025-10-09)
 **Status:** Phase 2A Complete - Cloud Sync Implemented
-**Goal:** Create an MCP server for watercooler-collab using fastmcp 2.0, with cloud deployment options
+**Goal:** Create an MCP server for watercooler-cloud using fastmcp 2.0, with cloud deployment options
 
 ## Background
 
-During testing of watercooler-collab in a test project, we discovered a critical UX issue: when an AI agent (like Codex) starts fresh in a project with watercooler threads, they have no context about:
+During testing of watercooler-cloud in a test project, we discovered a critical UX issue: when an AI agent (like Codex) starts fresh in a project with watercooler threads, they have no context about:
 - What watercooler is
 - How to use it
 - That there are threads waiting for their response
@@ -99,12 +99,12 @@ Investigate:
 2. **State Management:**
    - Local filesystem only for Phase 1
    - Direct access to `.watercooler/` directory
-   - Uses existing watercooler-collab advisory locking
+   - Uses existing watercooler-cloud advisory locking
    - No git operations in local mode
 
 3. **Tool Design:**
    - Thin wrappers around `watercooler.commands` functions
-   - Preserve all watercooler-collab functionality
+   - Preserve all watercooler-cloud functionality
    - Rich docstrings for LLM understanding
    - Type hints for automatic schema generation
 
@@ -339,7 +339,7 @@ We'll implement in two phases to balance rapid validation against production rea
    from pathlib import Path
    from .config import get_agent_name, get_threads_dir
 
-   mcp = FastMCP(name="Watercooler Collaboration")
+   mcp = FastMCP(name="Watercooler Cloudoration")
 
    @mcp.tool
    def list_threads() -> str:
@@ -591,7 +591,7 @@ Make failures predictable and user‑friendly:
 
 **Current state:**
 - ✅ Git repository initialized
-- ✅ Watercooler-collab installed (editable mode)
+- ✅ Watercooler-cloud installed (editable mode)
 - ✅ `.watercooler/` directory created
 - ✅ Thread created: `test-conversation`
 - ✅ Initial message from agent to Codex
@@ -610,7 +610,7 @@ Entry: agent (agent) 2025-10-07T14:58:04Z
 Type: Note
 Title: Initial greeting
 
-Hey Codex, this is a test of the watercooler-collab system.
+Hey Codex, this is a test of the watercooler-cloud system.
 Can you confirm you can see this and respond?
 ```
 
@@ -675,11 +675,11 @@ Can you confirm you can see this and respond?
 
 ## Related Files
 
-- `/Users/agent/projects/watercooler-collab/` - Main library
+- `/Users/agent/projects/watercooler-cloud/` - Main library
 - `/Users/agent/projects/watercooler-test/` - Test project
-- `/Users/agent/projects/watercooler-collab/IMPLEMENTATION_PLAN.md` - Original L1-L4 plan
-- `/Users/agent/projects/watercooler-collab/docs/integration.md#python-api-reference` - Python API reference
-- `/Users/agent/projects/watercooler-collab/docs/integration.md` - Integration guide
+- `/Users/agent/projects/watercooler-cloud/IMPLEMENTATION_PLAN.md` - Original L1-L4 plan
+- `/Users/agent/projects/watercooler-cloud/docs/integration.md#python-api-reference` - Python API reference
+- `/Users/agent/projects/watercooler-cloud/docs/integration.md` - Integration guide
 
 ## Success Criteria
 

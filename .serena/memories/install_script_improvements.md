@@ -21,7 +21,7 @@
 ### Installation Flow (Current)
 1. Check virtual environment (warn if missing)
 2. Choose client (Claude/Codex/Both)
-3. Check/install `watercooler-collab[mcp]`
+3. Check/install `watercooler-cloud[mcp]`
 4. Optional agent name overrides
 5. Optional threads directory path
 6. Preview and confirm

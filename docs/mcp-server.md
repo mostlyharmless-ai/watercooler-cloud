@@ -1,17 +1,17 @@
 # Watercooler MCP Server
 
-FastMCP server that exposes watercooler-collab tools to AI agents through the Model Context Protocol (MCP).
+FastMCP server that exposes watercooler-cloud tools to AI agents through the Model Context Protocol (MCP).
 
 ## Overview
 
-The watercooler MCP server allows AI agents (like Claude, Codex, etc.) to naturally discover and use watercooler collaboration tools without manual CLI commands. All tools are namespaced as `watercooler_v1_*` for provider compatibility.
+The Watercooler Cloud MCP server allows AI agents (like Claude, Codex, etc.) to naturally discover and use Watercooler Cloud tools without manual CLI commands. All tools are namespaced as `watercooler_v1_*` for provider compatibility.
 
 **Current Status:** Production Ready (Phase 1A/1B/2A complete)
 **Version:** v0.2.0 + Phase 2A git sync
 
 ## Installation
 
-Install watercooler-collab with MCP support:
+Install watercooler-cloud with MCP support:
 
 ```bash
 pip install -e .[mcp]
@@ -309,7 +309,7 @@ If `watercooler-mcp` command is not found:
 
 ```bash
 # Check installation
-pip list | grep watercooler-collab
+pip list | grep watercooler-cloud
 
 # Reinstall with MCP extras
 pip install -e .[mcp]
@@ -406,14 +406,14 @@ asyncio.run(show_tools())
 
 ## See Also
 
-- [watercooler-collab README](../README.md) - Main project documentation
+- [watercooler-cloud README](../README.md) - Main project documentation
 - [L5 MCP Plan](../L5_MCP_PLAN.md) - Detailed implementation plan
 - [Python API Reference](./integration.md#python-api-reference) - Watercooler library API
-- [Integration Guide](./integration.md) - Using watercooler-collab in projects
+- [Integration Guide](./integration.md) - Using watercooler-cloud in projects
 
 ## Support
 
-- **Issues**: https://github.com/mostlyharmless-ai/watercooler-collab/issues
+- **Issues**: https://github.com/mostlyharmless-ai/watercooler-cloud/issues
 - **Discussions**: Use GitHub Discussions for questions
 - **MCP Protocol**: https://spec.modelcontextprotocol.io/
 - **FastMCP Docs**: https://gofastmcp.com/

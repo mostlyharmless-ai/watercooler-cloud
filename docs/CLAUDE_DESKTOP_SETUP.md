@@ -10,7 +10,7 @@ This guide shows you how to configure Claude Desktop to automatically launch and
 ## Prerequisites
 
 1. **Claude Desktop installed** (macOS, Windows, or Linux)
-2. **watercooler-collab installed** with MCP extras:
+2. **watercooler-cloud installed** with MCP extras:
    ```bash
    pip install -e .[mcp]
    ```
@@ -257,7 +257,7 @@ If you use `uv` for package management:
             "--with", "fastmcp",
             "fastmcp",
             "run",
-            "/path/to/watercooler-collab/src/watercooler_mcp/server.py"
+            "/path/to/watercooler-cloud/src/watercooler_mcp/server.py"
           ],
           "env": {
             "WATERCOOLER_AGENT": "Claude@Desktop",
@@ -347,6 +347,6 @@ After setup:
 
 ## Support
 
-- **Issues**: https://github.com/mostlyharmless-ai/watercooler-collab/issues
+- **Issues**: https://github.com/mostlyharmless-ai/watercooler-cloud/issues
 - **Full MCP Docs**: [mcp-server.md](./mcp-server.md)
 - **Testing Results**: [TESTING_RESULTS.md](./TESTING_RESULTS.md)

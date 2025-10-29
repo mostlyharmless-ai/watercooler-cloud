@@ -1,6 +1,6 @@
 # Agent Registry Guide
 
-The agent registry configures how watercooler-collab manages agents, their canonical names, counterpart relationships, and multi-agent collaboration chains.
+The agent registry configures how watercooler-cloud manages agents, their canonical names, counterpart relationships, and multi-agent collaboration chains.
 
 > Replace any repo-local threads folder in the examples with the canonical path to your threads repository (e.g., `$HOME/.watercooler-threads/<org>/<repo>-threads`).
 

@@ -1,4 +1,4 @@
-# Watercooler-Collab Roadmap
+# Watercooler-Cloud Roadmap
 
 **Project Status:** Production Ready
 **Current Version:** 0.0.1
@@ -8,7 +8,7 @@
 
 ## 🎯 Project Evolution
 
-Watercooler-collab has evolved from a simple CLI library extraction (acpmonkey) to a comprehensive file-based collaboration protocol with AI agent integration.
+Watercooler-cloud has evolved from a simple CLI library extraction (acpmonkey) to a comprehensive file-based collaboration protocol with AI agent integration.
 
 ### Project Phases
 1. **L1-L4**: CLI library extraction from acpmonkey ✅
@@ -292,7 +292,7 @@ These features were planned for Phase 1B but deferred to avoid over-engineering.
 
 Have feedback on priorities? Suggestions for new features?
 
-1. **Open an issue**: https://github.com/mostlyharmless-ai/watercooler-collab/issues
+1. **Open an issue**: https://github.com/mostlyharmless-ai/watercooler-cloud/issues
 2. **Start a discussion**: Create a watercooler thread in your project
 3. **Submit a PR**: Improvements to roadmap welcome
 

@@ -1,4 +1,4 @@
-# watercooler-collab
+# watercooler-cloud
 
 File-based collaboration protocol for agentic coding projects.
 
@@ -66,8 +66,8 @@ Thread-based collaboration with:
 Not yet published. For development:
 
 ```bash
-git clone https://github.com/mostlyharmless-ai/watercooler-collab.git
-cd watercooler-collab
+git clone https://github.com/mostlyharmless-ai/watercooler-cloud.git
+cd watercooler-cloud
 pip install -e .
 ```
 
@@ -263,5 +263,5 @@ MIT License - see LICENSE file
 
 ## Links
 
-- Repository: https://github.com/mostlyharmless-ai/watercooler-collab
-- Issues: https://github.com/mostlyharmless-ai/watercooler-collab/issues
+- Repository: https://github.com/mostlyharmless-ai/watercooler-cloud
+- Issues: https://github.com/mostlyharmless-ai/watercooler-cloud/issues

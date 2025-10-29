@@ -1,6 +1,6 @@
 """Watercooler MCP Server - Phase 1B
 
-FastMCP server that exposes watercooler-collab tools to AI agents.
+FastMCP server that exposes watercooler-cloud tools to AI agents.
 Tools are namespaced as watercooler_v1_* for provider compatibility.
 
 Phase 1B features:

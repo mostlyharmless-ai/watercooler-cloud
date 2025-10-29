@@ -152,7 +152,7 @@ If the hook incorrectly blocks a commit:
 1. Verify your changes are truly append-only
 2. Check that you're only modifying Status/Ball/Updated headers
 3. If stuck, use `watercooler unlock topic --force` to clear locks
-4. Report the issue at https://github.com/mostlyharmless-ai/watercooler-collab/issues
+4. Report the issue at https://github.com/mostlyharmless-ai/watercooler-cloud/issues
 
 ### Hook not running
 

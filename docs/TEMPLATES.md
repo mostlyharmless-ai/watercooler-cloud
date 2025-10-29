@@ -1,6 +1,6 @@
 # Templates Guide
 
-Watercooler-collab uses customizable templates for thread initialization and entry formatting. This guide covers template syntax, customization, and discovery.
+Watercooler-cloud uses customizable templates for thread initialization and entry formatting. This guide covers template syntax, customization, and discovery.
 
 > **Note:** Older examples referenced a repo-local hidden directory. Replace that with your threads repository path (e.g., `$HOME/.watercooler-threads/<org>/<repo>-threads`).
 
@@ -321,7 +321,7 @@ Implementation complete
 
 ### Empty Template
 
-If template file exists but is empty or contains only whitespace, watercooler-collab falls back to built-in default templates.
+If template file exists but is empty or contains only whitespace, watercooler-cloud falls back to built-in default templates.
 
 ## Complete Customization Example
 
@@ -485,7 +485,7 @@ export WATERCOOLER_TEMPLATES=/shared/templates/frontend
 
 ### Template Not Found
 
-If template file is missing, watercooler-collab falls back to bundled templates without error.
+If template file is missing, watercooler-cloud falls back to bundled templates without error.
 
 To verify which template is used:
 

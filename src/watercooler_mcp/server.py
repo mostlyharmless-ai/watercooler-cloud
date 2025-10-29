@@ -1,6 +1,6 @@
 """Watercooler MCP Server - Phase 1A MVP
 
-FastMCP server exposing watercooler-collab tools to AI agents.
+FastMCP server exposing watercooler-cloud tools to AI agents.
 All tools are namespaced as watercooler_v1_* for provider compatibility.
 
 Phase 1A features:
@@ -31,7 +31,7 @@ from .config import (
 )
 
 # Initialize FastMCP server
-mcp = FastMCP(name="Watercooler Collaboration")
+mcp = FastMCP(name="Watercooler Cloudoration")
 
 
 T = TypeVar("T")
@@ -144,7 +144,7 @@ def get_instructions() -> str:
     This resource provides quick-start guidance, common workflows, and best
     practices for AI agents collaborating via watercooler threads.
     """
-    return f"""# Watercooler Collaboration Guide for AI Agents
+    return f"""# Watercooler Cloudoration Guide for AI Agents
 
 ## 🎯 Quick Start
 

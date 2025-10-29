@@ -29,7 +29,7 @@ wrangler kv:namespace create KV_PROJECTS
 wrangler kv:key put \
   --namespace-id=<your-kv-id> \
   "gh:caleb" \
-  '{"user_id":"gh:caleb","default":"watercooler-collab","projects":["watercooler-collab","proj-alpha"]}'
+  '{"user_id":"gh:caleb","default":"watercooler-cloud","projects":["watercooler-cloud","proj-alpha"]}'
 
 # Verify
 wrangler kv:key get --namespace-id=<your-kv-id> "gh:caleb"

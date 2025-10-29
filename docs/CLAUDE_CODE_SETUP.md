@@ -10,7 +10,7 @@ This guide shows you how to configure **Claude Code** (the CLI tool you're using
 ## Prerequisites
 
 1. **Claude Code installed** at `~/.claude/local/claude`
-2. **watercooler-collab installed** with MCP extras:
+2. **watercooler-cloud installed** with MCP extras:
    ```bash
    pip install -e .[mcp]
    ```
@@ -241,10 +241,10 @@ Ask me (Claude): "Are there any errors when you try to connect to the watercoole
 
 **Verify installation:**
 ```bash
-# Check watercooler-collab is installed with MCP extras
-pip list | grep watercooler-collab
+# Check watercooler-cloud is installed with MCP extras
+pip list | grep watercooler-cloud
 
-# Should show: watercooler-collab  0.0.1  /path/to/watercooler-collab
+# Should show: watercooler-cloud  0.0.1  /path/to/watercooler-cloud
 
 # Check fastmcp is installed
 pip list | grep fastmcp
@@ -378,7 +378,7 @@ After setup:
 
 ## Support
 
-- **Issues**: https://github.com/mostlyharmless-ai/watercooler-collab/issues
+- **Issues**: https://github.com/mostlyharmless-ai/watercooler-cloud/issues
 - **FastMCP Claude Code Docs**: https://gofastmcp.com/integrations/claude-code
 
 ---

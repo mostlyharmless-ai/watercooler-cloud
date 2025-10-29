@@ -1,6 +1,6 @@
 # Integration Guide
 
-Complete guide for integrating watercooler-collab into your project.
+Complete guide for integrating watercooler-cloud into your project.
 
 ## Table of Contents
 
@@ -22,11 +22,11 @@ Complete guide for integrating watercooler-collab into your project.
 
 ### Development Installation
 
-Currently watercooler-collab is available for development installation:
+Currently watercooler-cloud is available for development installation:
 
 ```bash
-git clone https://github.com/mostlyharmless-ai/watercooler-collab.git
-cd watercooler-collab
+git clone https://github.com/mostlyharmless-ai/watercooler-cloud.git
+cd watercooler-cloud
 pip install -e .
 ```
 
@@ -34,7 +34,7 @@ pip install -e .
 
 ```bash
 # Not yet published
-pip install watercooler-collab
+pip install watercooler-cloud
 ```
 
 ### Verify Installation
@@ -51,7 +51,7 @@ python3 -c "import watercooler; print(watercooler.__version__)"
 
 ## Quick Start
 
-Watercooler-collab can be used three ways:
+Watercooler-cloud can be used three ways:
 1. **MCP Server** - Automated integration with AI agents (Claude, Codex) - **Recommended**
 2. **CLI** - Command-line tool for interactive use and scripts
 3. **Python Library** - Programmatic API for custom automation
@@ -625,7 +625,7 @@ jobs:
         with:
           python-version: '3.11'
       - name: Install watercooler
-        run: pip install git+https://github.com/mostlyharmless-ai/watercooler-collab.git
+        run: pip install git+https://github.com/mostlyharmless-ai/watercooler-cloud.git
       - name: Generate index
         run: |
           watercooler reindex --threads-dir threads
@@ -806,4 +806,4 @@ CONFLICT (content): Merge conflict in threads/feature-auth.md
 ### Community
 - [Use Cases Guide](USE_CASES.md) - Real-world examples
 - [FAQ](FAQ.md) - Frequently asked questions
-- [GitHub Repository](https://github.com/mostlyharmless-ai/watercooler-collab)
+- [GitHub Repository](https://github.com/mostlyharmless-ai/watercooler-cloud)

@@ -24,7 +24,7 @@ TL;DR (Auth‑First)
 
 ## 1) Preconditions
 
-- Repo: mostlyharmless-ai/watercooler-collab (Python FastMCP server and tools live here).
+- Repo: mostlyharmless-ai/watercooler-cloud (Python FastMCP server and tools live here).
 - Node 18+, npm, and wrangler installed locally.
 - Cloudflare account with Workers + Access enabled.
 - A reachable Python backend (private service) that exposes a thin HTTP facade for the MCP tools (details below). This reuses the same Python functions; no logic changes.

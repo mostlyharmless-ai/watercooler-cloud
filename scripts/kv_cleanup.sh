@@ -3,7 +3,7 @@
 #
 # Usage: ./kv_cleanup.sh [staging|production] <user-id> <project-to-remove>
 #
-# Example: ./kv_cleanup.sh staging user:gh:caleb watercooler-collab
+# Example: ./kv_cleanup.sh staging user:gh:caleb watercooler-cloud
 
 set -e
 
@@ -15,7 +15,7 @@ if [ -z "$ENV" ] || [ -z "$USER_KEY" ] || [ -z "$PROJECT_TO_REMOVE" ]; then
     echo "Usage: $0 [staging|production] <user-key> <project-to-remove>"
     echo ""
     echo "Examples:"
-    echo "  $0 staging user:gh:caleb watercooler-collab"
+    echo "  $0 staging user:gh:caleb watercooler-cloud"
     echo "  $0 production user:gh:agent watercooler"
     echo ""
     echo "This will:"

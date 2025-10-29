@@ -1,4 +1,4 @@
-# Watercooler-Collab Documentation
+# Watercooler-Cloud Documentation
 
 **Status:** Production Ready | **Latest Version:** 0.0.1 | **Phases Complete:** 1A/1B/2A
 
@@ -212,8 +212,8 @@ Documentation improvements welcome! Please:
 
 ## 📞 Support & Community
 
-- **Repository**: https://github.com/mostlyharmless-ai/watercooler-collab
-- **Issues**: https://github.com/mostlyharmless-ai/watercooler-collab/issues
+- **Repository**: https://github.com/mostlyharmless-ai/watercooler-cloud
+- **Issues**: https://github.com/mostlyharmless-ai/watercooler-cloud/issues
 - **Discussions**: Use watercooler threads in your project!
 
 ---

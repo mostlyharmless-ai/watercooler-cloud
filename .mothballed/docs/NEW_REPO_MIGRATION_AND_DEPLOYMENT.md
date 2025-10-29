@@ -18,7 +18,7 @@ Scope & Non‑Goals
 - Optional: Commit message rewrites (e.g., Co‑authored‑by trailers) — not required for author anonymization and more invasive.
 
 Definitions
-- `OLD_REPO`: mostlyharmless-ai/watercooler-collab
+- `OLD_REPO`: mostlyharmless-ai/watercooler-cloud
 - `NEW_REPO`: mostlyharmless-ai/watercooler-cloud
 - Identity protection: optional techniques to remove or normalize personal identifiers in Git history and/or content (e.g., mailmap author/committer rewrite, message sanitization, asset redaction).
 
@@ -41,7 +41,7 @@ Detailed Playbook
 Phase 0 — Discovery & Planning
 - Enumerate all author/committer variants used by the collaborator:
   ```bash
-  git clone --mirror git@github.com:mostlyharmless-ai/watercooler-collab.git wc-old.git
+  git clone --mirror git@github.com:mostlyharmless-ai/watercooler-cloud.git wc-old.git
   cd wc-old.git
   git log --all --format='%aN <%aE>' | sort -u > ../authors.txt
   git log --all --format='%cN <%cE>' | sort -u > ../committers.txt
@@ -62,7 +62,7 @@ Phase 1 — Local Rewrite & Sanitization (no remote)
 2. Rewrite in a fresh mirror and verify:
    ```bash
    cd ..
-   rm -rf wc-old.git && git clone --mirror git@github.com:mostlyharmless-ai/watercooler-collab.git wc-old.git
+   rm -rf wc-old.git && git clone --mirror git@github.com:mostlyharmless-ai/watercooler-cloud.git wc-old.git
    cd wc-old.git
    git filter-repo --force --mailmap ../mailmap.txt
 
@@ -73,7 +73,7 @@ Phase 1 — Local Rewrite & Sanitization (no remote)
 3. Optional (content identity sweep): scan and update references in repo content (not part of filter‑repo):
    ```bash
    # Inspect for mentions of old names/emails or repo name
-   rg -n "old1@example.com|Former Name|watercooler-collab" -S --no-ignore --hidden --glob '!**/.git/**'
+   rg -n "old1@example.com|Former Name|watercooler-cloud" -S --no-ignore --hidden --glob '!**/.git/**'
    # Edit as needed; these edits produce new HEAD commits after push
    ```
 4. Optional (commit message sanitization): rewriting `Co-authored-by:` lines or other message text requires a message‑rewrite callback; use only if policy requires it.

@@ -131,14 +131,14 @@ class TestAuthFlow:
                 "X-Internal-Auth": auth_secret,
                 "X-User-Id": "gh:octocat",
                 "X-Agent-Name": "Claude",
-                "X-Project-Id": "watercooler-collab"
+                "X-Project-Id": "watercooler-cloud"
             }
         )
         assert response.status_code == 200
         data = response.json()
         assert data["user_id"] == "gh:octocat"
         assert data["agent"] == "Claude"
-        assert data["project_id"] == "watercooler-collab"
+        assert data["project_id"] == "watercooler-cloud"
 
     def test_agent_name_defaults_to_agent(self, client, auth_secret):
         """When X-Agent-Name is missing, should default to 'Agent'."""

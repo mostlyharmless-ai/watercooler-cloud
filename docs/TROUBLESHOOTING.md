@@ -530,7 +530,7 @@ If you encounter a bug, open an issue with:
 - Whether using local or cloud mode
 
 **Where to Report:**
-- GitHub Issues: https://github.com/mostlyharmless-ai/watercooler-collab/issues
+- GitHub Issues: https://github.com/mostlyharmless-ai/watercooler-cloud/issues
 
 ---
 

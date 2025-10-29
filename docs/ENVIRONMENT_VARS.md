@@ -1,6 +1,6 @@
 # Environment Variables Reference
 
-Complete reference for all watercooler-collab environment variables.
+Complete reference for all watercooler-cloud environment variables.
 
 ---
 

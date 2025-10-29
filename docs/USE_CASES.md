@@ -1,6 +1,6 @@
 # Watercooler Use Cases
 
-This guide provides practical use cases demonstrating when and how to use watercooler-collab effectively in your development workflows.
+This guide provides practical use cases demonstrating when and how to use watercooler-cloud effectively in your development workflows.
 
 > Examples may reference `$THREADS_DIR/`. Substitute your actual threads directory (for example, `$HOME/.watercooler-threads/<org>/<repo>-threads`).
 
