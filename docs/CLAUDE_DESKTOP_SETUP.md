@@ -29,7 +29,6 @@ Using `fastmcp`:
 fastmcp install claude-desktop src/watercooler_mcp/server.py \
   --server-name "Watercooler" \
   --env WATERCOOLER_AGENT="Claude@Desktop" \
-  --env WATERCOOLER_THREADS_BASE="$HOME/.watercooler-threads" \
   --env WATERCOOLER_THREADS_PATTERN="git@github.com:{org}/{repo}-threads.git" \
   --env WATERCOOLER_AUTO_BRANCH=1
 ```
@@ -45,7 +44,6 @@ Or edit the Desktop config manually (
       "args": ["-m", "watercooler_mcp"],
       "env": {
         "WATERCOOLER_AGENT": "Claude@Desktop",
-        "WATERCOOLER_THREADS_BASE": "$HOME/.watercooler-threads",
         "WATERCOOLER_THREADS_PATTERN": "git@github.com:{org}/{repo}-threads.git",
         "WATERCOOLER_AUTO_BRANCH": "1"
       }
@@ -70,7 +68,6 @@ Claude Desktop lets you specify environment variables in the MCP registration. M
       "args": ["-m", "watercooler_mcp"],
       "env": {
         "WATERCOOLER_AGENT": "Claude@Desktop",
-        "WATERCOOLER_THREADS_BASE": "$HOME/.watercooler-threads",
         "WATERCOOLER_THREADS_PATTERN": "git@github.com:{org}/{repo}-threads.git",
         "WATERCOOLER_AUTO_BRANCH": "1"
       }
@@ -84,7 +81,7 @@ Identifies the assistant in thread entries. Add a suffix (`@Desktop`, `@Code`, e
 
 #### Universal overrides
 
-- `WATERCOOLER_THREADS_BASE` — where local thread repositories are cloned (`~/.watercooler-threads` by default)
+- `WATERCOOLER_THREADS_BASE` — optional central cache for threads repos (defaults to the sibling `<repo>-threads` directory)
 - `WATERCOOLER_THREADS_PATTERN` — pattern used to construct the remote Git URL
 - `WATERCOOLER_AUTO_BRANCH` — set to `0` to skip auto-creating branches (not recommended)
 - `WATERCOOLER_GIT_AUTHOR` / `WATERCOOLER_GIT_EMAIL` — optional commit identity overrides when pushing
@@ -125,11 +122,11 @@ After setup, verify the MCP server is working:
    Watercooler MCP Server v0.2.0
    Status: Healthy
    Agent: Claude@Desktop
-   Threads Dir: /home/<user>/.watercooler-threads/<org>/<repo>-threads
+   Threads Dir: /path/to/<repo>-threads
    Threads Dir Exists: True
    ```
 
-   If you see any path that lives inside the code repository (for example `.../threads-local`), remove manual overrides, pass `code_path="."` on every call, and move the data into the sibling `<repo>-threads` repository under `~/.watercooler-threads/` before deleting the stray directory.
+   If you see any path that lives inside the code repository (for example `.../threads-local`), remove manual overrides, pass `code_path="."` on every call, and move the data into the sibling `<repo>-threads` directory before deleting the stray files.
 
 4. **List available watercooler tools:**
    ```
@@ -197,7 +194,7 @@ Once configured, Claude can naturally use watercooler tools without you manually
 **Symptom:** "No threads directory found" error
 
 **Fix:**
-- Call `watercooler_v1_health(code_path=".")` and confirm the output points to `~/.watercooler-threads/...`
+- Call `watercooler_v1_health(code_path=".")` and confirm the output points to the sibling `<repo>-threads` directory
 - Ensure every subsequent tool call includes `code_path`
 - Remove any `WATERCOOLER_DIR` overrides from the Desktop config; universal mode handles path discovery automatically
 
@@ -234,7 +231,6 @@ If you have multiple Python environments, specify the full path:
       "args": ["-m", "watercooler_mcp"],
       "env": {
         "WATERCOOLER_AGENT": "Claude@Desktop",
-        "WATERCOOLER_THREADS_BASE": "$HOME/.watercooler-threads",
         "WATERCOOLER_THREADS_PATTERN": "git@github.com:{org}/{repo}-threads.git",
         "WATERCOOLER_AUTO_BRANCH": "1"
       }
@@ -261,7 +257,6 @@ If you use `uv` for package management:
           ],
           "env": {
             "WATERCOOLER_AGENT": "Claude@Desktop",
-            "WATERCOOLER_THREADS_BASE": "$HOME/.watercooler-threads",
             "WATERCOOLER_THREADS_PATTERN": "git@github.com:{org}/{repo}-threads.git",
             "WATERCOOLER_AUTO_BRANCH": "1"
           }
@@ -281,7 +276,6 @@ If your server needs to run in a specific project context:
       "command": "/path/to/watercooler-mcp",
       "env": {
         "WATERCOOLER_AGENT": "Claude@Desktop",
-        "WATERCOOLER_THREADS_BASE": "$HOME/.watercooler-threads",
         "WATERCOOLER_THREADS_PATTERN": "git@github.com:{org}/{repo}-threads.git",
         "WATERCOOLER_AUTO_BRANCH": "1"
       },
@@ -300,7 +294,6 @@ If your server needs to run in a specific project context:
 fastmcp install claude-desktop src/watercooler_mcp/server.py \
   --server-name "Watercooler" \
   --env WATERCOOLER_AGENT="Claude@Desktop" \
-  --env WATERCOOLER_THREADS_BASE="$HOME/.watercooler-threads" \
   --env WATERCOOLER_THREADS_PATTERN="git@github.com:{org}/{repo}-threads.git" \
   --env WATERCOOLER_AUTO_BRANCH=1
 
@@ -327,7 +320,6 @@ pip list | grep watercooler
       "args": ["-m", "watercooler_mcp"],
       "env": {
         "WATERCOOLER_AGENT": "Claude@Desktop",
-        "WATERCOOLER_THREADS_BASE": "$HOME/.watercooler-threads",
         "WATERCOOLER_THREADS_PATTERN": "git@github.com:{org}/{repo}-threads.git",
         "WATERCOOLER_AUTO_BRANCH": "1"
       }

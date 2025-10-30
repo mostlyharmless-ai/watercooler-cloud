@@ -2,7 +2,7 @@
 
 Watercooler-cloud uses customizable templates for thread initialization and entry formatting. This guide covers template syntax, customization, and discovery.
 
-> **Note:** Older examples referenced a repo-local hidden directory. Replace that with your threads repository path (e.g., `$HOME/.watercooler-threads/<org>/<repo>-threads`).
+> **Note:** Older examples referenced a repo-local hidden directory. Replace that with your threads repository path (e.g., the sibling `../<repo>-threads` directory).
 
 ## Table of Contents
 
@@ -54,7 +54,7 @@ watercooler say topic --title "Note" --body "Using custom templates"
 ### Example: Project-Local
 
 ```bash
-THREADS_DIR="$HOME/.watercooler-threads/<org>/<repo>-threads"
+THREADS_DIR="../<repo>-threads"
 
 # Create local templates directory
 mkdir -p "$THREADS_DIR"/templates

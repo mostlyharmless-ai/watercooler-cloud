@@ -15,6 +15,7 @@ except ImportError:  # pragma: no cover - Python <3.8 fallback
 from watercooler.agents import _canonical_agent, _load_agents_registry
 
 from .git_sync import GitSyncManager
+from .provisioning import is_auto_provision_requested
 
 
 __all__ = [
@@ -70,15 +71,26 @@ def _resolve_path(path: Path) -> Path:
         return path
 
 
-def _default_threads_base() -> Path:
+def _default_threads_base(code_root: Optional[Path]) -> Path:
     base_env = os.getenv("WATERCOOLER_THREADS_BASE")
     if base_env:
         return _resolve_path(_expand_path(base_env))
+
+    if code_root is not None:
+        try:
+            parent = code_root.parent
+            if parent != code_root:
+                return _resolve_path(parent)
+        except Exception:
+            pass
+
     try:
-        return _resolve_path(Path.home() / ".watercooler-threads")
+        cwd = Path.cwd().resolve()
+        parent = cwd.parent if cwd.parent != cwd else cwd
+        return _resolve_path(parent)
     except Exception:
-        # Fallback without relying on home directory
-        return _resolve_path(Path("~/.watercooler-threads").expanduser())
+        # Fallback to the current working directory if resolution fails
+        return _resolve_path(Path.cwd())
 
 
 def _normalize_code_root(code_root: Optional[Path]) -> Optional[Path]:
@@ -131,6 +143,19 @@ def _discover_git(code_root: Optional[Path]) -> _GitDetails:
         root = _resolve_path(root)
 
     return _GitDetails(root=root, branch=branch, commit=commit, remote=remote)
+
+
+def _branch_has_upstream(code_root: Optional[Path], branch: Optional[str]) -> bool:
+    if code_root is None or branch is None:
+        return False
+    ref = f"{branch}@{{upstream}}"
+    result = _run_git([
+        "rev-parse",
+        "--abbrev-ref",
+        "--symbolic-full-name",
+        ref,
+    ], code_root)
+    return bool(result)
 
 
 def _strip_repo_suffix(value: str) -> str:
@@ -239,11 +264,23 @@ def resolve_thread_context(code_root: Optional[Path] = None) -> ThreadContext:
         threads_slug = _compose_threads_slug_from_code(code_repo)
 
     if threads_dir is None:
-        if threads_slug:
-            threads_dir = _compose_local_threads_path(_default_threads_base(), threads_slug)
+        env_base = os.getenv("WATERCOOLER_THREADS_BASE")
+        base = _default_threads_base(git_details.root or normalized_root)
+
+        if env_base:
+            if threads_slug:
+                threads_dir = _compose_local_threads_path(base, threads_slug)
+            else:
+                threads_dir = _resolve_path(base / "_local")
+        elif git_details.root is not None:
+            threads_dir = _resolve_path(git_details.root.parent / f"{git_details.root.name}-threads")
+        elif normalized_root is not None:
+            threads_dir = _resolve_path(normalized_root.parent / f"{normalized_root.name}-threads")
+        elif threads_slug:
+            local_name = threads_slug.split("/")[-1]
+            threads_dir = _resolve_path(base / local_name)
         else:
-            # Global fallback - NEVER create .watercooler in code repo
-            threads_dir = _resolve_path(_default_threads_base() / "_local")
+            threads_dir = _resolve_path(base / "_local")
 
     return ThreadContext(
         code_root=git_details.root or normalized_root,
@@ -304,11 +341,23 @@ def _build_sync_manager(ctx: ThreadContext) -> Optional[GitSyncManager]:
     if not ctx.threads_repo_url:
         return None
 
+    branch_published = _branch_has_upstream(ctx.code_root, ctx.code_branch)
+
     key = _get_cache_key(ctx.threads_dir, ctx.threads_repo_url)
     with _SYNC_MANAGER_LOCK:
         manager = _SYNC_MANAGER_CACHE.get(key)
         if manager:
+            manager.set_remote_allowed(branch_published)
             return manager
+
+        provision_requested = is_auto_provision_requested()
+        enable_provision = bool(
+            provision_requested
+            and not ctx.explicit_dir
+            and ctx.threads_repo_url
+            and ctx.threads_slug
+            and ctx.threads_repo_url.startswith("git@")
+        )
 
         # Clear any stale cache entry for this directory (repo URL changed)
         stale_keys = [k for k in _SYNC_MANAGER_CACHE if k[0] == key[0]]
@@ -324,6 +373,10 @@ def _build_sync_manager(ctx: ThreadContext) -> Optional[GitSyncManager]:
             ssh_key_path=ssh_key,
             author_name=author,
             author_email=email,
+            threads_slug=ctx.threads_slug,
+            code_repo=ctx.code_repo,
+            enable_provision=enable_provision,
+            remote_allowed=branch_published,
         )
         _SYNC_MANAGER_CACHE[key] = manager
         return manager

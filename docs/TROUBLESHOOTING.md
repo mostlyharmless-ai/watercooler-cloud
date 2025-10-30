@@ -2,7 +2,7 @@
 
 Common issues and solutions for the watercooler MCP server.
 
-> Replace any repo-local thread folders with your actual threads repository (for example, `$HOME/.watercooler-threads/<org>/<repo>-threads`).
+> Replace any repo-local thread folders with your actual threads repository (for example, the sibling `../<repo>-threads` directory).
 
 > 📘 Start with [SETUP_AND_QUICKSTART.md](SETUP_AND_QUICKSTART.md) to ensure you're following the universal flow. Many issues disappear once `code_path` and identity are configured there.
 
@@ -184,7 +184,7 @@ No threads directory found at: /some/path/threads-local
    ```bash
    watercooler_v1_health(code_path=".")
    ```
-   Expect `Threads Dir` to live under `~/.watercooler-threads/<org>/<repo>-threads`
+   Expect `Threads Dir` to live in the sibling `<repo>-threads` directory (e.g., `/workspace/<repo>-threads`)
 
 3. **Remove manual overrides**
    - Unset `WATERCOOLER_DIR` in your environment or MCP config
@@ -202,14 +202,14 @@ No threads directory found at: /some/path/threads-local
 
 ### Symptom
 ```
-PermissionError: [Errno 13] Permission denied: '/home/agent/.watercooler-threads/<org>/<repo>-threads/thread.md'
+PermissionError: [Errno 13] Permission denied: '/workspace/<repo>-threads/thread.md'
 ```
 
 ### Solutions
 
 1. **Check directory permissions**
    ```bash
-   THREADS_DIR="$HOME/.watercooler-threads/<org>/<repo>-threads"
+   THREADS_DIR="../<repo>-threads"
    ls -la "$THREADS_DIR"
    ```
 
@@ -349,7 +349,7 @@ If you enabled cloud sync via `WATERCOOLER_GIT_REPO`, here are common problems a
 ## Thread folder inside code repo
 
 ### Symptom
-Server resolves threads inside the code repository instead of the sibling `<repo>-threads` repository under `~/.watercooler-threads/`.
+Server resolves threads inside the code repository instead of the sibling `<repo>-threads` directory.
 
 ### Solutions
 
@@ -357,11 +357,11 @@ Server resolves threads inside the code repository instead of the sibling `<repo
    ```bash
    watercooler_v1_health(code_path=".")
    ```
-   Check the `Threads Dir` line (should be `~/.watercooler-threads/<org>/<repo>-threads`).
+   Check the `Threads Dir` line (should be the sibling `<repo>-threads` path).
 
 2. **Move stray data**
    ```bash
-   THREADS_DIR="$HOME/.watercooler-threads/<org>/<repo>-threads"
+   THREADS_DIR="../<repo>-threads"
    mkdir -p "$THREADS_DIR"
 
    # Replace STRAY_DIR with the actual repo-local folder you discovered
@@ -385,7 +385,7 @@ Server resolves threads inside the code repository instead of the sibling `<repo
 
 1. **Check agents.json configuration**
    ```bash
-   THREADS_DIR="$HOME/.watercooler-threads/<org>/<repo>-threads"
+   THREADS_DIR="../<repo>-threads"
    cat "$THREADS_DIR"/agents.json
    ```
 

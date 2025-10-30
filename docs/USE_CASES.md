@@ -2,10 +2,10 @@
 
 This guide provides practical use cases demonstrating when and how to use watercooler-cloud effectively in your development workflows.
 
-> Examples may reference `$THREADS_DIR/`. Substitute your actual threads directory (for example, `$HOME/.watercooler-threads/<org>/<repo>-threads`).
+> Examples may reference `$THREADS_DIR/`. Substitute your actual threads directory (for example, `../<repo>-threads`).
 
 ```bash
-THREADS_DIR="$HOME/.watercooler-threads/<org>/<repo>-threads"
+THREADS_DIR="../<repo>-threads"
 ```
 
 ## Table of Contents

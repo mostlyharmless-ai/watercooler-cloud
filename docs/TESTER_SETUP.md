@@ -21,7 +21,6 @@ One-line command (context-aware, no per‑project config):
 ```bash
 claude mcp add --transport stdio watercooler-universal --scope user \
   -e WATERCOOLER_AGENT="Claude@Code" \
-  -e WATERCOOLER_THREADS_BASE="$HOME/.watercooler-threads" \
   -e WATERCOOLER_THREADS_PATTERN="git@github.com:{org}/{repo}-threads.git" \
   -e WATERCOOLER_AUTO_BRANCH=1 \
   -- python3 -m watercooler_mcp
@@ -31,7 +30,6 @@ Alternate (guarantee latest code from this repo file):
 ```bash
 claude mcp add --transport stdio watercooler-universal --scope user \
   -e WATERCOOLER_AGENT="Claude@Code" \
-  -e WATERCOOLER_THREADS_BASE="$HOME/.watercooler-threads" \
   -e WATERCOOLER_THREADS_PATTERN="git@github.com:{org}/{repo}-threads.git" \
   -e WATERCOOLER_AUTO_BRANCH=1 \
   -- python3 /path/to/watercooler-cloud/src/watercooler_mcp/server.py
@@ -62,7 +60,7 @@ watercooler_v1_set_status(topic="trial-run", status="IN_REVIEW", code_path=".", 
 ```
 
 ## Expected Behavior
-- Threads repo clone: `~/.watercooler-threads/{org}/{repo}-threads`
+- Threads repo clone: sibling `<repo>-threads` beside your code repository (e.g., `/projects/demo` ↔ `/projects/demo-threads`)
 - Branch mirroring: same branch name as your code repo; created on demand
 - Commit footers on writes: `Code-Repo`, `Code-Branch`, `Code-Commit`, `Watercooler-Entry-ID`, `Watercooler-Topic`, and `Spec`
 - say() also adds `<!-- Entry-ID: ... -->` in the body for idempotency
@@ -76,7 +74,7 @@ watercooler_v1_set_status(topic="trial-run", status="IN_REVIEW", code_path=".", 
 
 ## One‑Minute Validation
 1) `watercooler_v1_whoami`
-2) `watercooler_v1_health(code_path=".")` → Threads Dir under `~/.watercooler-threads/{org}/{repo}-threads`
+2) `watercooler_v1_health(code_path=".")` → Threads Dir reports the sibling path (e.g., `/projects/repo-threads`)
 3) `watercooler_v1_list_threads(code_path=".")`
 4) `watercooler_v1_say(..., code_path=".", agent_func="Claude:pm")`
-5) Terminal: `cd ~/.watercooler-threads/{org}/{repo}-threads && git log -1 --pretty=raw` → footers present
+5) Terminal: `cd ../repo-threads && git log -1 --pretty=raw` → footers present

@@ -9,8 +9,10 @@ Complete reference for all watercooler-cloud environment variables.
 | Variable | Required | Default | Used By | Purpose |
 |----------|----------|---------|---------|---------|
 | [`WATERCOOLER_AGENT`](#watercooler_agent) | MCP: Yes<br>CLI: No | `"Agent"` | MCP Server | Agent identity for entries |
-| [`WATERCOOLER_THREADS_BASE`](#watercooler_threads_base) | No | `~/.watercooler-threads` | MCP Server | Local clone root for threads repos |
+| [`WATERCOOLER_THREADS_BASE`](#watercooler_threads_base) | No | _Sibling `<repo>-threads`_ | MCP Server | Optional central root for threads repos |
 | [`WATERCOOLER_THREADS_PATTERN`](#watercooler_threads_pattern) | No | `git@github.com:{org}/{repo}-threads.git` | MCP Server | Remote threads repo URL template |
+| [`WATERCOOLER_THREADS_AUTO_PROVISION`](#watercooler_threads_auto_provision) | No | `"0"` | MCP Server | Opt-in creation of missing threads repos |
+| [`WATERCOOLER_THREADS_CREATE_CMD`](#watercooler_threads_create_cmd) | No | _Unset_ | MCP Server | Command template for auto-provisioning |
 | [`WATERCOOLER_AUTO_BRANCH`](#watercooler_auto_branch) | No | `"1"` | MCP Server | Auto-create/check out matching branch |
 | [`WATERCOOLER_DIR`](#watercooler_dir) | No | _Unset_ | MCP & CLI | Manual override for a fixed threads directory |
 | [`WATERCOOLER_GIT_REPO`](#watercooler_git_repo) | Cloud: Yes<br>Local: No | None | MCP Server | Git repository URL (enables cloud sync) |
@@ -106,18 +108,19 @@ export WATERCOOLER_AGENT="Claude"
 
 ### WATERCOOLER_THREADS_BASE
 
-**Purpose:** Root directory where the MCP server stores local clones of threads repositories in universal mode.
+**Purpose:** Optional override for where the MCP server stores threads clones.
 
 **Required:** No
 
-**Default:** `~/.watercooler-threads`
+**Default:** Sibling `<repo>-threads` directory beside the detected code repo
 
 **Format:** Absolute path (environment variables are expanded)
 
 **Used by:** MCP Server
 
 ```bash
-export WATERCOOLER_THREADS_BASE="/Volumes/data/watercooler-threads"
+# Example: central cache for all threads repos
+export WATERCOOLER_THREADS_BASE="/srv/watercooler-threads"
 ```
 
 ---
@@ -134,6 +137,72 @@ export WATERCOOLER_THREADS_BASE="/Volumes/data/watercooler-threads"
 
 ```bash
 export WATERCOOLER_THREADS_PATTERN="https://git.example.com/{org}/{repo}-threads.git"
+```
+
+---
+
+### WATERCOOLER_THREADS_AUTO_PROVISION
+
+**Purpose:** Controls automatic creation of missing threads repositories when a
+`git clone` fails with "repository not found".
+
+**Required:** No
+
+**Default:** `"0"` (disabled)
+
+**Format:** Boolean-like string (`"1"`, `"true"`, `"yes"`, `"on"` to enable; `"0"` to disable)
+
+**Used by:** MCP Server
+
+**Details:**
+
+- Only applies when the threads repository is derived dynamically from the code
+  repo (no `WATERCOOLER_DIR`) and uses an SSH remote (starting with `git@`).
+- When enabled, the server will execute the command defined in
+  [`WATERCOOLER_THREADS_CREATE_CMD`](#watercooler_threads_create_cmd) after a
+  failed clone. If provisioning succeeds the clone is retried, otherwise the
+  operation aborts with a detailed error.
+- Branch bootstrapping continues to respect `WATERCOOLER_AUTO_BRANCH`.
+
+```bash
+# Enable auto-provisioning (if you want automatic repo creation)
+export WATERCOOLER_THREADS_AUTO_PROVISION="1"
+```
+
+---
+
+### WATERCOOLER_THREADS_CREATE_CMD
+
+**Purpose:** Command template that provisions the remote threads repository
+when auto-provisioning is enabled.
+
+**Required:** No
+
+**Default:** _Unset_ (required when auto-provisioning is enabled)
+
+**Format:** String template executed via the system shell. The following
+placeholders are available:
+
+- `{slug}` – Resolved threads repo slug (e.g. `mostlyharmless-ai/watercooler-dashboard-threads`)
+- `{repo_url}` – Full git URL (e.g. `git@github.com:mostlyharmless-ai/watercooler-dashboard-threads.git`)
+- `{code_repo}` – Paired code repo (e.g. `mostlyharmless-ai/watercooler-dashboard`)
+- `{namespace}` – Namespace/organisation portion of the slug (`mostlyharmless-ai`)
+- `{repo}` – Repository name portion of the slug (`watercooler-dashboard-threads`)
+- `{org}` – Shortcut to the top-level org (`mostlyharmless-ai`)
+
+**Used by:** MCP Server
+
+**Details:**
+
+- Executed with `shell=True`; stdout and stderr are captured and surfaced on
+  failure.
+- Override to call an internal provisioning script or other tooling if needed
+- If the command succeeds but the remote is still empty, the MCP server falls
+  back to initialising a local git repo and will push on the first write.
+
+```bash
+# Override with custom provisioning command
+export WATERCOOLER_THREADS_CREATE_CMD='my-org-tool create-repo {slug} --private'
 ```
 
 ---
@@ -163,24 +232,24 @@ export WATERCOOLER_AUTO_BRANCH="0"
 
 **Default:** _Unset_
 
-**Format:** Absolute or relative path (e.g., `"/Users/agent/.watercooler-threads/custom-project-threads"`, `"~/threads"`)
+**Format:** Absolute or relative path (e.g., `"/srv/watercooler/custom-project-threads"`, `"../my-repo-threads"`)
 
 **Used by:** MCP Server & CLI
 
 **Details:**
 
-Universal mode derives the threads repository from git metadata (`code_path`, repo origin, branch). Set this variable only when you intentionally keep threads in a specific location that differs from the standard `~/.watercooler-threads/<org>/<repo>-threads` pattern.
+Universal mode derives the threads repository from git metadata (`code_path`, repo origin, branch). Set this variable only when you intentionally keep threads in a specific location that differs from the sibling `<repo>-threads` directory.
 
 **When to set explicitly:**
 - Running in an environment without git metadata (rare)
 - Executing targeted tests that need an isolated threads sandbox
-- Temporarily pointing at a staging directory like `$HOME/.watercooler-threads/tmp-migration` while you relocate it into the sibling `<repo>-threads` repository
+- Temporarily pointing at a staging directory while you relocate it into the sibling `<repo>-threads` repository
 
 **Configuration examples:**
 
 **Absolute path example:**
 ```bash
-export WATERCOOLER_DIR="/Users/agent/.watercooler-threads/custom-project-threads"
+export WATERCOOLER_DIR="/srv/watercooler/custom-project-threads"
 ```
 
 **Alternative location:**
@@ -191,7 +260,7 @@ export WATERCOOLER_DIR="/Volumes/threads-cache/project-threads"
 **MCP config example:**
 ```toml
 [mcp_servers.wc_universal.env]
-WATERCOOLER_DIR = "/Users/agent/.watercooler-threads/custom-project-threads"
+WATERCOOLER_DIR = "/srv/watercooler/custom-project-threads"
 ```
 
 **VS Code workspace example:**
@@ -200,7 +269,7 @@ WATERCOOLER_DIR = "/Users/agent/.watercooler-threads/custom-project-threads"
   "mcp.servers": {
     "watercooler-universal": {
       "env": {
-        "WATERCOOLER_DIR": "/Users/agent/.watercooler-threads/custom-project-threads"
+        "WATERCOOLER_DIR": "/srv/watercooler/custom-project-threads"
       }
     }
   }
@@ -262,7 +331,7 @@ unset WATERCOOLER_GIT_REPO  # Disables cloud sync
 [mcp_servers.wc_universal.env]
 WATERCOOLER_AGENT = "Claude"
 WATERCOOLER_GIT_REPO = "git@github.com:team/threads.git"
-WATERCOOLER_THREADS_BASE = "/Users/agent/.watercooler-threads"
+WATERCOOLER_THREADS_BASE = "/srv/watercooler-threads"
 ```
 
 **Best practices:**
@@ -553,7 +622,7 @@ WATERCOOLER_AGENT = "Claude"
 ```
 
 **Explanation:**
-- Threads are stored automatically in `~/.watercooler-threads/<org>/<repo>-threads`
+- Threads are stored automatically in the sibling `<repo>-threads` directory
 - No cloud sync
 - Works from any subdirectory in the project (pass `code_path` with each tool call)
 
@@ -566,7 +635,7 @@ WATERCOOLER_AGENT = "Claude"
 ```toml
 [mcp_servers.wc_universal.env]
 WATERCOOLER_AGENT = "Codex"
-WATERCOOLER_DIR = "/Users/agent/.watercooler-threads/custom-project-threads"
+WATERCOOLER_DIR = "/srv/watercooler/custom-project-threads"
 ```
 
 **Use cases:**
@@ -584,7 +653,7 @@ WATERCOOLER_DIR = "/Users/agent/.watercooler-threads/custom-project-threads"
 [mcp_servers.wc_universal.env]
 WATERCOOLER_AGENT = "Claude"
 WATERCOOLER_GIT_REPO = "git@github.com:team/threads.git"
-WATERCOOLER_THREADS_BASE = "/Users/agent/.watercooler-threads"
+WATERCOOLER_THREADS_BASE = "/srv/watercooler-threads"
 WATERCOOLER_GIT_SSH_KEY = "/Users/agent/.ssh/id_ed25519_watercooler"
 WATERCOOLER_GIT_AUTHOR = "Alice's Claude"
 WATERCOOLER_GIT_EMAIL = "alice+claude@team.com"
@@ -652,7 +721,7 @@ export WATERCOOLER_AGENT="CorrectName"
 
 **Fix options:**
 
-1. **Use universal defaults:** `watercooler_v1_health(code_path=".")` will report the expected threads directory under `~/.watercooler-threads/<org>/<repo>-threads`. Ensure that path exists and is writable.
+1. **Use universal defaults:** `watercooler_v1_health(code_path=".")` will report the expected sibling directory (for example `/workspace/<repo>-threads`). Ensure that path exists and is writable.
 
 2. **Override location (manual):**
    ```bash
@@ -674,7 +743,7 @@ echo $WATERCOOLER_GIT_REPO
 
 **Check git access:**
 ```bash
-cd ~/.watercooler-threads/<org>/<repo>-threads
+cd ../<repo>-threads
 git pull
 # Should succeed without errors
 ```

@@ -1,6 +1,6 @@
 # Claude Collaboration Workflow (CLI)
 
-**Note:** This guide covers **manual CLI workflows** using the `watercooler` command-line tool. Replace any repo-local thread folders with your threads repository (for example, `$HOME/.watercooler-threads/<org>/<repo>-threads`). For **automated MCP server integration** (where Claude automatically uses watercooler tools), see:
+**Note:** This guide covers **manual CLI workflows** using the `watercooler` command-line tool. Replace any repo-local thread folders with your threads repository (for example, the sibling `../<repo>-threads` directory). For **automated MCP server integration** (where Claude automatically uses watercooler tools), see:
 - [Claude Code Setup](./CLAUDE_CODE_SETUP.md) - For Claude Code CLI
 - [Claude Desktop Setup](./CLAUDE_DESKTOP_SETUP.md) - For Claude Desktop app
 
@@ -24,7 +24,7 @@ This guide shows practical patterns for collaborating with Claude using the wate
 Choose a threads directory (mirror repository):
 
 ```bash
-THREADS_DIR="$HOME/.watercooler-threads/<org>/<repo>-threads"
+THREADS_DIR="../<repo>-threads"
 ```
 
 ### Agent Names

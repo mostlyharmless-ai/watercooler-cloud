@@ -29,8 +29,8 @@ Dive deeper in [BRANCH_PAIRING.md](BRANCH_PAIRING.md) for the full rationale and
 Universal mode works without configuration. Set these only if you need to deviate from defaults:
 
 ```bash
-# Where the server stores local clones of threads repos (default: ~/.watercooler-threads)
-export WATERCOOLER_THREADS_BASE="$HOME/.watercooler-threads"
+# Optional central cache for threads repos (default: sibling <repo>-threads)
+export WATERCOOLER_THREADS_BASE="/srv/watercooler-threads"
 
 # Custom URL pattern if your Git hosting differs from GitHub SSH
 export WATERCOOLER_THREADS_PATTERN="git@github.com:{org}/{repo}-threads.git"
@@ -56,7 +56,6 @@ Run **one** command per client. It registers a user-scope server that adapts to 
 ```bash
 claude mcp add --transport stdio watercooler-universal --scope user \
   -e WATERCOOLER_AGENT="Claude@Code" \
-  -e WATERCOOLER_THREADS_BASE="$HOME/.watercooler-threads" \
   -e WATERCOOLER_THREADS_PATTERN="git@github.com:{org}/{repo}-threads.git" \
   -e WATERCOOLER_AUTO_BRANCH=1 \
   -- python3 -m watercooler_mcp
@@ -67,7 +66,6 @@ Codex CLI variant:
 ```bash
 codex mcp add watercooler-universal \
   -e WATERCOOLER_AGENT=Codex \
-  -e WATERCOOLER_THREADS_BASE=$HOME/.watercooler-threads \
   -e WATERCOOLER_THREADS_PATTERN=git@github.com:{org}/{repo}-threads.git \
   -e WATERCOOLER_AUTO_BRANCH=1 \
   -- python3 -m watercooler_mcp
@@ -104,7 +102,7 @@ If `code_path` or `agent_func` is omitted, the server fails fast with an actiona
 
 1. `watercooler_v1_list_threads(code_path=".")` → confirm the thread index renders
 2. `watercooler_v1_say(...)` → wait a few seconds
-3. Inspect `~/.watercooler-threads/<org>/<repo>-threads` and run `git log -1 --pretty=raw` — you should see the footers (`Code-Repo`, `Code-Branch`, `Spec`, etc.)
+3. Inspect the sibling `<repo>-threads` directory (e.g., `../<repo>-threads`) and run `git log -1 --pretty=raw` — you should see the footers (`Code-Repo`, `Code-Branch`, `Spec`, etc.)
 4. Optional: `watercooler_v1_reindex(code_path=".")` to regenerate the index and ensure the threads repo merges cleanly
 
 ## 8. Next steps

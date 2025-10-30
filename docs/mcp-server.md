@@ -71,7 +71,10 @@ WATERCOOLER_AGENT = "Codex"
 Your agent identity (e.g., "Claude", "Codex"). Set in MCP config.
 
 ### WATERCOOLER_DIR (Optional)
-Explicit override for bespoke setups. Universal mode clones threads into `~/.watercooler-threads/<org>/<repo>-threads/`; you usually do not need to set this variable.
+Explicit override for bespoke setups. Universal mode clones threads beside your
+code repository as a sibling `<code-root>-threads` directory (for example
+`/workspace/my-app` ↔ `/workspace/my-app-threads`); you usually do not need to
+set this variable.
 
 Only set `WATERCOOLER_DIR` when you require a fixed threads directory (for example, while debugging environments where the server cannot infer the correct repository).
 
@@ -79,8 +82,10 @@ Only set `WATERCOOLER_DIR` when you require a fixed threads directory (for examp
 
 | Variable | Purpose | Default |
 |----------|---------|---------|
-| `WATERCOOLER_THREADS_BASE` | Root directory for local thread clones | `~/.watercooler-threads` |
+| `WATERCOOLER_THREADS_BASE` | Optional root for local thread clones | _Sibling of the code repo_ |
 | `WATERCOOLER_THREADS_PATTERN` | Remote URL pattern for auto-clone | `git@github.com:{org}/{repo}-threads.git` |
+| `WATERCOOLER_THREADS_AUTO_PROVISION` | Opt-in creation of missing threads repos | `0` |
+| `WATERCOOLER_THREADS_CREATE_CMD` | Command template for provisioning | _Unset_ |
 | `WATERCOOLER_AUTO_BRANCH` | Auto create / checkout matching branch | `1` |
 
 Example (Claude Desktop, macOS):
@@ -93,7 +98,6 @@ Example (Claude Desktop, macOS):
       "args": ["-m", "watercooler_mcp"],
       "env": {
         "WATERCOOLER_AGENT": "Claude@Desktop",
-        "WATERCOOLER_THREADS_BASE": "$HOME/.watercooler-threads",
         "WATERCOOLER_THREADS_PATTERN": "git@github.com:{org}/{repo}-threads.git",
         "WATERCOOLER_AUTO_BRANCH": "1"
       }
@@ -105,6 +109,18 @@ Example (Claude Desktop, macOS):
 **Manual override:**
 
 If you set `WATERCOOLER_DIR`, that path takes priority and the sibling repo rules are skipped. Use the override sparingly—it's easy to create stray repo-local thread folders inside the code repo when this variable stays set.
+
+**Auto-provisioning (optional):**
+
+- Set `WATERCOOLER_THREADS_AUTO_PROVISION=1` to allow the server to create the
+  missing `<repo>-threads` repository when the initial clone returns
+  "repository not found".
+- Provide `WATERCOOLER_THREADS_CREATE_CMD` with a one-line shell command (for
+  example, `gh repo create {slug} --private`). The command receives useful
+  placeholders (`{slug}`, `{repo_url}`, `{code_repo}`, `{namespace}`, `{repo}`,
+  `{org}`) and its stdout/stderr is surfaced on failure.
+- Auto-provisioning is skipped when `WATERCOOLER_DIR` is set or when the remote
+  uses HTTPS.
 
 ## Available Tools
 
@@ -122,7 +138,7 @@ Check server health and configuration.
 Watercooler MCP Server v0.2.0
 Status: Healthy
 Agent: Codex
-Threads Dir: /home/agent/.watercooler-threads/mostlyharmless-ai/watercooler-cloud-threads
+Threads Dir: /workspace/watercooler-cloud-threads
 Threads Dir Exists: True
 Resolution Source: pattern
 ```
@@ -231,7 +247,7 @@ Generate index summary of all threads.
 - **`WATERCOOLER_AGENT`**: Agent identity (default: `Agent`). Determines entry authorship and ball ownership.
 
 - **Universal overrides (optional):**
-  - `WATERCOOLER_THREADS_BASE` — directory for local clones of threads repos (defaults to `~/.watercooler-threads`)
+  - `WATERCOOLER_THREADS_BASE` — optional override when you want all threads repos under a fixed root (otherwise the sibling `<code>-threads` directory is used)
   - `WATERCOOLER_THREADS_PATTERN` — pattern for building the remote URL (`git@github.com:{org}/{repo}-threads.git` by default)
   - `WATERCOOLER_AUTO_BRANCH` — set to `0` to skip auto-creating the matching branch
   - `WATERCOOLER_GIT_AUTHOR` / `WATERCOOLER_GIT_EMAIL` — override commit metadata in the threads repo
@@ -265,7 +281,7 @@ watercooler_v1_health(code_path=".")
 # Watercooler MCP Server v0.2.0
 # Status: Healthy
 # Agent: Codex
-# Threads Dir: /home/agent/.watercooler-threads/org/repo-threads
+# Threads Dir: /workspace/repo-threads
 # Threads Dir Exists: True
 ```
 
@@ -342,8 +358,8 @@ python -c "from pathlib import Path; from watercooler_mcp.config import resolve_
 ```
 
 - Ensure `code_path` points inside a git repository with a configured remote.
-- Run `watercooler_v1_health(code_path=".")` to confirm the expected path under `~/.watercooler-threads/<org>/<repo>-threads`.
-- If health reports any location inside the code repository (for example `./threads-local`), remove stale overrides, copy the data into `~/.watercooler-threads/<org>/<repo>-threads`, and delete the stray directory.
+- Run `watercooler_v1_health(code_path=".")` to confirm the expected sibling directory (for example `/workspace/my-app-threads`).
+- If health reports any location inside the code repository (for example `./threads-local`), remove stale overrides, copy the data into the sibling `<repo>-threads` directory, and delete the stray directory.
 - As a last resort, set `WATERCOOLER_DIR` to a specific path (see Environment Variables) while you move data into the sibling `<repo>-threads` repository.
 
 ### Format Not Supported Error

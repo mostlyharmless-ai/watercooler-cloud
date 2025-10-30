@@ -12,14 +12,14 @@ def _expand_path(value: str) -> Path:
 def _default_threads_base(repo_root: Path | None) -> Path:
     base_env = os.getenv("WATERCOOLER_THREADS_BASE")
     if base_env:
-        base = _expand_path(base_env)
-    elif repo_root is not None:
-        base = repo_root.parent
-    else:
-        base = Path.home() / ".watercooler-threads"
-    if not base.is_absolute():
-        base = Path.home() / base
-    return base.resolve()
+        return _expand_path(base_env).resolve()
+
+    if repo_root is not None and repo_root.parent != repo_root:
+        return repo_root.parent.resolve()
+
+    cwd = Path.cwd().resolve()
+    parent = cwd.parent if cwd.parent != cwd else cwd
+    return parent.resolve()
 
 
 def _run_git(args: list[str], cwd: Path) -> str | None:

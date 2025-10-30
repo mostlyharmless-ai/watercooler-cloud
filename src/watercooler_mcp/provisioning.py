@@ -1,0 +1,162 @@
+"""Provisioning helpers for watercooler threads repositories.
+
+This module centralises the logic for opt-in auto-provisioning of the
+`<repo>-threads` repositories when they do not yet exist on the remote.
+
+The workflow is intentionally conservative:
+
+* Disabled by default – requires the operator to set
+  `WATERCOOLER_THREADS_AUTO_PROVISION=1` (or another truthy value).
+* Requires an explicit provisioning command via
+  `WATERCOOLER_THREADS_CREATE_CMD`. This allows organisations to plug in the
+  mechanism they trust (`gh repo create`, an internal API wrapper, etc.).
+* The command string is formatted with a small context dictionary so callers
+  can reference repo-specific values without fragile shell parsing.
+
+When invoked, the provisioning command is executed with ``shell=True`` to
+support complex one-liners. All stdout/stderr is captured and returned so the
+caller can surface it in error messages or logs.
+"""
+
+from __future__ import annotations
+
+import os
+import subprocess
+from dataclasses import dataclass
+from typing import Dict
+
+
+TRUE_VALUES = {"1", "true", "yes", "on"}
+
+AUTO_PROVISION_ENV = "WATERCOOLER_THREADS_AUTO_PROVISION"
+PROVISION_CMD_ENV = "WATERCOOLER_THREADS_CREATE_CMD"
+
+# Default provisioning command using GitHub CLI
+DEFAULT_PROVISION_CMD = "gh repo create {slug} --private --disable-wiki --disable-issues"
+
+
+class ProvisioningError(Exception):
+    """Raised when auto-provisioning cannot be completed."""
+
+
+@dataclass(frozen=True)
+class ProvisioningContext:
+    """Formatted values available to provisioning command templates."""
+
+    slug: str
+    repo_url: str
+    code_repo: str
+    namespace: str
+    repo: str
+    org: str
+
+    def as_dict(self) -> Dict[str, str]:
+        return {
+            "slug": self.slug,
+            "repo_url": self.repo_url,
+            "code_repo": self.code_repo,
+            "namespace": self.namespace,
+            "repo": self.repo,
+            "org": self.org,
+        }
+
+
+def _split_slug(slug: str) -> tuple[str, str]:
+    slug = slug.strip("/")
+    if not slug:
+        return ("", "")
+    parts = slug.split("/")
+    if len(parts) == 1:
+        return ("", parts[0])
+    namespace = "/".join(parts[:-1])
+    return (namespace, parts[-1])
+
+
+def is_auto_provision_requested() -> bool:
+    """Return True if auto-provisioning is enabled (default: enabled).
+
+    Auto-provisioning is enabled by default. Set WATERCOOLER_THREADS_AUTO_PROVISION=0
+    to disable it.
+    """
+
+    value = os.getenv(AUTO_PROVISION_ENV, "1").strip().lower()
+    return value in TRUE_VALUES
+
+
+def _build_context(repo_url: str, slug: str | None, code_repo: str | None) -> ProvisioningContext:
+    if not slug:
+        raise ProvisioningError("Cannot auto-provision threads repo without a slug")
+    namespace, repo = _split_slug(slug)
+    # Fall back to the repo component for org if namespace unavailable
+    if namespace:
+        org = namespace.split("/", 1)[0]
+    else:
+        org = repo
+    return ProvisioningContext(
+        slug=slug,
+        repo_url=repo_url,
+        code_repo=code_repo or "",
+        namespace=namespace,
+        repo=repo,
+        org=org,
+    )
+
+
+def provision_threads_repo(
+    repo_url: str,
+    slug: str | None,
+    code_repo: str | None,
+    *,
+    env: dict[str, str] | None = None,
+) -> str:
+    """Execute the configured provisioning command.
+
+    Args:
+        repo_url: Full git URL for the threads repo.
+        slug: The namespace/repo slug (e.g., `org/watercooler-dashboard-threads`).
+        code_repo: Optional name of the paired code repository.
+        env: Optional environment overrides to merge into the subprocess env.
+
+    Returns:
+        Combined stdout/stderr from the provisioning command for logging.
+
+    Raises:
+        ProvisioningError: If provisioning is requested but misconfigured or the
+        command fails.
+    """
+
+    template = os.getenv(PROVISION_CMD_ENV, DEFAULT_PROVISION_CMD)
+    if not template:
+        raise ProvisioningError(
+            "Auto-provisioning requested but WATERCOOLER_THREADS_CREATE_CMD is not set"
+        )
+
+    ctx = _build_context(repo_url, slug, code_repo)
+    try:
+        command = template.format(**ctx.as_dict())
+    except KeyError as exc:  # pragma: no cover - defensive guard
+        raise ProvisioningError(
+            f"Unknown placeholder {{{exc.args[0]}}} in WATERCOOLER_THREADS_CREATE_CMD"
+        ) from exc
+
+    merged_env = os.environ.copy()
+    if env:
+        merged_env.update(env)
+
+    try:
+        result = subprocess.run(
+            command,
+            shell=True,
+            check=True,
+            capture_output=True,
+            text=True,
+            env=merged_env,
+        )
+    except subprocess.CalledProcessError as exc:
+        output = "\n".join(filter(None, [exc.stdout or "", exc.stderr or ""]))
+        raise ProvisioningError(
+            f"Provisioning command failed with exit code {exc.returncode}: {output.strip()}"
+        ) from exc
+
+    combined_output = "\n".join(filter(None, [result.stdout.strip(), result.stderr.strip()]))
+    return combined_output.strip()

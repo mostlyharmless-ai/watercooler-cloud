@@ -92,7 +92,7 @@ See [MCP Server Guide](./mcp-server.md) for complete tool reference.
 Set a threads directory that lives alongside your code repo (matching the MCP layout):
 
 ```bash
-THREADS_DIR="$HOME/.watercooler-threads/demo-project-threads"
+THREADS_DIR="../demo-project-threads"
 
 watercooler init-thread feature-auth \
   --threads-dir "$THREADS_DIR" \
@@ -152,7 +152,8 @@ from pathlib import Path
 from watercooler import read, write, thread_path, bump_header, AdvisoryLock
 
 # Configuration (matches CLI/MCP sibling repo pattern)
-threads_dir = Path.home() / ".watercooler-threads" / "demo-project-threads"
+repo_root = Path("/workspace/demo-project").resolve()
+threads_dir = repo_root.parent / f"{repo_root.name}-threads"
 topic = "feature-auth"
 
 # Get thread path
@@ -179,7 +180,8 @@ For higher-level operations:
 from pathlib import Path
 from watercooler.commands import init_thread, say, set_status
 
-threads_dir = Path.home() / ".watercooler-threads" / "demo-project-threads"
+repo_root = Path("/workspace/demo-project").resolve()
+threads_dir = repo_root.parent / f"{repo_root.name}-threads"
 
 # Initialize thread
 init_thread(
@@ -237,7 +239,8 @@ Most applications only need these helpers; the CLI and MCP server are built on t
 from pathlib import Path
 from watercooler import read, write, AdvisoryLock
 
-threads_dir = Path.home() / ".watercooler-threads" / "demo-project-threads"
+repo_root = Path("/workspace/demo-project").resolve()
+threads_dir = repo_root.parent / f"{repo_root.name}-threads"
 thread = threads_dir / "feature-auth.md"
 lock = threads_dir / ".feature-auth.lock"
 
@@ -253,17 +256,21 @@ with AdvisoryLock(lock, timeout=5):
 
 ### Threads Directory
 
-The CLI stores threads wherever you point `--threads-dir`. To stay consistent with the MCP server, use the sibling repo layout:
+The CLI stores threads wherever you point `--threads-dir`. To stay consistent
+with the MCP server, use the sibling repo layout:
 
 ```bash
-THREADS_DIR="$HOME/.watercooler-threads/<org>/<repo>-threads"
+THREADS_DIR="../<repo>-threads"
 watercooler list --threads-dir "$THREADS_DIR"
 ```
 
 Configuration precedence:
 1. CLI argument: `--threads-dir <path>` (recommended)
 2. Environment variable: `WATERCOOLER_DIR` (manual override for a fixed location)
-3. If neither is set, the current prerelease resolves the sibling `<repo>-threads` repository under `~/.watercooler-threads/`. If you still observe a repo-local fallback such as `./threads-local`, upgrade the package and clean up the stray directory—it’s treated as a misconfiguration going forward.
+3. If neither is set, the current prerelease resolves the sibling `<repo>-threads`
+   directory that lives beside your code repository. If you still observe a
+   repo-local fallback such as `./threads-local`, upgrade the package and clean
+   up the stray directory—it’s treated as a misconfiguration going forward.
 
 **Python usage:**
 
@@ -271,7 +278,8 @@ Configuration precedence:
 from pathlib import Path
 from watercooler.config import resolve_threads_dir
 
-recommended = Path.home() / ".watercooler-threads" / "demo-project-threads"
+repo_root = Path("/workspace/demo-project").resolve()
+recommended = repo_root.parent / f"{repo_root.name}-threads"
 threads_dir = resolve_threads_dir(cli_value=str(recommended))
 ```
 
@@ -321,7 +329,7 @@ Watercooler supports multiple environment variables for configuration. For compl
 
 **Core Configuration:**
 - `WATERCOOLER_AGENT` - Agent identity (required for MCP, optional for CLI)
-- `WATERCOOLER_THREADS_BASE` - Root for local thread clones (default: `~/.watercooler-threads`)
+- `WATERCOOLER_THREADS_BASE` - Optional root for local thread clones (otherwise the sibling `<repo>-threads` directory is used)
 - `WATERCOOLER_THREADS_PATTERN` - Remote repo pattern (`git@github.com:{org}/{repo}-threads.git` default)
 - `WATERCOOLER_AUTO_BRANCH` - Enable/disable automatic branch creation (`1` by default)
 - `WATERCOOLER_TEMPLATES` - Custom templates directory
@@ -345,7 +353,8 @@ Watercooler supports multiple environment variables for configuration. For compl
 ```bash
 # MCP configuration
 WATERCOOLER_AGENT="Claude@Code"
-WATERCOOLER_THREADS_BASE="$HOME/.watercooler-threads"
+# Optional central cache for threads repos
+# WATERCOOLER_THREADS_BASE="/srv/watercooler-threads"
 WATERCOOLER_THREADS_PATTERN="git@github.com:{org}/{repo}-threads.git"
 WATERCOOLER_AUTO_BRANCH=1
 
@@ -356,7 +365,7 @@ WATERCOOLER_GIT_AUTHOR="Agent Name"
 WATERCOOLER_GIT_EMAIL=agent@example.com
 
 # Optional: Custom templates
-WATERCOOLER_TEMPLATES="$HOME/.watercooler-threads/demo-project-threads/templates"
+WATERCOOLER_TEMPLATES="../demo-project-threads/templates"
 
 # Optional: Lock tuning
 WCOOLER_LOCK_TTL=60
@@ -579,7 +588,8 @@ from pathlib import Path
 from watercooler.commands import set_status
 from watercooler.metadata import thread_meta, is_closed
 
-threads_dir = Path.home() / ".watercooler-threads" / "demo-project-threads"
+repo_root = Path("/workspace/demo-project").resolve()
+threads_dir = repo_root.parent / f"{repo_root.name}-threads"
 
 # Find all open threads
 for thread_file in threads_dir.glob("*.md"):
@@ -653,7 +663,7 @@ set -e
 echo "Validating watercooler threads..."
 
 # Path to threads repo (adjust as needed)
-THREADS_DIR="$HOME/.watercooler-threads/<org>/<repo>-threads"
+THREADS_DIR="../<repo>-threads"
 
 # Check for merge conflicts in threads
 if git diff --cached "$THREADS_DIR"/*.md | grep -q '<<<<<<<'; then
@@ -687,7 +697,7 @@ git config core.hooksPath .githooks
 
 set -e
 
-THREADS_DIR="${THREADS_DIR:-$HOME/.watercooler-threads/<org>/<repo>-threads}"
+THREADS_DIR="${THREADS_DIR:-../<repo>-threads}"
 
 if [ ! -d "$THREADS_DIR" ]; then
     echo "Threads directory '$THREADS_DIR' does not exist. Set THREADS_DIR before running." >&2

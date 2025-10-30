@@ -2,10 +2,10 @@
 
 The agent registry configures how watercooler-cloud manages agents, their canonical names, counterpart relationships, and multi-agent collaboration chains.
 
-> Replace any repo-local threads folder in the examples with the canonical path to your threads repository (e.g., `$HOME/.watercooler-threads/<org>/<repo>-threads`).
+> Replace any repo-local threads folder in the examples with the canonical path to your threads repository (e.g., the sibling `../<repo>-threads` directory).
 
 ```bash
-THREADS_DIR="$HOME/.watercooler-threads/<org>/<repo>-threads"
+THREADS_DIR="../<repo>-threads"
 ```
 
 ## Table of Contents
@@ -316,7 +316,7 @@ Create a project-specific registry:
 
 ```bash
 # Create project registry
-THREADS_DIR="$HOME/.watercooler-threads/<org>/<repo>-threads"
+THREADS_DIR="../<repo>-threads"
 
 cat > "$THREADS_DIR"/agents.json <<EOF
 {
