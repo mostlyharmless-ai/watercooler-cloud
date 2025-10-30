@@ -99,14 +99,16 @@ python -m pip install -e ".[mcp]"
 - **Windows PowerShell** – register the universal server directly (same command works on other shells if you prefer explicit control):
 
   ```powershell
-  claude mcp add --transport stdio watercooler-universal --scope user `
-    -e WATERCOOLER_AGENT="Claude@Code" `
-    -e WATERCOOLER_THREADS_PATTERN="git@github.com:{org}/{repo}-threads.git" `
-    -e WATERCOOLER_AUTO_BRANCH=1 `
-    --% -- python -m watercooler_mcp
+  & {
+    claude mcp add --transport stdio watercooler-universal --scope user `
+      -e WATERCOOLER_AGENT="Claude@Code" `
+      -e WATERCOOLER_THREADS_PATTERN="git@github.com:{org}/{repo}-threads.git" `
+      -e WATERCOOLER_AUTO_BRANCH=1 `
+      -- python -m watercooler_mcp
+  }
   ```
 
-  The `--%` token tells PowerShell to stop interpreting switches so the `-m` flag reaches Python. Replace `python` with whichever command launches Python 3 in your environment (`python3` or `py`). Single quotes also work in PowerShell if you prefer (`-e 'WATERCOOLER_AGENT=Claude@Code'`).
+  PowerShell continues parsing after `--`; wrapping the command in `& { … }` prevents it from consuming Python flags. Replace `python` with whichever command launches Python 3 in your environment (`python3` or `py`). Single quotes also work in PowerShell if you prefer (`-e 'WATERCOOLER_AGENT=Claude@Code'`).
 
 - **Any shell** – prefer an installer-style workflow? Use `fastmcp` (ensures identical behavior across platforms):
 
