@@ -71,6 +71,8 @@ cd watercooler-cloud
 pip install -e .
 ```
 
+> **Note:** On Windows shells that expose `py` instead of `python3`, substitute `py -3 -m pip install -e .` (or `python -m pip ...`).
+
 ## Remote MCP Deployment — Archived
 
 The hosted Cloudflare/Render deployment has been mothballed in favor of local universal dev mode. Historical notes and reactivation steps live under `.mothballed/` if you need to resurrect the stack.
@@ -80,16 +82,45 @@ The hosted Cloudflare/Render deployment has been mothballed in favor of local un
 Enable AI agents (Claude, Codex) to discover and use watercooler tools automatically:
 
 ```bash
-# Install with MCP support
+# Install with MCP support (macOS/Linux/Git Bash)
 pip install -e ".[mcp]"
-
-# Quick setup for Claude Code (recommended)
-./scripts/install-mcp.sh
-
-# Or manually register
-fastmcp install claude-code src/watercooler_mcp/server.py \
-  --env WATERCOOLER_AGENT=Claude
 ```
+
+Windows PowerShell users can run:
+
+```powershell
+py -3 -m pip install -e ".[mcp]"
+```
+
+### Quick registration commands
+
+- **macOS / Linux / Git Bash** – use the helper script (requires Bash):
+
+  ```bash
+  ./scripts/install-mcp.sh
+  ```
+
+- **Windows PowerShell** – register the universal server directly (same command works on other shells if you prefer explicit control):
+
+  ```powershell
+  claude mcp add --transport stdio watercooler-universal --scope user `
+    -e WATERCOOLER_AGENT="Claude@Code" `
+    -e WATERCOOLER_THREADS_PATTERN="git@github.com:{org}/{repo}-threads.git" `
+    -e WATERCOOLER_AUTO_BRANCH=1 `
+    -- py -3 -m watercooler_mcp
+  ```
+
+  Replace `py -3` with `python3` or `python` if those are on your PATH. Single quotes also work in PowerShell if you prefer (`-e 'WATERCOOLER_AGENT=Claude@Code'`).
+
+- **Any shell** – prefer an installer-style workflow? Use `fastmcp` (ensures identical behavior across platforms):
+
+  ```bash
+  fastmcp install claude-code src/watercooler_mcp/server.py \
+    --server-name watercooler-universal \
+    --env WATERCOOLER_AGENT="Claude@Code" \
+    --env WATERCOOLER_THREADS_PATTERN="git@github.com:{org}/{repo}-threads.git" \
+    --env WATERCOOLER_AUTO_BRANCH=1
+  ```
 
 See setup guides:
 - **[Claude Code Setup](docs/CLAUDE_CODE_SETUP.md)** - For Claude Code CLI
