@@ -82,15 +82,11 @@ The hosted Cloudflare/Render deployment has been mothballed in favor of local un
 Enable AI agents (Claude, Codex) to discover and use watercooler tools automatically:
 
 ```bash
-# Install with MCP support (macOS/Linux/Git Bash)
-pip install -e ".[mcp]"
+# Install with MCP support
+python -m pip install -e ".[mcp]"
 ```
 
-Windows PowerShell users can run:
-
-```powershell
-py -3 -m pip install -e ".[mcp]"
-```
+> If your system exposes `python3` or the Windows launcher `py`, replace the leading `python` with whichever command prints the correct Python 3 version (e.g., `python3 -m pip ...` or `py -m pip ...`).
 
 ### Quick registration commands
 
@@ -107,10 +103,10 @@ py -3 -m pip install -e ".[mcp]"
     -e WATERCOOLER_AGENT="Claude@Code" `
     -e WATERCOOLER_THREADS_PATTERN="git@github.com:{org}/{repo}-threads.git" `
     -e WATERCOOLER_AUTO_BRANCH=1 `
-    -- py -3 -m watercooler_mcp
+    --% -- python -m watercooler_mcp
   ```
 
-  Replace `py -3` with `python3` or `python` if those are on your PATH. Single quotes also work in PowerShell if you prefer (`-e 'WATERCOOLER_AGENT=Claude@Code'`).
+  The `--%` token tells PowerShell to stop interpreting switches so the `-m` flag reaches Python. Replace `python` with whichever command launches Python 3 in your environment (`python3` or `py`). Single quotes also work in PowerShell if you prefer (`-e 'WATERCOOLER_AGENT=Claude@Code'`).
 
 - **Any shell** – prefer an installer-style workflow? Use `fastmcp` (ensures identical behavior across platforms):
 
