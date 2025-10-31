@@ -86,7 +86,7 @@ try {
     $claudeArgs = @(
         "mcp", "add",
         "--transport", "stdio",
-        "watercooler-universal",
+        "watercooler-cloud",
         "--scope", $Scope,
         "-e", "WATERCOOLER_AGENT=$Agent",
         "-e", "WATERCOOLER_THREADS_PATTERN=$ThreadsPattern"
@@ -116,7 +116,7 @@ try {
     }
 
     Write-Success "Watercooler MCP server registered successfully."
-    Write-Info "Try 'claude mcp list' to verify the watercooler-universal server."
+    Write-Info "Try 'claude mcp list' to verify the watercooler-cloud server."
 }
 finally {
     Pop-Location
