@@ -96,7 +96,15 @@ python -m pip install -e ".[mcp]"
   ./scripts/install-mcp.sh
   ```
 
-- **Windows PowerShell** – register the universal server directly (same command works on other shells if you prefer explicit control):
+- **Windows PowerShell** – run the PowerShell helper (handles quoting automatically):
+
+  ```powershell
+  ./scripts/install-mcp.ps1 -Python python -Agent "Claude@Code"
+  ```
+
+  Override `-Python` with `py` or `python3` if needed. Additional flags are documented at the top of the script.
+
+- **Manual registration** – if you prefer a one-liner, quote the post-`--` arguments individually:
 
   ```powershell
   claude mcp add --transport stdio watercooler-universal --scope user `
@@ -106,7 +114,7 @@ python -m pip install -e ".[mcp]"
     -- "python" "-m" "watercooler_mcp"
   ```
 
-  PowerShell continues parsing after `--`; quoting the Python invocation keeps `-m` from being interpreted as a Claude flag. Replace `"python"` with whichever command launches Python 3 in your environment (`"python3"` or `"py"`). Single quotes also work in PowerShell if you prefer (`-e 'WATERCOOLER_AGENT=Claude@Code'`).
+  Replace `"python"` with whichever command launches Python 3 in your environment (`"python3"` or `"py"`). Single quotes also work in PowerShell if you prefer (`-e 'WATERCOOLER_AGENT=Claude@Code'`).
 
 - **Any shell** – prefer an installer-style workflow? Use `fastmcp` (ensures identical behavior across platforms):
 
