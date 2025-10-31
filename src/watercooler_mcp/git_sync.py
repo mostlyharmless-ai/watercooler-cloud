@@ -26,6 +26,7 @@ Usage:
 import os
 import time
 import re
+import shlex
 import subprocess
 from pathlib import Path
 from typing import Callable, TypeVar
@@ -137,7 +138,65 @@ class GitSyncManager:
         if self.ssh_key_path:
             self._env["GIT_SSH_COMMAND"] = f"ssh -i {self.ssh_key_path} -o IdentitiesOnly=yes"
 
+        self._log_enabled = os.getenv("WATERCOOLER_SYNC_LOG", "0") not in {"0", "false", "off"}
+        self._log_path = self.local_path.parent / ".watercooler-sync.log"
+
         self._setup()
+
+    # ------------------------------------------------------------------
+    # Logging helpers
+    # ------------------------------------------------------------------
+
+    def _log(self, message: str) -> None:
+        if not self._log_enabled:
+            return
+        try:
+            timestamp = time.strftime("%Y-%m-%dT%H:%M:%S")
+            self._log_path.parent.mkdir(parents=True, exist_ok=True)
+            with self._log_path.open("a", encoding="utf-8") as fh:
+                fh.write(f"{timestamp} {message}\n")
+        except Exception:
+            pass
+
+    def _run(self, cmd: list[str], *, cwd: Path | None = None, check: bool = True) -> subprocess.CompletedProcess[str]:
+        cwd = cwd or self.local_path if self.local_path.exists() else cwd
+        cwd_str = str(cwd) if cwd is not None else None
+        quoted = " ".join(shlex.quote(part) for part in cmd)
+        self._log(f"RUN cwd={cwd_str or os.getcwd()} cmd={quoted}")
+        start = time.time()
+        result = subprocess.run(
+            cmd,
+            cwd=cwd_str,
+            env=self._env,
+            capture_output=True,
+            text=True,
+        )
+        elapsed = time.time() - start
+        stdout = getattr(result, "stdout", "") or ""
+        stderr = getattr(result, "stderr", "") or ""
+        # Normalize attributes for test doubles that do not populate stdout/stderr.
+        try:
+            result.stdout = stdout
+            result.stderr = stderr
+        except Exception:
+            pass
+
+        if stdout:
+            out = stdout.strip().splitlines()
+            stdout_preview = out[0][:160] if out else ""
+        else:
+            stdout_preview = ""
+        if stderr:
+            err = stderr.strip().splitlines()
+            stderr_preview = err[0][:160] if err else ""
+        else:
+            stderr_preview = ""
+        self._log(
+            f"DONE rc={result.returncode} elapsed={elapsed:.2f}s stdout='{stdout_preview}' stderr='{stderr_preview}'"
+        )
+        if check and result.returncode != 0:
+            raise subprocess.CalledProcessError(result.returncode, cmd, result.stdout, result.stderr)
+        return result
 
     def _setup(self):
         """Ensure repository is cloned and configured."""
@@ -195,7 +254,7 @@ class GitSyncManager:
                 pass
 
             cmd = ["git", "clone", self.repo_url, str(self.local_path)]
-            subprocess.run(cmd, env=self._env, check=True, capture_output=True, text=True)
+            self._run(cmd, cwd=self.local_path.parent, check=True)
         except subprocess.CalledProcessError as e:
             if self._should_attempt_provision(e):
                 self._handle_provisioning_clone(e)
@@ -257,13 +316,7 @@ class GitSyncManager:
         # back to bootstrapping a local repo so the first write can push.
         try:
             cmd = ["git", "clone", self.repo_url, str(self.local_path)]
-            subprocess.run(
-                cmd,
-                env=self._env,
-                check=True,
-                capture_output=True,
-                text=True,
-            )
+            self._run(cmd, cwd=self.local_path.parent, check=True)
             return
         except subprocess.CalledProcessError as retry_error:
             combined = self._format_process_error(retry_error)
@@ -293,33 +346,12 @@ class GitSyncManager:
         if not self.local_path.exists():
             self.local_path.mkdir(parents=True, exist_ok=True)
 
-        subprocess.run(
-            ["git", "init"],
-            cwd=self.local_path,
-            env=self._env,
-            check=True,
-            capture_output=True,
-            text=True,
-        )
+        self._run(["git", "init"], cwd=self.local_path, check=True)
 
-        remotes = subprocess.run(
-            ["git", "remote"],
-            cwd=self.local_path,
-            env=self._env,
-            check=True,
-            capture_output=True,
-            text=True,
-        )
+        remotes = self._run(["git", "remote"], cwd=self.local_path, check=True)
         current = {item.strip() for item in remotes.stdout.splitlines()}
         if "origin" not in current:
-            subprocess.run(
-                ["git", "remote", "add", "origin", self.repo_url],
-                cwd=self.local_path,
-                env=self._env,
-                check=True,
-                capture_output=True,
-                text=True,
-            )
+            self._run(["git", "remote", "add", "origin", self.repo_url], cwd=self.local_path, check=True)
 
     def set_remote_allowed(self, allowed: bool) -> None:
         """Toggle whether remote interactions are permitted."""
@@ -341,14 +373,7 @@ class GitSyncManager:
             return False
 
         try:
-            result = subprocess.run(
-                ["git", "ls-remote", "origin"],
-                cwd=self.local_path,
-                env=self._env,
-                check=True,
-                capture_output=True,
-                text=True,
-            )
+            result = self._run(["git", "ls-remote", "origin"], cwd=self.local_path, check=True)
             output = (getattr(result, "stdout", "") or "").strip()
             self._remote_empty = not bool(output)
             return True
@@ -367,14 +392,7 @@ class GitSyncManager:
                     )
                     if output:
                         self._last_provision_output = output
-                    retry = subprocess.run(
-                        ["git", "ls-remote", "origin"],
-                        cwd=self.local_path,
-                        env=self._env,
-                        check=True,
-                        capture_output=True,
-                        text=True,
-                    )
+                    retry = self._run(["git", "ls-remote", "origin"], cwd=self.local_path, check=True)
                     output = (getattr(retry, "stdout", "") or "").strip()
                     self._remote_empty = not bool(output)
                     return True
@@ -406,20 +424,8 @@ class GitSyncManager:
             GitSyncError: If configuration fails
         """
         try:
-            subprocess.run(
-                ["git", "config", "user.name", self.author_name],
-                cwd=self.local_path,
-                env=self._env,
-                check=True,
-                capture_output=True
-            )
-            subprocess.run(
-                ["git", "config", "user.email", self.author_email],
-                cwd=self.local_path,
-                env=self._env,
-                check=True,
-                capture_output=True
-            )
+            self._run(["git", "config", "user.name", self.author_name], cwd=self.local_path, check=True)
+            self._run(["git", "config", "user.email", self.author_email], cwd=self.local_path, check=True)
         except subprocess.CalledProcessError as e:
             raise GitSyncError(f"Failed to configure git: {e.stderr}") from e
 
@@ -458,14 +464,7 @@ class GitSyncManager:
             return True
 
         try:
-            subprocess.run(
-                ["git", "pull", "--rebase", "--autostash"],
-                cwd=self.local_path,
-                capture_output=True,
-                text=True,
-                env=self._env,
-                check=True
-            )
+            self._run(["git", "pull", "--rebase", "--autostash"], cwd=self.local_path, check=True)
             return True
         except subprocess.CalledProcessError as e:
             stderr = (e.stderr or "") + "\n" + (e.stdout or "")
@@ -496,12 +495,7 @@ class GitSyncManager:
             self._last_remote_error = self._last_pull_error
             # Rebase conflict or other pull failure
             # Abort any in-progress rebase
-            subprocess.run(
-                ["git", "rebase", "--abort"],
-                cwd=self.local_path,
-                env=self._env,
-                capture_output=True
-            )
+            self._run(["git", "rebase", "--abort"], cwd=self.local_path, check=False)
             return False
 
     def commit_and_push(self, message: str, max_retries: int = 3) -> bool:
@@ -527,32 +521,16 @@ class GitSyncManager:
         """
         try:
             # Stage all changes within local_path
-            subprocess.run(
-                ["git", "add", "-A"],
-                cwd=self.local_path,
-                env=self._env,
-                check=True,
-                capture_output=True
-            )
+            self._run(["git", "add", "-A"], cwd=self.local_path, check=True)
 
             # Check if there are changes to commit
-            result = subprocess.run(
-                ["git", "diff", "--cached", "--quiet"],
-                cwd=self.local_path,
-                env=self._env
-            )
+            result = self._run(["git", "diff", "--cached", "--quiet"], cwd=self.local_path, check=False)
             if result.returncode == 0:
                 # No changes to commit
                 return True
 
             # Commit changes
-            subprocess.run(
-                ["git", "commit", "-m", message],
-                cwd=self.local_path,
-                env=self._env,
-                check=True,
-                capture_output=True
-            )
+            self._run(["git", "commit", "-m", message], cwd=self.local_path, check=True)
 
         except subprocess.CalledProcessError as e:
             raise GitSyncError(f"Failed to commit: {e.stderr}") from e
@@ -576,14 +554,7 @@ class GitSyncManager:
 
         for attempt in range(max_retries):
             try:
-                subprocess.run(
-                    ["git", "push"],
-                    cwd=self.local_path,
-                    env=self._env,
-                    check=True,
-                    capture_output=True,
-                    text=True
-                )
+                self._run(["git", "push"], cwd=self.local_path, check=True)
                 return True
 
             except subprocess.CalledProcessError as e:
@@ -611,14 +582,7 @@ class GitSyncManager:
                     or "does not match any" in stderr  # e.g., src refspec does not match any
                 ):
                     try:
-                        subprocess.run(
-                            ["git", "push", "-u", "origin", "HEAD"],
-                            cwd=self.local_path,
-                            env=self._env,
-                            check=True,
-                            capture_output=True,
-                            text=True,
-                        )
+                        self._run(["git", "push", "-u", "origin", "HEAD"], cwd=self.local_path, check=True)
                         return True
                     except subprocess.CalledProcessError as push_error:
                         upstream_stderr = (push_error.stderr or "") + "\n" + (push_error.stdout or "")
@@ -659,74 +623,33 @@ class GitSyncManager:
             self._ensure_local_repo_ready()
 
             # What branch are we on now?
-            current = subprocess.run(
-                ["git", "rev-parse", "--abbrev-ref", "HEAD"],
-                cwd=self.local_path,
-                env=self._env,
-                capture_output=True,
-                text=True,
-                check=True,
-            ).stdout.strip()
+            current = self._run(["git", "rev-parse", "--abbrev-ref", "HEAD"], cwd=self.local_path, check=True).stdout.strip()
             if current == branch:
                 return True
 
             # Does the branch exist locally?
-            exists = subprocess.run(
-                ["git", "show-ref", "--verify", f"refs/heads/{branch}"],
-                cwd=self.local_path,
-                env=self._env,
-                capture_output=True,
-            ).returncode == 0
+            exists = self._run(["git", "show-ref", "--verify", f"refs/heads/{branch}"], cwd=self.local_path, check=False).returncode == 0
 
             remote_available = self._remote_allowed and self._ensure_remote_repo_exists()
             remote_has_branch = False
 
             if remote_available:
-                remote_check = subprocess.run(
-                    ["git", "ls-remote", "--heads", "origin", branch],
-                    cwd=self.local_path,
-                    env=self._env,
-                    capture_output=True,
-                    text=True,
-                )
+                remote_check = self._run(["git", "ls-remote", "--heads", "origin", branch], cwd=self.local_path, check=False)
                 remote_has_branch = bool(remote_check.stdout.strip()) and remote_check.returncode == 0
 
             if exists:
-                subprocess.run(["git", "checkout", branch], cwd=self.local_path, env=self._env, check=True, capture_output=True)
+                self._run(["git", "checkout", branch], cwd=self.local_path, check=True)
             else:
                 if remote_has_branch:
-                    subprocess.run(
-                        ["git", "fetch", "origin", f"{branch}:refs/heads/{branch}"],
-                        cwd=self.local_path,
-                        env=self._env,
-                        check=True,
-                        capture_output=True,
-                    )
-                    subprocess.run(
-                        ["git", "checkout", branch],
-                        cwd=self.local_path,
-                        env=self._env,
-                        check=True,
-                        capture_output=True,
-                    )
+                    self._run(["git", "fetch", "origin", f"{branch}:refs/heads/{branch}"], cwd=self.local_path, check=True)
+                    self._run(["git", "checkout", branch], cwd=self.local_path, check=True)
                 else:
-                    subprocess.run(["git", "checkout", "-b", branch], cwd=self.local_path, env=self._env, check=True, capture_output=True)
+                    self._run(["git", "checkout", "-b", branch], cwd=self.local_path, check=True)
 
             # Ensure upstream is set when remote branch exists
-            upstream = subprocess.run(
-                ["git", "rev-parse", "--abbrev-ref", "@{u}"],
-                cwd=self.local_path,
-                env=self._env,
-                capture_output=True,
-                text=True,
-            )
+            upstream = self._run(["git", "rev-parse", "--abbrev-ref", "@{u}"], cwd=self.local_path, check=False)
             if upstream.returncode != 0 and remote_has_branch:
-                subprocess.run(
-                    ["git", "branch", "--set-upstream-to", f"origin/{branch}", branch],
-                    cwd=self.local_path,
-                    env=self._env,
-                    capture_output=True,
-                )
+                self._run(["git", "branch", "--set-upstream-to", f"origin/{branch}", branch], cwd=self.local_path, check=True)
             elif upstream.returncode != 0 and self._remote_allowed and not remote_has_branch:
                 # Remote unavailable or branch missing - leave as-is (local-only)
                 pass
