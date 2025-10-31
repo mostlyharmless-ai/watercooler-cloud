@@ -19,7 +19,7 @@ pip install -e .[mcp]
 ## Register MCP in Claude (user-scope)
 One-line command (context-aware, no per‑project config):
 ```bash
-claude mcp add --transport stdio watercooler-universal --scope user \
+claude mcp add --transport stdio watercooler-cloud --scope user \
   -e WATERCOOLER_AGENT="Claude@Code" \
   -e WATERCOOLER_THREADS_PATTERN="git@github.com:{org}/{repo}-threads.git" \
   -e WATERCOOLER_AUTO_BRANCH=1 \
@@ -28,7 +28,7 @@ claude mcp add --transport stdio watercooler-universal --scope user \
 
 Alternate (guarantee latest code from this repo file):
 ```bash
-claude mcp add --transport stdio watercooler-universal --scope user \
+claude mcp add --transport stdio watercooler-cloud --scope user \
   -e WATERCOOLER_AGENT="Claude@Code" \
   -e WATERCOOLER_THREADS_PATTERN="git@github.com:{org}/{repo}-threads.git" \
   -e WATERCOOLER_AUTO_BRANCH=1 \

@@ -39,7 +39,7 @@ WATERCOOLER_AGENT = "Codex"
 ```json
 {
   "mcpServers": {
-    "watercooler-universal": {
+    "watercooler-cloud": {
       "command": "python3",
       "args": ["-m", "watercooler_mcp"],
       "env": {
@@ -54,7 +54,7 @@ WATERCOOLER_AGENT = "Codex"
 ```json
 {
   "mcpServers": {
-    "watercooler-universal": {
+    "watercooler-cloud": {
       "command": "python3",
       "args": ["-m", "watercooler_mcp"],
       "env": {
@@ -93,7 +93,7 @@ Example (Claude Desktop, macOS):
 ```json
 {
   "mcpServers": {
-    "watercooler-universal": {
+    "watercooler-cloud": {
       "command": "python3",
       "args": ["-m", "watercooler_mcp"],
       "env": {

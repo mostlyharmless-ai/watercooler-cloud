@@ -73,7 +73,7 @@ WATERCOOLER_AGENT = "Codex"
 ```json
 {
   "mcpServers": {
-    "watercooler-universal": {
+    "watercooler-cloud": {
       "env": {
         "WATERCOOLER_AGENT": "Claude"
       }
@@ -86,7 +86,7 @@ WATERCOOLER_AGENT = "Codex"
 ```json
 {
   "mcpServers": {
-    "watercooler-universal": {
+    "watercooler-cloud": {
       "env": {
         "WATERCOOLER_AGENT": "Claude"
       }
@@ -267,7 +267,7 @@ WATERCOOLER_DIR = "/srv/watercooler/custom-project-threads"
 ```json
 {
   "mcp.servers": {
-    "watercooler-universal": {
+    "watercooler-cloud": {
       "env": {
         "WATERCOOLER_DIR": "/srv/watercooler/custom-project-threads"
       }

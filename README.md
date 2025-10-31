@@ -113,17 +113,19 @@ python -m pip install -e ".[mcp]"
 - **Claude CLI command** – run directly from the repo root (swap `python` for `python3`/`py` if needed):
 
   ```bash
-  claude mcp add --transport stdio watercooler-universal --scope user \
+  claude mcp add --transport stdio watercooler-cloud --scope user \
     -e WATERCOOLER_AGENT="Claude@Code" \
     -e WATERCOOLER_THREADS_PATTERN="https://github.com/{org}/{repo}-threads.git" \
     -e WATERCOOLER_AUTO_BRANCH=1 \
     -- python -m watercooler_mcp
   ```
 
+  _If you previously registered `watercooler-universal`, remove it first with `claude mcp remove watercooler-universal`._
+
 - **Codex CLI command** – same environment flags for Codex:
 
   ```bash
-  codex mcp add watercooler-universal \
+  codex mcp add watercooler-cloud \
     -e WATERCOOLER_AGENT="Codex" \
     -e WATERCOOLER_THREADS_PATTERN="https://github.com/{org}/{repo}-threads.git" \
     -e WATERCOOLER_AUTO_BRANCH=1 \
@@ -134,7 +136,7 @@ python -m pip install -e ".[mcp]"
 
   ```bash
   fastmcp install claude-code src/watercooler_mcp/server.py \
-    --server-name watercooler-universal \
+    --server-name watercooler-cloud \
     --env WATERCOOLER_AGENT="Claude@Code" \
     --env WATERCOOLER_THREADS_PATTERN="https://github.com/{org}/{repo}-threads.git" \
     --env WATERCOOLER_AUTO_BRANCH=1

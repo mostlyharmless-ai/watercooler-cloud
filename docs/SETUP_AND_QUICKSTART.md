@@ -54,7 +54,7 @@ index.md merge=ours
 Run **one** command per client. It registers a user-scope server that adapts to whatever repo you open.
 
 ```bash
-claude mcp add --transport stdio watercooler-universal --scope user \
+claude mcp add --transport stdio watercooler-cloud --scope user \
   -e WATERCOOLER_AGENT="Claude@Code" \
   -e WATERCOOLER_THREADS_PATTERN="https://github.com/{org}/{repo}-threads.git" \
   -e WATERCOOLER_AUTO_BRANCH=1 \
@@ -64,7 +64,7 @@ claude mcp add --transport stdio watercooler-universal --scope user \
 Codex CLI variant:
 
 ```bash
-codex mcp add watercooler-universal \
+codex mcp add watercooler-cloud \
   -e WATERCOOLER_AGENT=Codex \
   -e WATERCOOLER_THREADS_PATTERN=https://github.com/{org}/{repo}-threads.git \
   -e WATERCOOLER_AUTO_BRANCH=1 \

@@ -31,7 +31,7 @@ Complete the steps in [SETUP_AND_QUICKSTART.md](./SETUP_AND_QUICKSTART.md). That
 Run this once; it applies to every repo you open in Claude Code:
 
 ```bash
-claude mcp add --transport stdio watercooler-universal --scope user \
+claude mcp add --transport stdio watercooler-cloud --scope user \
   -e WATERCOOLER_AGENT="Claude@Code" \
   -e WATERCOOLER_THREADS_PATTERN="git@github.com:{org}/{repo}-threads.git" \
   -e WATERCOOLER_AUTO_BRANCH=1 \
@@ -42,7 +42,7 @@ Use `fastmcp install` if you prefer an installer-style workflow:
 
 ```bash
 fastmcp install claude-code src/watercooler_mcp/server.py \
-  --server-name watercooler-universal \
+  --server-name watercooler-cloud \
   --env WATERCOOLER_AGENT="Claude@Code" \
   --env WATERCOOLER_THREADS_PATTERN="git@github.com:{org}/{repo}-threads.git" \
   --env WATERCOOLER_AUTO_BRANCH=1
@@ -89,7 +89,7 @@ Claude Code supports three configuration scopes:
 Example with scope:
 
 ```bash
-claude mcp add --transport stdio watercooler-universal --scope user \
+claude mcp add --transport stdio watercooler-cloud --scope user \
   -e WATERCOOLER_AGENT="Claude@Code" \
   -e WATERCOOLER_THREADS_PATTERN="git@github.com:{org}/{repo}-threads.git" \
   -e WATERCOOLER_AUTO_BRANCH=1 \
@@ -111,7 +111,7 @@ After setup, verify the MCP server is working:
    claude mcp list
    ```
 
-   You should see `watercooler-universal` in the list.
+   You should see `watercooler-cloud` in the list.
 
 2. **In a Claude Code session, test the health tool:**
 
@@ -172,10 +172,10 @@ Once configured, you can ask me to use watercooler naturally:
 claude mcp list
 ```
 
-**If `watercooler-universal` is missing:**
+**If `watercooler-cloud` is missing:**
 ```bash
 # Re-register with the universal command
-claude mcp add --transport stdio watercooler-universal --scope user \
+claude mcp add --transport stdio watercooler-cloud --scope user \
   -e WATERCOOLER_AGENT="Claude@Code" \
   -e WATERCOOLER_THREADS_PATTERN="git@github.com:{org}/{repo}-threads.git" \
   -e WATERCOOLER_AUTO_BRANCH=1 \
@@ -192,10 +192,10 @@ claude mcp add --transport stdio watercooler-universal --scope user \
 **If wrong, update configuration:**
 ```bash
 # Remove old registration
-claude mcp remove watercooler-universal
+claude mcp remove watercooler-cloud
 
 # Re-add with the correct agent base/spec suffix
-claude mcp add --transport stdio watercooler-universal --scope user \
+claude mcp add --transport stdio watercooler-cloud --scope user \
   -e WATERCOOLER_AGENT="Claude@Code" \
   -e WATERCOOLER_THREADS_PATTERN="git@github.com:{org}/{repo}-threads.git" \
   -e WATERCOOLER_AUTO_BRANCH=1 \
@@ -229,7 +229,7 @@ which python
 # Output: /opt/anaconda3/envs/watercooler/bin/python
 
 # Use full path in registration
-claude mcp add --transport stdio watercooler-universal --scope user \
+claude mcp add --transport stdio watercooler-cloud --scope user \
   -e WATERCOOLER_AGENT="Claude@Code" \
   -e WATERCOOLER_THREADS_PATTERN="git@github.com:{org}/{repo}-threads.git" \
   -e WATERCOOLER_AUTO_BRANCH=1 \
@@ -267,16 +267,16 @@ claude mcp list
 
 ### Remove a Server
 ```bash
-claude mcp remove watercooler-universal
+claude mcp remove watercooler-cloud
 ```
 
 ### Update Server Configuration
 ```bash
 # Remove old configuration
-claude mcp remove watercooler-universal
+claude mcp remove watercooler-cloud
 
 # Add new configuration (example: change agent identity)
-claude mcp add --transport stdio watercooler-universal --scope user \
+claude mcp add --transport stdio watercooler-cloud --scope user \
   -e WATERCOOLER_AGENT="Claude@Code" \
   -e WATERCOOLER_THREADS_PATTERN="git@github.com:{org}/{repo}-threads.git" \
   -e WATERCOOLER_AUTO_BRANCH=1 \
@@ -311,7 +311,7 @@ Install with the env file:
 
 ```bash
 fastmcp install claude-code src/watercooler_mcp/server.py \
-  --server-name watercooler-universal \
+  --server-name watercooler-cloud \
   --env-file .env
 ```
 
@@ -324,7 +324,7 @@ If you prefer referencing the installed entry point explicitly:
 which watercooler-mcp
 
 # Register with Claude Code
-claude mcp add --transport stdio watercooler-universal --scope user \
+claude mcp add --transport stdio watercooler-cloud --scope user \
   -e WATERCOOLER_AGENT="Claude@Code" \
   -e WATERCOOLER_THREADS_PATTERN="git@github.com:{org}/{repo}-threads.git" \
   -e WATERCOOLER_AUTO_BRANCH=1 \
@@ -337,7 +337,7 @@ claude mcp add --transport stdio watercooler-universal --scope user \
 
 ```bash
 # One-and-done universal registration
-claude mcp add --transport stdio watercooler-universal --scope user \
+claude mcp add --transport stdio watercooler-cloud --scope user \
   -e WATERCOOLER_AGENT="Claude@Code" \
   -e WATERCOOLER_THREADS_PATTERN="git@github.com:{org}/{repo}-threads.git" \
   -e WATERCOOLER_AUTO_BRANCH=1 \
@@ -347,7 +347,7 @@ claude mcp add --transport stdio watercooler-universal --scope user \
 claude mcp list
 
 # Remove server
-claude mcp remove watercooler-universal
+claude mcp remove watercooler-cloud
 ```
 
 ### Essential Environment Variables

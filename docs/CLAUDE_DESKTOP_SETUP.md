@@ -39,7 +39,7 @@ Or edit the Desktop config manually (
 ```json
 {
   "mcpServers": {
-    "watercooler-universal": {
+    "watercooler-cloud": {
       "command": "python3",
       "args": ["-m", "watercooler_mcp"],
       "env": {
@@ -63,7 +63,7 @@ Claude Desktop lets you specify environment variables in the MCP registration. M
 ```json
 {
   "mcpServers": {
-    "watercooler-universal": {
+    "watercooler-cloud": {
       "command": "python3",
       "args": ["-m", "watercooler_mcp"],
       "env": {
@@ -226,7 +226,7 @@ If you have multiple Python environments, specify the full path:
 ```json
 {
   "mcpServers": {
-    "watercooler-universal": {
+    "watercooler-cloud": {
       "command": "/opt/anaconda3/envs/watercooler/bin/python",
       "args": ["-m", "watercooler_mcp"],
       "env": {
@@ -246,7 +246,7 @@ If you use `uv` for package management:
 ```json
 {
   "mcpServers": {
-        "watercooler-universal": {
+        "watercooler-cloud": {
           "command": "uv",
           "args": [
             "run",
@@ -315,7 +315,7 @@ pip list | grep watercooler
 ```json
 {
   "mcpServers": {
-    "watercooler-universal": {
+    "watercooler-cloud": {
       "command": "python3",
       "args": ["-m", "watercooler_mcp"],
       "env": {
