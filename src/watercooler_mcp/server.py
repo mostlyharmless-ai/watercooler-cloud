@@ -444,17 +444,19 @@ def list_threads(
         output.append(f"\n---\n*You are: {agent}*")
         output.append(f"*Threads dir: {threads_dir}*")
 
+        response = "\n".join(output)
         duration = time.time() - start_ts
         _log_context(
             context,
             (
                 "list_threads formatted response in "
                 f"{duration:.2f}s (total={len(threads)} new={len(new_entries)} "
-                f"your_turn={len(your_turn)} waiting={len(waiting)})"
+                f"your_turn={len(your_turn)} waiting={len(waiting)} "
+                f"chars={len(response)})"
             ),
         )
 
-        return "\n".join(output)
+        return response
 
     except Exception as e:
         _log_context(None, f"list_threads error: {e}")
