@@ -16,6 +16,8 @@ if sys.version_info < (3, 10):
         f"Watercooler MCP requires Python 3.10+; found {sys.version.split()[0]}"
     )
 from fastmcp import FastMCP, Context
+from fastmcp.tools.tool import ToolResult
+from mcp.types import TextContent
 import os
 import time
 from pathlib import Path
@@ -465,7 +467,7 @@ def list_threads(
             ),
         )
 
-        return response
+        return ToolResult(content=[TextContent(type="text", text=response)])
 
     except Exception as e:
         _log_context(None, f"list_threads error: {e}")
