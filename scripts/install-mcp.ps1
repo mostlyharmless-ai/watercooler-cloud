@@ -29,7 +29,7 @@
 param(
     [string]$Python = "python",
     [string]$Agent = "Claude@Code",
-    [string]$ThreadsPattern = "git@github.com:{org}/{repo}-threads.git",
+    [string]$ThreadsPattern = "https://github.com/{org}/{repo}-threads.git",
     [bool]$AutoBranch = $true,
     [ValidateSet("user", "project", "local")][string]$Scope = "user"
 )
