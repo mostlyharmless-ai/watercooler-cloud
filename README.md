@@ -103,6 +103,7 @@ python -m pip install -e ".[mcp]"
   ```
 
   Override `-Python` with `py` or `python3` if needed. Additional flags are documented at the top of the script.
+  If the MCP server already exists, the script will emit a warning and continue.
 
 - **Manual registration** – if you prefer a one-liner, quote the post-`--` arguments individually:
 

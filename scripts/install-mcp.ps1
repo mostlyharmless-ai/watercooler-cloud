@@ -44,6 +44,11 @@ function Write-Success {
     Write-Host "[ok] $Message" -ForegroundColor Green
 }
 
+function Write-Warn {
+    param([string]$Message)
+    Write-Host "[warn] $Message" -ForegroundColor Yellow
+}
+
 function Write-ErrorAndExit {
     param([string]$Message, [int]$Code = 1)
     Write-Host "[error] $Message" -ForegroundColor Red
@@ -93,10 +98,21 @@ try {
 
     $claudeArgs += @("--", $Python, "-m", "watercooler_mcp")
 
-    & "claude" @claudeArgs
+    $claudeOutput = & "claude" @claudeArgs 2>&1
+    $claudeExit = $LASTEXITCODE
 
-    if ($LASTEXITCODE -ne 0) {
-        Write-ErrorAndExit "Claude registration failed (exit code $LASTEXITCODE)."
+    if ($claudeExit -ne 0) {
+        $combinedOutput = ($claudeOutput | Out-String)
+        if ($combinedOutput -match "already exists") {
+            Write-Warn "MCP server already registered. Skipping add step."
+        }
+        else {
+            Write-Host $combinedOutput
+            Write-ErrorAndExit "Claude registration failed (exit code $claudeExit)."
+        }
+    }
+    else {
+        Write-Host $claudeOutput
     }
 
     Write-Success "Watercooler MCP server registered successfully."
