@@ -70,10 +70,10 @@ Push-Location $repoRoot
 
 try {
     Write-Info "Installing watercooler-cloud with MCP extras (editable)."
-    $pipArgs = @($Python, "-m", "pip", "install", "-e", ".[mcp]")
-    $pipProcess = Start-Process -FilePath $pipArgs[0] -ArgumentList $pipArgs[1..($pipArgs.Length-1)] -NoNewWindow -PassThru -Wait
-    if ($pipProcess.ExitCode -ne 0) {
-        Write-ErrorAndExit "pip install failed (exit code $($pipProcess.ExitCode))."
+    $pipArgs = @("-m", "pip", "install", "-e", ".[mcp]")
+    & $Python @pipArgs
+    if ($LASTEXITCODE -ne 0) {
+        Write-ErrorAndExit "pip install failed (exit code $LASTEXITCODE)."
     }
 
     Write-Info "Registering watercooler MCP server with Claude (scope: $Scope)."
@@ -93,10 +93,10 @@ try {
 
     $claudeArgs += @("--", $Python, "-m", "watercooler_mcp")
 
-    $process = Start-Process -FilePath "claude" -ArgumentList $claudeArgs -NoNewWindow -PassThru -Wait
+    & "claude" @claudeArgs
 
-    if ($process.ExitCode -ne 0) {
-        Write-ErrorAndExit "Claude registration failed (exit code $($process.ExitCode))."
+    if ($LASTEXITCODE -ne 0) {
+        Write-ErrorAndExit "Claude registration failed (exit code $LASTEXITCODE)."
     }
 
     Write-Success "Watercooler MCP server registered successfully."
