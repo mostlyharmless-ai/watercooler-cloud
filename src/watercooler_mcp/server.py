@@ -403,6 +403,7 @@ def list_threads(
         output.append(f"# Watercooler Threads ({len(threads)} total)\n")
 
         # Separate threads by ball ownership
+        classify_start = time.time()
         your_turn = []
         waiting = []
         new_entries = []
@@ -418,8 +419,11 @@ def list_threads(
                 your_turn.append((title, status, ball, updated, topic, has_ball))
             else:
                 waiting.append((title, status, ball, updated, topic, has_ball))
+        classify_elapsed = time.time() - classify_start
+        _log_context(context, f"list_threads classified threads in {classify_elapsed:.2f}s (your_turn={len(your_turn)} waiting={len(waiting)} new={len(new_entries)})")
 
         # Your turn section
+        render_start = time.time()
         if your_turn:
             output.append(f"\n## 🎾 Your Turn ({len(your_turn)} threads)\n")
             for title, status, ball, updated, topic, _ in your_turn:
@@ -445,6 +449,8 @@ def list_threads(
         output.append(f"*Threads dir: {threads_dir}*")
 
         response = "\n".join(output)
+        render_elapsed = time.time() - render_start
+        _log_context(context, f"list_threads rendered markdown sections in {render_elapsed:.2f}s")
         duration = time.time() - start_ts
         _log_context(
             context,
