@@ -131,6 +131,9 @@ class GitSyncManager:
 
         # Prepare git environment once (propagated to all git operations)
         self._env = os.environ.copy()
+        # Disable interactive prompts so git fails fast instead of hanging when
+        # credentials are required (particularly important inside MCP tools).
+        self._env.setdefault("GIT_TERMINAL_PROMPT", "0")
         if self.ssh_key_path:
             self._env["GIT_SSH_COMMAND"] = f"ssh -i {self.ssh_key_path} -o IdentitiesOnly=yes"
 
