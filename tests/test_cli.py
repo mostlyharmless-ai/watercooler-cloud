@@ -17,8 +17,14 @@ Coverage:
 """
 from __future__ import annotations
 
+import os
 import subprocess
 import sys
+from pathlib import Path
+
+
+TEST_THREADS_DIR = Path(__file__).parent / ".cli-threads"
+TEST_THREADS_DIR.mkdir(exist_ok=True)
 
 
 def _run(*args: str) -> subprocess.CompletedProcess[str]:
@@ -30,7 +36,15 @@ def _run(*args: str) -> subprocess.CompletedProcess[str]:
     Returns:
         CompletedProcess with stdout, stderr, and returncode
     """
-    return subprocess.run([sys.executable, "-m", "watercooler.cli", *args], capture_output=True, text=True)
+    env = os.environ.copy()
+    env["WATERCOOLER_DIR"] = str(TEST_THREADS_DIR)
+    env.setdefault("WATERCOOLER_AUTO_BRANCH", "0")
+    return subprocess.run(
+        [sys.executable, "-m", "watercooler.cli", *args],
+        capture_output=True,
+        text=True,
+        env=env,
+    )
 
 
 def test_help_exits_zero():

@@ -213,6 +213,38 @@ def _compose_local_threads_path(base: Path, slug: str) -> Path:
     return _resolve_path(path)
 
 
+def _infer_threads_repo_from_code(ctx: ThreadContext) -> Optional[str]:
+    """Infer a threads repo URL from the code repo remote when explicit config is missing."""
+
+    if ctx.threads_slug is None:
+        return None
+
+    remote = ctx.code_remote or ""
+    remote = remote.strip()
+    if not remote:
+        return None
+
+    slug = ctx.threads_slug.strip("/")
+    if not slug:
+        return None
+
+    if remote.startswith("git@"):
+        host = remote.split(":", 1)[0]
+        return f"{host}:{slug}.git"
+
+    if "://" in remote:
+        scheme, rest = remote.split("://", 1)
+        host = rest.split("/", 1)[0]
+        return f"{scheme}://{host}/{slug}.git"
+
+    # Fallback: append slug directly for cases like 'github.com/org/repo'
+    if "/" in remote:
+        host = remote.split("/", 1)[0]
+        return f"git@{host}:{slug}.git"
+
+    return None
+
+
 def resolve_thread_context(code_root: Optional[Path] = None) -> ThreadContext:
     normalized_root = _normalize_code_root(code_root)
     git_details = _discover_git(normalized_root)
@@ -338,12 +370,13 @@ def get_git_sync_manager_from_context(ctx: ThreadContext) -> Optional[GitSyncMan
 
 
 def _build_sync_manager(ctx: ThreadContext) -> Optional[GitSyncManager]:
-    if not ctx.threads_repo_url:
+    repo_url = ctx.threads_repo_url or _infer_threads_repo_from_code(ctx)
+    if not repo_url:
         return None
 
     branch_published = _branch_has_upstream(ctx.code_root, ctx.code_branch)
 
-    key = _get_cache_key(ctx.threads_dir, ctx.threads_repo_url)
+    key = _get_cache_key(ctx.threads_dir, repo_url)
     with _SYNC_MANAGER_LOCK:
         manager = _SYNC_MANAGER_CACHE.get(key)
         if manager:
@@ -354,9 +387,9 @@ def _build_sync_manager(ctx: ThreadContext) -> Optional[GitSyncManager]:
         enable_provision = bool(
             provision_requested
             and not ctx.explicit_dir
-            and ctx.threads_repo_url
+            and repo_url
             and ctx.threads_slug
-            and ctx.threads_repo_url.startswith("git@")
+            and repo_url.startswith("git@")
         )
 
         # Clear any stale cache entry for this directory (repo URL changed)
@@ -368,7 +401,7 @@ def _build_sync_manager(ctx: ThreadContext) -> Optional[GitSyncManager]:
         ssh_key = _get_git_ssh_key()
 
         manager = GitSyncManager(
-            repo_url=ctx.threads_repo_url,
+            repo_url=repo_url,
             local_path=ctx.threads_dir,
             ssh_key_path=ssh_key,
             author_name=author,
