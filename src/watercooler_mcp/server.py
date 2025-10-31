@@ -17,8 +17,9 @@ if sys.version_info < (3, 10):
     )
 from fastmcp import FastMCP, Context
 import os
+import time
 from pathlib import Path
-from typing import Callable, TypeVar
+from typing import Callable, TypeVar, Optional
 from ulid import ULID
 from watercooler import commands, fs
 from .config import (
@@ -35,6 +36,23 @@ mcp = FastMCP(name="Watercooler Cloud")
 
 
 T = TypeVar("T")
+
+
+_MCP_LOG_ENABLED = os.getenv("WATERCOOLER_MCP_LOG", "0").lower() not in {"0", "false", "off"}
+
+
+def _log_context(ctx: Optional[ThreadContext], message: str) -> None:
+    if not _MCP_LOG_ENABLED:
+        return
+    try:
+        base = Path(ctx.threads_dir) if ctx else Path.cwd()
+        log_path = base.parent / ".watercooler-mcp.log"
+        log_path.parent.mkdir(parents=True, exist_ok=True)
+        timestamp = time.strftime("%Y-%m-%dT%H:%M:%S")
+        with log_path.open("a", encoding="utf-8") as fh:
+            fh.write(f"{timestamp} {message}\n")
+    except Exception:
+        pass
 
 
 def _should_auto_branch() -> bool:
@@ -338,6 +356,7 @@ def list_threads(
         - limit and cursor are ignored (pagination in Phase 1B)
     """
     try:
+        start_ts = time.time()
         if format != "markdown":
             return f"Error: Phase 1A only supports format='markdown'. JSON support coming in Phase 1B."
 
@@ -346,7 +365,9 @@ def list_threads(
             return error
         if context is None:
             return "Error: Unable to resolve code context for the provided code_path."
+        _log_context(context, f"list_threads start code_path={code_path!r} open_only={open_only}")
         if context and _dynamic_context_missing(context):
+            _log_context(context, "list_threads dynamic context missing")
             return (
                 "Dynamic threads repo was not resolved from your git context.\n"
                 "Run from inside your code repo or set WATERCOOLER_CODE_REPO/WATERCOOLER_GIT_REPO on the MCP server.\n"
@@ -355,19 +376,25 @@ def list_threads(
             )
 
         agent = get_agent_name(ctx.client_id)
+        _log_context(context, "list_threads refreshing git state")
         _refresh_threads(context)
         threads_dir = context.threads_dir
 
         # Create threads directory if it doesn't exist
         if not threads_dir.exists():
             threads_dir.mkdir(parents=True, exist_ok=True)
+            _log_context(context, "list_threads created empty threads directory")
             return f"No threads found. Threads directory created at: {threads_dir}\n\nCreate your first thread with watercooler_v1_say."
 
         # Get thread list from commands module
+        scan_start = time.time()
         threads = commands.list_threads(threads_dir=threads_dir, open_only=open_only)
+        scan_elapsed = time.time() - scan_start
+        _log_context(context, f"list_threads scanned {len(threads)} threads in {scan_elapsed:.2f}s")
 
         if not threads:
             status_filter = "open " if open_only is True else ("closed " if open_only is False else "")
+            _log_context(context, f"list_threads no {status_filter or ''}threads found")
             return f"No {status_filter}threads found in: {threads_dir}"
 
         # Format output
@@ -417,9 +444,20 @@ def list_threads(
         output.append(f"\n---\n*You are: {agent}*")
         output.append(f"*Threads dir: {threads_dir}*")
 
+        duration = time.time() - start_ts
+        _log_context(
+            context,
+            (
+                "list_threads formatted response in "
+                f"{duration:.2f}s (total={len(threads)} new={len(new_entries)} "
+                f"your_turn={len(your_turn)} waiting={len(waiting)})"
+            ),
+        )
+
         return "\n".join(output)
 
     except Exception as e:
+        _log_context(None, f"list_threads error: {e}")
         return f"Error listing threads: {str(e)}"
 
 
