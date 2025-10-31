@@ -4,6 +4,19 @@ from pathlib import Path
 from datetime import datetime, timezone
 import shutil
 import os
+import re
+
+
+_SANITIZE_PATTERN = re.compile(r"[^A-Za-z0-9._-]+")
+
+
+def _sanitize_component(value: str, *, default: str = "") -> str:
+    value = value.strip()
+    if not value:
+        return default
+    sanitized = _SANITIZE_PATTERN.sub("-", value)
+    sanitized = sanitized.strip("-._")
+    return sanitized or (default or "untitled")
 
 
 def utcnow_iso() -> str:
@@ -33,7 +46,7 @@ def _backup_file(p: Path, keep: int = 3, topic: str | None = None) -> None:
         return
     backups_dir = p.parent / ".backups"
     backups_dir.mkdir(parents=True, exist_ok=True)
-    tag = topic or p.stem
+    tag = _sanitize_component(topic or p.stem, default=p.stem)
     ts = _now_ts()
     # ensure uniqueness even within same second
     dest = backups_dir / f"{tag}.{ts}{p.suffix}"
@@ -54,12 +67,13 @@ def _backup_file(p: Path, keep: int = 3, topic: str | None = None) -> None:
 
 
 def thread_path(topic: str, threads_dir: Path) -> Path:
-    safe = topic.strip().replace("/", "-")
+    safe = _sanitize_component(topic, default="thread")
     return threads_dir / f"{safe}.md"
 
 
 def lock_path_for_topic(topic: str, threads_dir: Path) -> Path:
-    return threads_dir / f".{topic}.lock"
+    safe = _sanitize_component(topic, default="topic")
+    return threads_dir / f".{safe}.lock"
 
 
 def read_body(maybe_path: str | None) -> str:
