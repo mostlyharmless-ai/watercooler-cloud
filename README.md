@@ -104,13 +104,18 @@ python -m pip install -e ".[mcp]"
 
   Override `-Python` with `py` or `python3` if needed. Additional flags are documented at the top of the script.
   If the MCP server already exists, the script will emit a warning and continue.
+  Set `WATERCOOLER_THREADS_PATTERN` to an HTTPS URL if you prefer token/Git Credential Manager auth:
+
+  ```powershell
+  setx WATERCOOLER_THREADS_PATTERN "https://github.com/{namespace}/{repo}-threads.git"
+  ```
 
 - **Manual registration** – if you prefer a one-liner, quote the post-`--` arguments individually:
 
   ```powershell
   claude mcp add --transport stdio watercooler-universal --scope user `
     -e WATERCOOLER_AGENT="Claude@Code" `
-    -e WATERCOOLER_THREADS_PATTERN="git@github.com:{org}/{repo}-threads.git" `
+    -e WATERCOOLER_THREADS_PATTERN="https://github.com/{org}/{repo}-threads.git" `
     -e WATERCOOLER_AUTO_BRANCH=1 `
     -- "python" "-m" "watercooler_mcp"
   ```
@@ -123,7 +128,7 @@ python -m pip install -e ".[mcp]"
   fastmcp install claude-code src/watercooler_mcp/server.py \
     --server-name watercooler-universal \
     --env WATERCOOLER_AGENT="Claude@Code" \
-    --env WATERCOOLER_THREADS_PATTERN="git@github.com:{org}/{repo}-threads.git" \
+    --env WATERCOOLER_THREADS_PATTERN="https://github.com/{org}/{repo}-threads.git" \
     --env WATERCOOLER_AUTO_BRANCH=1
   ```
 
