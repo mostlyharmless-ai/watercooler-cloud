@@ -109,9 +109,9 @@ def resolve_threads_dir(cli_value: str | None = None) -> Path:
 
     def _normalise(candidate: Path) -> Path:
         candidate = candidate.expanduser()
-        if not candidate.is_absolute():
-            candidate = Path.home() / candidate
-        return candidate.resolve()
+        if candidate.is_absolute():
+            return candidate.resolve()
+        return (Path.cwd() / candidate).resolve()
 
     if cli_value:
         return _normalise(Path(cli_value))
