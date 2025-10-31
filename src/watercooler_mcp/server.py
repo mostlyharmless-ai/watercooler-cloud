@@ -335,7 +335,7 @@ def list_threads(
     cursor: str | None = None,
     format: str = "markdown",
     code_path: str = "",
-) -> str:
+) -> ToolResult:
     """List all watercooler threads.
 
     Shows threads where you have the ball (actionable items), threads where
@@ -360,22 +360,22 @@ def list_threads(
     try:
         start_ts = time.time()
         if format != "markdown":
-            return f"Error: Phase 1A only supports format='markdown'. JSON support coming in Phase 1B."
+            return ToolResult(content=[TextContent(type="text", text=f"Error: Phase 1A only supports format='markdown'. JSON support coming in Phase 1B.")])
 
         error, context = _require_context(code_path)
         if error:
-            return error
+            return ToolResult(content=[TextContent(type="text", text=error)])
         if context is None:
-            return "Error: Unable to resolve code context for the provided code_path."
+            return ToolResult(content=[TextContent(type="text", text="Error: Unable to resolve code context for the provided code_path.")])
         _log_context(context, f"list_threads start code_path={code_path!r} open_only={open_only}")
         if context and _dynamic_context_missing(context):
             _log_context(context, "list_threads dynamic context missing")
-            return (
+            return ToolResult(content=[TextContent(type="text", text=(
                 "Dynamic threads repo was not resolved from your git context.\n"
                 "Run from inside your code repo or set WATERCOOLER_CODE_REPO/WATERCOOLER_GIT_REPO on the MCP server.\n"
                 f"Resolved threads dir: {context.threads_dir} (local fallback).\n"
                 f"Code root: {context.code_root or Path.cwd()}"
-            )
+            ))])
 
         agent = get_agent_name(ctx.client_id)
         _log_context(context, "list_threads refreshing git state")
@@ -389,7 +389,7 @@ def list_threads(
         if not threads_dir.exists():
             threads_dir.mkdir(parents=True, exist_ok=True)
             _log_context(context, "list_threads created empty threads directory")
-            return f"No threads found. Threads directory created at: {threads_dir}\n\nCreate your first thread with watercooler_v1_say."
+            return ToolResult(content=[TextContent(type="text", text=f"No threads found. Threads directory created at: {threads_dir}\n\nCreate your first thread with watercooler_v1_say.")])
 
         # Get thread list from commands module
         scan_start = time.time()
@@ -400,7 +400,7 @@ def list_threads(
         if not threads:
             status_filter = "open " if open_only is True else ("closed " if open_only is False else "")
             _log_context(context, f"list_threads no {status_filter or ''}threads found")
-            return f"No {status_filter}threads found in: {threads_dir}"
+            return ToolResult(content=[TextContent(type="text", text=f"No {status_filter}threads found in: {threads_dir}")])
 
         # Format output
         agent_lower = agent.lower()
@@ -466,12 +466,12 @@ def list_threads(
                 f"chars={len(response)})"
             ),
         )
-
+        _log_context(context, "list_threads returning response")
         return ToolResult(content=[TextContent(type="text", text=response)])
 
     except Exception as e:
         _log_context(None, f"list_threads error: {e}")
-        return f"Error listing threads: {str(e)}"
+        return ToolResult(content=[TextContent(type="text", text=f"Error listing threads: {str(e)}")])
 
 
 @mcp.tool(name="watercooler_v1_read_thread")
