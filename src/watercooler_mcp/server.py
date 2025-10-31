@@ -377,7 +377,10 @@ def list_threads(
 
         agent = get_agent_name(ctx.client_id)
         _log_context(context, "list_threads refreshing git state")
+        git_start = time.time()
         _refresh_threads(context)
+        git_elapsed = time.time() - git_start
+        _log_context(context, f"list_threads git refreshed in {git_elapsed:.2f}s")
         threads_dir = context.threads_dir
 
         # Create threads directory if it doesn't exist
