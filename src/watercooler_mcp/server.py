@@ -37,6 +37,25 @@ from .config import (
 mcp = FastMCP(name="Watercooler Cloud")
 
 
+# Instrument FastMCP tool execution to debug hanging responses
+try:
+    from fastmcp.tools.tool import FunctionTool  # type: ignore
+
+    _orig_run = FunctionTool.run
+
+    async def _instrumented_run(self, arguments):  # type: ignore
+        result = await _orig_run(self, arguments)
+        try:
+            _log_context(None, f"FunctionTool.run completed for {getattr(self, 'name', '<unknown>')}")
+        except Exception:
+            pass
+        return result
+
+    FunctionTool.run = _instrumented_run  # type: ignore
+except Exception:
+    pass
+
+
 T = TypeVar("T")
 
 
