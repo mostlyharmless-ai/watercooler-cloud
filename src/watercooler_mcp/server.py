@@ -31,7 +31,7 @@ from .config import (
 )
 
 # Initialize FastMCP server
-mcp = FastMCP(name="Watercooler Cloudoration")
+mcp = FastMCP(name="Watercooler Cloud")
 
 
 T = TypeVar("T")
@@ -144,7 +144,7 @@ def get_instructions() -> str:
     This resource provides quick-start guidance, common workflows, and best
     practices for AI agents collaborating via watercooler threads.
     """
-    return f"""# Watercooler Cloudoration Guide for AI Agents
+    return f"""# Watercooler Cloud Guide for AI Agents
 
 ## 🎯 Quick Start
 

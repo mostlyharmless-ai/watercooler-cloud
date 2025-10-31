@@ -339,7 +339,7 @@ We'll implement in two phases to balance rapid validation against production rea
    from pathlib import Path
    from .config import get_agent_name, get_threads_dir
 
-   mcp = FastMCP(name="Watercooler Cloudoration")
+   mcp = FastMCP(name="Watercooler Cloud")
 
    @mcp.tool
    def list_threads() -> str:
