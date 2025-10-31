@@ -33,7 +33,7 @@ Universal mode works without configuration. Set these only if you need to deviat
 export WATERCOOLER_THREADS_BASE="/srv/watercooler-threads"
 
 # Custom URL pattern if your Git hosting differs from GitHub SSH
-export WATERCOOLER_THREADS_PATTERN="git@github.com:{org}/{repo}-threads.git"
+export WATERCOOLER_THREADS_PATTERN="https://github.com/{org}/{repo}-threads.git"
 
 # Commit authorship override for the threads repo
 export WATERCOOLER_GIT_AUTHOR="<Your Name>"
@@ -56,7 +56,7 @@ Run **one** command per client. It registers a user-scope server that adapts to 
 ```bash
 claude mcp add --transport stdio watercooler-universal --scope user \
   -e WATERCOOLER_AGENT="Claude@Code" \
-  -e WATERCOOLER_THREADS_PATTERN="git@github.com:{org}/{repo}-threads.git" \
+  -e WATERCOOLER_THREADS_PATTERN="https://github.com/{org}/{repo}-threads.git" \
   -e WATERCOOLER_AUTO_BRANCH=1 \
   -- python3 -m watercooler_mcp
 ```
@@ -66,7 +66,7 @@ Codex CLI variant:
 ```bash
 codex mcp add watercooler-universal \
   -e WATERCOOLER_AGENT=Codex \
-  -e WATERCOOLER_THREADS_PATTERN=git@github.com:{org}/{repo}-threads.git \
+  -e WATERCOOLER_THREADS_PATTERN=https://github.com/{org}/{repo}-threads.git \
   -e WATERCOOLER_AUTO_BRANCH=1 \
   -- python3 -m watercooler_mcp
 ```

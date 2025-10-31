@@ -110,17 +110,25 @@ python -m pip install -e ".[mcp]"
   setx WATERCOOLER_THREADS_PATTERN "https://github.com/{namespace}/{repo}-threads.git"
   ```
 
-- **Manual registration** – if you prefer a one-liner, quote the post-`--` arguments individually:
+- **Claude CLI command** – run directly from the repo root (swap `python` for `python3`/`py` if needed):
 
-  ```powershell
-  claude mcp add --transport stdio watercooler-universal --scope user `
-    -e WATERCOOLER_AGENT="Claude@Code" `
-    -e WATERCOOLER_THREADS_PATTERN="https://github.com/{org}/{repo}-threads.git" `
-    -e WATERCOOLER_AUTO_BRANCH=1 `
-    -- "python" "-m" "watercooler_mcp"
+  ```bash
+  claude mcp add --transport stdio watercooler-universal --scope user \
+    -e WATERCOOLER_AGENT="Claude@Code" \
+    -e WATERCOOLER_THREADS_PATTERN="https://github.com/{org}/{repo}-threads.git" \
+    -e WATERCOOLER_AUTO_BRANCH=1 \
+    -- python -m watercooler_mcp
   ```
 
-  Replace `"python"` with whichever command launches Python 3 in your environment (`"python3"` or `"py"`). Single quotes also work in PowerShell if you prefer (`-e 'WATERCOOLER_AGENT=Claude@Code'`).
+- **Codex CLI command** – same environment flags for Codex:
+
+  ```bash
+  codex mcp add watercooler-universal \
+    -e WATERCOOLER_AGENT="Codex" \
+    -e WATERCOOLER_THREADS_PATTERN="https://github.com/{org}/{repo}-threads.git" \
+    -e WATERCOOLER_AUTO_BRANCH=1 \
+    -- python -m watercooler_mcp
+  ```
 
 - **Any shell** – prefer an installer-style workflow? Use `fastmcp` (ensures identical behavior across platforms):
 
