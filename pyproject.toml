@@ -15,6 +15,7 @@ authors = [
 dependencies = [
     "fastmcp>=2.0",
     "python-ulid>=2.0",
+    "GitPython>=3.1.0",
 ]
 classifiers = [
     "Development Status :: 2 - Pre-Alpha",

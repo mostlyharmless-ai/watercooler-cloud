@@ -29,6 +29,10 @@ from typing import Callable, Optional, TypeVar
 import sys
 import hashlib
 
+# GitPython for in-process git operations (avoids subprocess stdio issues on Windows)
+import git
+from git import Repo, GitCommandError, InvalidGitRepositoryError
+
 try:  # pragma: no cover - fallback for direct module import (tests)
     from .provisioning import ProvisioningError, provision_threads_repo
 except ImportError:  # pragma: no cover - executed when module is loaded stand-alone
@@ -258,6 +262,18 @@ class GitSyncManager:
         except Exception:
             pass
 
+    # ------------------------------------------------------------------
+    # GitPython helpers
+    # ------------------------------------------------------------------
+
+    @property
+    def _repo(self) -> Repo:
+        """Get GitPython Repo object for the local repository."""
+        try:
+            return Repo(self.local_path)
+        except InvalidGitRepositoryError:
+            raise GitSyncError(f"Not a git repository: {self.local_path}")
+
     def _run(
         self,
         cmd: list[str],
@@ -390,11 +406,12 @@ class GitSyncManager:
             return False
 
     def _clone(self):
-        """Clone the watercooler repository.
+        """Clone the watercooler repository using GitPython (no subprocess).
 
         Raises:
             GitSyncError: If clone fails
         """
+        self._log(f"Cloning {self.repo_url} to {self.local_path}")
         try:
             # If directory exists but isn't a git repo, remove it first
             if self.local_path.exists() and not (self.local_path / ".git").exists():
@@ -408,15 +425,26 @@ class GitSyncManager:
             except Exception:
                 pass
 
-            cmd = ["git", "clone", self.repo_url, str(self.local_path)]
-            self._run(cmd, cwd=self.local_path.parent, check=True)
-        except subprocess.CalledProcessError as e:
-            if self._should_attempt_provision(e):
-                self._handle_provisioning_clone(e)
-                return
-            message = self._format_process_error(
-                e, prefix=f"Failed to clone {self.repo_url}"
-            )
+            # Use GitPython to clone (in-process, no subprocess)
+            # Configure environment for the clone operation
+            with git.Git().custom_environment(**self._env):
+                Repo.clone_from(
+                    self.repo_url,
+                    self.local_path,
+                    env=self._env
+                )
+            self._log(f"Clone completed successfully")
+        except GitCommandError as e:
+            # Check if we should attempt provisioning
+            error_text = str(e).lower()
+            if self._provision_enabled and self._remote_allowed:
+                if "repository not found" in error_text or ("repository" in error_text and "not found" in error_text):
+                    self._handle_provisioning_clone_gitpython(e)
+                    return
+            message = f"Failed to clone {self.repo_url}: {e}"
+            raise GitSyncError(message) from e
+        except Exception as e:
+            message = f"Failed to clone {self.repo_url}: {e}"
             raise GitSyncError(message) from e
 
     def _format_process_error(
@@ -431,14 +459,12 @@ class GitSyncManager:
             return f"{prefix}: {body}" if body else prefix
         return body
 
-    def _should_attempt_provision(self, error: subprocess.CalledProcessError) -> bool:
+    def _should_attempt_provision(self, error: GitCommandError) -> bool:
+        """Check if we should attempt auto-provisioning based on GitCommandError."""
         if not self._provision_enabled or not self._remote_allowed:
             return False
-        text = " ".join(
-            part.strip().lower()
-            for part in (error.stderr or "", error.stdout or "")
-            if part
-        )
+        # GitCommandError stores error message as string
+        text = str(error).strip().lower()
         if not text:
             return False
         if "repository not found" in text:
@@ -467,14 +493,18 @@ class GitSyncManager:
             )
             raise GitSyncError(message) from provision_error
 
-        # After provisioning, retry clone. If the remote is still empty, fall
-        # back to bootstrapping a local repo so the first write can push.
+        # After provisioning, retry clone with GitPython (no subprocess).
+        # If the remote is still empty, fall back to bootstrapping a local repo.
         try:
-            cmd = ["git", "clone", self.repo_url, str(self.local_path)]
-            self._run(cmd, cwd=self.local_path.parent, check=True)
+            with git.Git().custom_environment(**self._env):
+                Repo.clone_from(
+                    self.repo_url,
+                    self.local_path,
+                    env=self._env
+                )
             return
-        except subprocess.CalledProcessError as retry_error:
-            combined = self._format_process_error(retry_error)
+        except GitCommandError as retry_error:
+            combined = str(retry_error)
             if combined:
                 self._last_provision_output = (
                     (self._last_provision_output or "") + "\n" + combined
@@ -492,6 +522,8 @@ class GitSyncManager:
                 raise GitSyncError(message) from bootstrap_exc
 
     def _bootstrap_local_repo(self) -> None:
+        """Initialize local git repository using GitPython (no subprocess)."""
+        self._log("Bootstrapping local repository")
         parent = self.local_path.parent
         try:
             parent.mkdir(parents=True, exist_ok=True)
@@ -501,19 +533,20 @@ class GitSyncManager:
         if not self.local_path.exists():
             self.local_path.mkdir(parents=True, exist_ok=True)
 
-        self._run(["git", "init"], cwd=self.local_path, check=True)
+        # Use GitPython to init
+        repo = Repo.init(self.local_path)
 
-        remotes = self._run(["git", "remote"], cwd=self.local_path, check=True)
-        current = {item.strip() for item in remotes.stdout.splitlines()}
-        if "origin" not in current:
-            self._run(["git", "remote", "add", "origin", self.repo_url], cwd=self.local_path, check=True)
+        # Add remote if not present
+        if 'origin' not in [remote.name for remote in repo.remotes]:
+            repo.create_remote('origin', self.repo_url)
+        self._log("Local repository bootstrapped")
 
     def set_remote_allowed(self, allowed: bool) -> None:
         """Toggle whether remote interactions are permitted."""
         self._remote_allowed = bool(allowed)
 
     def _ensure_remote_repo_exists(self) -> bool:
-        """Ensure the remote repository exists before network operations.
+        """Ensure the remote repository exists before network operations (GitPython, no subprocess).
 
         Returns True if the remote appears accessible (post-provisioning when
         enabled). Returns False if the remote is unavailable and cannot be
@@ -528,24 +561,17 @@ class GitSyncManager:
             return False
 
         try:
-            result = self._run(
-                ["git", "ls-remote", "origin"],
-                cwd=self.local_path,
-                check=True,
-                timeout=30.0,
-            )
-            output = (getattr(result, "stdout", "") or "").strip()
-            self._remote_empty = not bool(output)
+            repo = self._repo
+            origin = repo.remotes.origin
+
+            # Use GitPython to list remote refs (equivalent to git ls-remote)
+            with git.Git().custom_environment(**self._env):
+                refs = origin.refs
+                self._remote_empty = len(refs) == 0
             return True
-        except TimeoutExpired as timeout_exc:
+        except GitCommandError as error:
             self._remote_empty = False
-            self._last_remote_error = (
-                f"git ls-remote timed out after {timeout_exc.timeout}s"
-            )
-            return False
-        except subprocess.CalledProcessError as error:
-            self._remote_empty = False
-            message = self._format_process_error(error)
+            message = str(error)
             lowered = (message or "").lower()
 
             if self._should_attempt_provision(error):
@@ -558,21 +584,20 @@ class GitSyncManager:
                     )
                     if output:
                         self._last_provision_output = output
-                    retry = self._run(
-                        ["git", "ls-remote", "origin"],
-                        cwd=self.local_path,
-                        check=True,
-                        timeout=30.0,
-                    )
-                    output = (getattr(retry, "stdout", "") or "").strip()
-                    self._remote_empty = not bool(output)
+
+                    # Retry with GitPython after provisioning
+                    repo = self._repo
+                    origin = repo.remotes.origin
+                    with git.Git().custom_environment(**self._env):
+                        refs = origin.refs
+                        self._remote_empty = len(refs) == 0
                     return True
                 except ProvisioningError as provision_error:
                     self._last_provision_output = str(provision_error)
                     self._last_remote_error = self._last_provision_output
                     return False
-                except subprocess.CalledProcessError as retry_error:
-                    retry_message = self._format_process_error(retry_error)
+                except GitCommandError as retry_error:
+                    retry_message = str(retry_error)
                     self._last_remote_error = (
                         retry_message
                         or message
@@ -589,16 +614,20 @@ class GitSyncManager:
             return False
 
     def _configure_git(self):
-        """Configure git user for commits.
+        """Configure git user for commits using GitPython (no subprocess).
 
         Raises:
             GitSyncError: If configuration fails
         """
+        self._log("Configuring git user")
         try:
-            self._run(["git", "config", "user.name", self.author_name], cwd=self.local_path, check=True)
-            self._run(["git", "config", "user.email", self.author_email], cwd=self.local_path, check=True)
-        except subprocess.CalledProcessError as e:
-            raise GitSyncError(f"Failed to configure git: {e.stderr}") from e
+            repo = self._repo
+            with repo.config_writer() as config:
+                config.set_value('user', 'name', self.author_name)
+                config.set_value('user', 'email', self.author_email)
+            self._log("Git user configured")
+        except Exception as e:
+            raise GitSyncError(f"Failed to configure git: {e}") from e
 
     def pull(self) -> bool:
         """Pull latest changes from remote with rebase.
@@ -634,18 +663,27 @@ class GitSyncManager:
         if self._remote_empty:
             return True
 
+        # Use GitPython to pull (in-process, no subprocess)
+        self._log("Pulling with rebase and autostash")
         try:
-            self._run(["git", "pull", "--rebase", "--autostash"], cwd=self.local_path, check=True)
+            repo = self._repo
+            with git.Git().custom_environment(**self._env):
+                # Fetch first
+                repo.remotes.origin.fetch()
+                # Pull with rebase
+                repo.git.pull('--rebase', '--autostash', env=self._env)
+            self._log("Pull completed successfully")
             return True
-        except subprocess.CalledProcessError as e:
-            stderr = (e.stderr or "") + "\n" + (e.stdout or "")
-            lowered = stderr.lower()
-            if "couldn't find remote ref" in lowered or "could not find remote ref" in lowered:
+        except GitCommandError as e:
+            error_text = str(e).lower()
+            # Handle various non-error conditions
+            if "couldn't find remote ref" in error_text or "could not find remote ref" in error_text:
                 return True
-            if "does not match any" in lowered:
+            if "does not match any" in error_text:
                 return True
-            if "no tracking information for the current branch" in lowered:
+            if "no tracking information for the current branch" in error_text:
                 return True
+            # Network errors
             network_tokens = (
                 "could not read from remote repository",
                 "could not resolve hostname",
@@ -654,41 +692,48 @@ class GitSyncManager:
                 "failed to connect to",
                 "failed in sandbox",
             )
-            if any(token in lowered for token in network_tokens):
-                self._last_pull_error = (
-                    stderr.strip()
-                    or lowered.strip()
-                    or "network failure contacting remote threads repository"
-                )
+            if any(token in error_text for token in network_tokens):
+                self._last_pull_error = str(e) or "network failure contacting remote threads repository"
                 self._last_remote_error = self._last_pull_error
                 return False
-            self._last_pull_error = stderr.strip() or lowered.strip()
+            self._last_pull_error = str(e)
             self._last_remote_error = self._last_pull_error
-            # Rebase conflict or other pull failure
-            # Abort any in-progress rebase
-            self._run(["git", "rebase", "--abort"], cwd=self.local_path, check=False)
+            # Rebase conflict or other pull failure - abort any in-progress rebase
+            self._log(f"Pull failed: {e}, aborting rebase")
+            try:
+                repo.git.rebase('--abort')
+            except:
+                pass
+            return False
+        except Exception as e:
+            self._last_pull_error = f"Unexpected error during pull: {e}"
             return False
 
     def commit_local(self, message: str) -> bool:
-        """Commit staged changes locally without pushing.
+        """Commit staged changes locally without pushing (GitPython, no subprocess).
 
         Returns True if a commit was created, False if there were no staged changes.
         Raises GitSyncError if git commit fails.
         """
+        self._log(f"Committing: {message[:60]}...")
         try:
-            # Stage all changes within local_path
-            self._run(["git", "add", "-A"], cwd=self.local_path, check=True)
+            repo = self._repo
+            with git.Git().custom_environment(**self._env):
+                # Stage all changes within local_path
+                repo.git.add('-A')
 
-            # Check if there are changes to commit
-            result = self._run(["git", "diff", "--cached", "--quiet"], cwd=self.local_path, check=False)
-            if result.returncode == 0:
-                # No changes to commit
-                return False
+                # Check if there are changes to commit
+                if not repo.is_dirty(untracked_files=True):
+                    self._log("No changes to commit")
+                    return False
 
-            # Commit changes
-            self._run(["git", "commit", "-m", message], cwd=self.local_path, check=True)
-        except subprocess.CalledProcessError as e:
-            raise GitSyncError(f"Failed to commit: {e.stderr}") from e
+                # Commit changes
+                repo.git.commit('-m', message, env=self._env)
+                self._log("Commit completed successfully")
+        except GitCommandError as e:
+            raise GitSyncError(f"Failed to commit: {e}") from e
+        except Exception as e:
+            raise GitSyncError(f"Failed to commit: {e}") from e
         return True
 
     def push_pending(self, max_retries: int = 3) -> bool:
@@ -709,14 +754,20 @@ class GitSyncManager:
             )
             return False
 
+        # Use GitPython to push (in-process, no subprocess)
         for attempt in range(max_retries):
+            self._log(f"Pushing (attempt {attempt+1}/{max_retries})")
             try:
-                self._run(["git", "push"], cwd=self.local_path, check=True)
+                repo = self._repo
+                with git.Git().custom_environment(**self._env):
+                    repo.remotes.origin.push(env=self._env)
+                self._log("Push completed successfully")
                 return True
 
-            except subprocess.CalledProcessError as e:
-                stderr = (e.stderr or "") + "\n" + (e.stdout or "")
-                lowered = stderr.lower()
+            except GitCommandError as e:
+                error_text = str(e).lower()
+
+                # Network errors
                 network_tokens = (
                     "could not read from remote repository",
                     "could not resolve hostname",
@@ -725,35 +776,28 @@ class GitSyncManager:
                     "failed to connect to",
                     "failed in sandbox",
                 )
-                if any(token in lowered for token in network_tokens):
-                    self._last_push_error = (
-                        stderr.strip()
-                        or lowered.strip()
-                        or "network failure contacting remote threads repository"
-                    )
+                if any(token in error_text for token in network_tokens):
+                    self._last_push_error = str(e) or "network failure contacting remote threads repository"
                     return False
-                # Handle missing upstream / no configured push destination / empty ref
-                if (
-                    "has no upstream branch" in stderr
-                    or "No configured push destination" in stderr
-                    or "does not match any" in stderr  # e.g., src refspec does not match any
-                ):
+
+                # Handle missing upstream / no configured push destination
+                if ("has no upstream branch" in error_text or
+                    "no configured push destination" in error_text or
+                    "does not match any" in error_text):
+                    self._log("Setting upstream branch")
                     try:
-                        self._run(["git", "push", "-u", "origin", "HEAD"], cwd=self.local_path, check=True)
+                        repo.git.push('-u', 'origin', 'HEAD', env=self._env)
+                        self._log("Upstream set successfully")
                         return True
-                    except subprocess.CalledProcessError as push_error:
-                        upstream_stderr = (push_error.stderr or "") + "\n" + (push_error.stdout or "")
-                        self._last_push_error = (
-                            upstream_stderr.strip()
-                            or lowered.strip()
-                            or "failed to set upstream for threads branch"
-                        )
+                    except GitCommandError as push_error:
+                        self._last_push_error = str(push_error) or "failed to set upstream for threads branch"
                         if attempt >= max_retries - 1:
                             return False
                         continue
 
                 if attempt < max_retries - 1:
                     # Push rejected - pull and retry
+                    self._log("Push rejected, pulling before retry")
                     if not self.pull():
                         # Pull failed (rebase conflict or no upstream yet)
                         # Give one more chance on next loop iteration
@@ -764,7 +808,8 @@ class GitSyncManager:
                     except Exception:
                         pass
                     continue
-                self._last_push_error = stderr.strip() or lowered.strip() or "failed to push threads updates"
+
+                self._last_push_error = str(e) or "failed to push threads updates"
                 # Max retries exceeded
                 return False
         return False
@@ -777,48 +822,61 @@ class GitSyncManager:
         return self.push_pending(max_retries=max_retries)
 
     def ensure_branch(self, branch: str) -> bool:
-        """Ensure the local repo is on the given branch, creating it if needed.
+        """Ensure the local repo is on the given branch, creating it if needed (GitPython, no subprocess).
 
         Also sets upstream to origin/<branch> on first creation.
         Returns True on success, False on failure (non-fatal; caller can proceed).
         """
         try:
             self._ensure_local_repo_ready()
+            repo = self._repo
 
             # What branch are we on now?
-            current = self._run(["git", "rev-parse", "--abbrev-ref", "HEAD"], cwd=self.local_path, check=True).stdout.strip()
+            current = repo.active_branch.name
             if current == branch:
                 return True
 
             # Does the branch exist locally?
-            exists = self._run(["git", "show-ref", "--verify", f"refs/heads/{branch}"], cwd=self.local_path, check=False).returncode == 0
+            exists = branch in [ref.name for ref in repo.heads]
 
             remote_available = self._remote_allowed and self._ensure_remote_repo_exists()
             remote_has_branch = False
 
             if remote_available:
-                remote_check = self._run(
-                    ["git", "ls-remote", "--heads", "origin", branch],
-                    cwd=self.local_path,
-                    check=False,
-                    timeout=30.0,
-                )
-                remote_has_branch = bool(remote_check.stdout.strip()) and remote_check.returncode == 0
+                # Check if remote has the branch
+                with git.Git().custom_environment(**self._env):
+                    origin = repo.remotes.origin
+                    remote_has_branch = f"origin/{branch}" in [ref.name for ref in origin.refs]
 
             if exists:
-                self._run(["git", "checkout", branch], cwd=self.local_path, check=True)
+                # Checkout existing local branch
+                with git.Git().custom_environment(**self._env):
+                    repo.git.checkout(branch, env=self._env)
             else:
                 if remote_has_branch:
-                    self._run(["git", "fetch", "origin", f"{branch}:refs/heads/{branch}"], cwd=self.local_path, check=True)
-                    self._run(["git", "checkout", branch], cwd=self.local_path, check=True)
+                    # Fetch and checkout remote branch
+                    with git.Git().custom_environment(**self._env):
+                        origin = repo.remotes.origin
+                        origin.fetch(refspec=f"{branch}:refs/heads/{branch}", env=self._env)
+                        repo.git.checkout(branch, env=self._env)
                 else:
-                    self._run(["git", "checkout", "-b", branch], cwd=self.local_path, check=True)
+                    # Create new branch
+                    with git.Git().custom_environment(**self._env):
+                        repo.git.checkout('-b', branch, env=self._env)
 
             # Ensure upstream is set when remote branch exists
-            upstream = self._run(["git", "rev-parse", "--abbrev-ref", "@{u}"], cwd=self.local_path, check=False)
-            if upstream.returncode != 0 and remote_has_branch:
-                self._run(["git", "branch", "--set-upstream-to", f"origin/{branch}", branch], cwd=self.local_path, check=True)
-            elif upstream.returncode != 0 and self._remote_allowed and not remote_has_branch:
+            try:
+                # Check if upstream is set (will raise if not)
+                repo.active_branch.tracking_branch()
+                has_upstream = True
+            except (AttributeError, TypeError):
+                has_upstream = False
+
+            if not has_upstream and remote_has_branch:
+                # Set upstream to origin/branch
+                with git.Git().custom_environment(**self._env):
+                    repo.git.branch('--set-upstream-to', f'origin/{branch}', branch, env=self._env)
+            elif not has_upstream and self._remote_allowed and not remote_has_branch:
                 # Remote unavailable or branch missing - leave as-is (local-only)
                 pass
             return True
