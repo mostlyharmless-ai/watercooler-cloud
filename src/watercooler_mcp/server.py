@@ -34,6 +34,29 @@ from .config import (
 )
 from .git_sync import GitPushError
 
+# Workaround for Windows stdio hang: Force auto-flush on every stdout write
+# On Windows, FastMCP's stdio transport gets stuck after subprocess operations
+# Auto-flushing after every write prevents response from getting stuck in buffer
+if sys.platform == "win32":
+    import io
+
+    class AutoFlushWrapper(io.TextIOWrapper):
+        def write(self, s):
+            result = super().write(s)
+            self.flush()
+            return result
+
+    # Wrap stdout with auto-flush
+    if hasattr(sys.stdout, 'buffer'):
+        sys.stdout = AutoFlushWrapper(
+            sys.stdout.buffer,
+            encoding=sys.stdout.encoding,
+            errors=sys.stdout.errors,
+            newline=None,
+            line_buffering=False,
+            write_through=True
+        )
+
 # Initialize FastMCP server
 mcp = FastMCP(name="Watercooler Cloud")
 
@@ -48,6 +71,11 @@ try:
         result = await _orig_run(self, arguments)
         try:
             _log_context(None, f"FunctionTool.run completed for {getattr(self, 'name', '<unknown>')}")
+            # Workaround: Force stdout flush on Windows after tool execution
+            # This may help clear stdio blockage before FastMCP writes response
+            if sys.platform == "win32":
+                sys.stdout.flush()
+                sys.stderr.flush()
         except Exception:
             pass
         return result
