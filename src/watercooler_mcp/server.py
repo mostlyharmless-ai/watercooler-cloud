@@ -89,14 +89,12 @@ def _require_context(code_path: str) -> tuple[str | None, ThreadContext | None]:
         )
     if os.getenv("WATERCOOLER_DEBUG_CODE_PATH", "0") not in {"0", "false", "off"}:
         try:
-            log_path = Path.cwd() / ".watercooler-codepath-debug.log"
+            log_path = Path(os.getenv("WATERCOOLER_DEBUG_LOG_DIR", Path.cwd())) / ".watercooler-codepath-debug.log"
+            log_path.parent.mkdir(parents=True, exist_ok=True)
             with log_path.open("a", encoding="utf-8") as fh:
                 fh.write(f"cwd={Path.cwd()} input={code_path!r}\n")
         except Exception:
-            import tempfile
-            tmp = Path(tempfile.gettempdir()) / ".watercooler-codepath-debug.log"
-            with tmp.open("a", encoding="utf-8") as fh:
-                fh.write(f"cwd={Path.cwd()} input={code_path!r}\n")
+            pass
     try:
         context = resolve_thread_context(Path(code_path))
     except Exception as exc:
