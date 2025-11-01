@@ -87,6 +87,12 @@ def _require_context(code_path: str) -> tuple[str | None, ThreadContext | None]:
             "code_path required: pass the code repository root (e.g., '.') so the server can resolve the correct threads repo/branch.",
             None,
         )
+
+    # Handle WSL-style absolute paths on Windows (e.g., /C/Users/...)
+    if os.name == "nt" and code_path.startswith("/") and len(code_path) > 2:
+        drive = code_path[1]
+        if drive.isalpha() and code_path[2] == "/":
+            code_path = f"{drive}:{code_path[2:].replace('/', os.sep)}"
     if os.getenv("WATERCOOLER_DEBUG_CODE_PATH", "0") not in {"0", "false", "off"}:
         try:
             log_path = Path(os.getenv("WATERCOOLER_DEBUG_LOG_DIR", Path.cwd())) / ".watercooler-codepath-debug.log"
