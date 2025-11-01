@@ -947,7 +947,7 @@ def force_sync(
 ) -> str:
     """Inspect or flush the async git sync worker."""
     try:
-        error, context = _require_context(code_path or ".")
+        error, context = _require_context(code_path)
         if error:
             return error
         if context is None:
