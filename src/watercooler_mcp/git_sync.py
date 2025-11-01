@@ -19,6 +19,7 @@ import os
 import re
 import shlex
 import subprocess
+from subprocess import TimeoutExpired
 import threading
 import time
 from dataclasses import dataclass
@@ -226,6 +227,10 @@ class GitSyncManager:
         # Disable interactive prompts so git fails fast instead of hanging when
         # credentials are required (particularly important inside MCP tools).
         self._env.setdefault("GIT_TERMINAL_PROMPT", "0")
+        self._env.setdefault("GIT_ASKPASS", "echo")
+        self._env.setdefault("GCM_INTERACTIVE", "never")
+        self._env.setdefault("GIT_HTTP_LOW_SPEED_LIMIT", "1")
+        self._env.setdefault("GIT_HTTP_LOW_SPEED_TIME", "30")
         if self.ssh_key_path:
             self._env["GIT_SSH_COMMAND"] = f"ssh -i {self.ssh_key_path} -o IdentitiesOnly=yes"
 
@@ -253,19 +258,32 @@ class GitSyncManager:
         except Exception:
             pass
 
-    def _run(self, cmd: list[str], *, cwd: Path | None = None, check: bool = True) -> subprocess.CompletedProcess[str]:
+    def _run(
+        self,
+        cmd: list[str],
+        *,
+        cwd: Path | None = None,
+        check: bool = True,
+        timeout: Optional[float] = None,
+    ) -> subprocess.CompletedProcess[str]:
         cwd = cwd or self.local_path if self.local_path.exists() else cwd
         cwd_str = str(cwd) if cwd is not None else None
         quoted = " ".join(shlex.quote(part) for part in cmd)
         self._log(f"RUN cwd={cwd_str or os.getcwd()} cmd={quoted}")
         start = time.time()
-        result = subprocess.run(
-            cmd,
-            cwd=cwd_str,
-            env=self._env,
-            capture_output=True,
-            text=True,
-        )
+        try:
+            result = subprocess.run(
+                cmd,
+                cwd=cwd_str,
+                env=self._env,
+                capture_output=True,
+                text=True,
+                timeout=timeout,
+            )
+        except TimeoutExpired as exc:
+            elapsed = time.time() - start
+            self._log(f"TIMEOUT after {elapsed:.2f}s cmd={quoted}")
+            raise
         elapsed = time.time() - start
         stdout = getattr(result, "stdout", "") or ""
         stderr = getattr(result, "stderr", "") or ""
@@ -491,10 +509,21 @@ class GitSyncManager:
             return False
 
         try:
-            result = self._run(["git", "ls-remote", "origin"], cwd=self.local_path, check=True)
+            result = self._run(
+                ["git", "ls-remote", "origin"],
+                cwd=self.local_path,
+                check=True,
+                timeout=30.0,
+            )
             output = (getattr(result, "stdout", "") or "").strip()
             self._remote_empty = not bool(output)
             return True
+        except TimeoutExpired as timeout_exc:
+            self._remote_empty = False
+            self._last_remote_error = (
+                f"git ls-remote timed out after {timeout_exc.timeout}s"
+            )
+            return False
         except subprocess.CalledProcessError as error:
             self._remote_empty = False
             message = self._format_process_error(error)
@@ -510,7 +539,12 @@ class GitSyncManager:
                     )
                     if output:
                         self._last_provision_output = output
-                    retry = self._run(["git", "ls-remote", "origin"], cwd=self.local_path, check=True)
+                    retry = self._run(
+                        ["git", "ls-remote", "origin"],
+                        cwd=self.local_path,
+                        check=True,
+                        timeout=30.0,
+                    )
                     output = (getattr(retry, "stdout", "") or "").strip()
                     self._remote_empty = not bool(output)
                     return True
@@ -744,7 +778,12 @@ class GitSyncManager:
             remote_has_branch = False
 
             if remote_available:
-                remote_check = self._run(["git", "ls-remote", "--heads", "origin", branch], cwd=self.local_path, check=False)
+                remote_check = self._run(
+                    ["git", "ls-remote", "--heads", "origin", branch],
+                    cwd=self.local_path,
+                    check=False,
+                    timeout=30.0,
+                )
                 remote_has_branch = bool(remote_check.stdout.strip()) and remote_check.returncode == 0
 
             if exists:
