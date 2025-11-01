@@ -34,17 +34,13 @@ async def main():
         tools = await mcp.get_tools()
         print(f"Server has {len(tools)} tools")
 
-        sync_tool = None
-        for tool in tools:
-            if tool.name == "watercooler_v1_sync":
-                sync_tool = tool
-                break
-
-        if not sync_tool:
+        # Tools are returned as strings (tool names)
+        if "watercooler_v1_sync" not in tools:
             print("✗ watercooler_v1_sync not found!")
+            print(f"Available tools: {tools}")
             return
 
-        print(f"✓ Found tool: {sync_tool.name}")
+        print(f"✓ Found tool: watercooler_v1_sync")
 
         # Call it through FastMCP's internal _call_tool method
         # This is how the MCP protocol actually invokes tools
