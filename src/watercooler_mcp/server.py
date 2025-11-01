@@ -89,9 +89,10 @@ def _require_context(code_path: str) -> tuple[str | None, ThreadContext | None]:
         )
     if os.getenv("WATERCOOLER_DEBUG_CODE_PATH", "0") not in {"0", "false", "off"}:
         try:
+            Path.cwd().mkdir(parents=True, exist_ok=True)
             log_path = Path.cwd() / ".watercooler-codepath-debug.log"
             with log_path.open("a", encoding="utf-8") as fh:
-                fh.write(f"input={code_path!r}\n")
+                fh.write(f"cwd={Path.cwd()} input={code_path!r}\n")
         except Exception:
             pass
     try:
