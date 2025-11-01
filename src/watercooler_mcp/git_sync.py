@@ -33,6 +33,15 @@ import hashlib
 import git
 from git import Repo, GitCommandError, InvalidGitRepositoryError
 
+# Windows stdio hang diagnostic instrumentation
+_DIAGNOSTICS_ENABLED = os.getenv("WATERCOOLER_DIAGNOSTICS", "").lower() in ("1", "true", "yes")
+
+def _diag(message: str):
+    """Log diagnostic message to stderr (doesn't interfere with MCP stdio protocol)."""
+    if _DIAGNOSTICS_ENABLED:
+        timestamp = datetime.now().isoformat()
+        print(f"[DIAG {timestamp}] {message}", file=sys.stderr, flush=True)
+
 try:  # pragma: no cover - fallback for direct module import (tests)
     from .provisioning import ProvisioningError, provision_threads_repo
 except ImportError:  # pragma: no cover - executed when module is loaded stand-alone
@@ -427,12 +436,14 @@ class GitSyncManager:
 
             # Use GitPython to clone (in-process, no subprocess)
             # Configure environment for the clone operation
+            _diag(f"GIT_OP_START: clone {self.repo_url}")
             with git.Git().custom_environment(**self._env):
                 Repo.clone_from(
                     self.repo_url,
                     self.local_path,
                     env=self._env
                 )
+            _diag(f"GIT_OP_END: clone {self.repo_url}")
             self._log(f"Clone completed successfully")
         except GitCommandError as e:
             # Check if we should attempt provisioning
@@ -565,9 +576,11 @@ class GitSyncManager:
             origin = repo.remotes.origin
 
             # Use GitPython to list remote refs (equivalent to git ls-remote)
+            _diag("GIT_OP_START: ls-remote (via origin.refs)")
             with git.Git().custom_environment(**self._env):
                 refs = origin.refs
                 self._remote_empty = len(refs) == 0
+            _diag(f"GIT_OP_END: ls-remote (found {len(refs)} refs)")
             return True
         except GitCommandError as error:
             self._remote_empty = False
@@ -667,11 +680,16 @@ class GitSyncManager:
         self._log("Pulling with rebase and autostash")
         try:
             repo = self._repo
+            _diag("GIT_OP_START: fetch origin")
             with git.Git().custom_environment(**self._env):
                 # Fetch first
                 repo.remotes.origin.fetch()
+            _diag("GIT_OP_END: fetch origin")
+            _diag("GIT_OP_START: pull --rebase --autostash")
+            with git.Git().custom_environment(**self._env):
                 # Pull with rebase
                 repo.git.pull('--rebase', '--autostash', env=self._env)
+            _diag("GIT_OP_END: pull --rebase --autostash")
             self._log("Pull completed successfully")
             return True
         except GitCommandError as e:
@@ -718,18 +736,23 @@ class GitSyncManager:
         self._log(f"Committing: {message[:60]}...")
         try:
             repo = self._repo
+            _diag("GIT_OP_START: add -A")
             with git.Git().custom_environment(**self._env):
                 # Stage all changes within local_path
                 repo.git.add('-A')
+            _diag("GIT_OP_END: add -A")
 
-                # Check if there are changes to commit
-                if not repo.is_dirty(untracked_files=True):
-                    self._log("No changes to commit")
-                    return False
+            # Check if there are changes to commit
+            if not repo.is_dirty(untracked_files=True):
+                self._log("No changes to commit")
+                return False
 
+            _diag(f"GIT_OP_START: commit -m '{message[:40]}'")
+            with git.Git().custom_environment(**self._env):
                 # Commit changes
                 repo.git.commit('-m', message, env=self._env)
-                self._log("Commit completed successfully")
+            _diag(f"GIT_OP_END: commit")
+            self._log("Commit completed successfully")
         except GitCommandError as e:
             raise GitSyncError(f"Failed to commit: {e}") from e
         except Exception as e:
@@ -759,8 +782,10 @@ class GitSyncManager:
             self._log(f"Pushing (attempt {attempt+1}/{max_retries})")
             try:
                 repo = self._repo
+                _diag(f"GIT_OP_START: push (attempt {attempt+1})")
                 with git.Git().custom_environment(**self._env):
                     repo.remotes.origin.push(env=self._env)
+                _diag(f"GIT_OP_END: push (attempt {attempt+1})")
                 self._log("Push completed successfully")
                 return True
 
@@ -850,19 +875,28 @@ class GitSyncManager:
 
             if exists:
                 # Checkout existing local branch
+                _diag(f"GIT_OP_START: checkout {branch}")
                 with git.Git().custom_environment(**self._env):
                     repo.git.checkout(branch, env=self._env)
+                _diag(f"GIT_OP_END: checkout {branch}")
             else:
                 if remote_has_branch:
                     # Fetch and checkout remote branch
+                    _diag(f"GIT_OP_START: fetch {branch}")
                     with git.Git().custom_environment(**self._env):
                         origin = repo.remotes.origin
                         origin.fetch(refspec=f"{branch}:refs/heads/{branch}", env=self._env)
+                    _diag(f"GIT_OP_END: fetch {branch}")
+                    _diag(f"GIT_OP_START: checkout {branch}")
+                    with git.Git().custom_environment(**self._env):
                         repo.git.checkout(branch, env=self._env)
+                    _diag(f"GIT_OP_END: checkout {branch}")
                 else:
                     # Create new branch
+                    _diag(f"GIT_OP_START: checkout -b {branch}")
                     with git.Git().custom_environment(**self._env):
                         repo.git.checkout('-b', branch, env=self._env)
+                    _diag(f"GIT_OP_END: checkout -b {branch}")
 
             # Ensure upstream is set when remote branch exists
             try:
