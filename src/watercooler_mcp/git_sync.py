@@ -307,6 +307,18 @@ class GitSyncManager:
         self._log(
             f"DONE rc={result.returncode} elapsed={elapsed:.2f}s stdout='{stdout_preview}' stderr='{stderr_preview}'"
         )
+
+        # Workaround for Windows stdio hang: Force flush after subprocess
+        # On Windows, running git subprocess leaves stdio handles in bad state,
+        # causing FastMCP's response to get stuck in stdout buffer.
+        # Explicitly flushing seems to clear the blockage.
+        if sys.platform == "win32":
+            try:
+                sys.stdout.flush()
+                sys.stderr.flush()
+            except Exception:
+                pass
+
         if check and result.returncode != 0:
             raise subprocess.CalledProcessError(result.returncode, cmd, result.stdout, result.stderr)
         return result
