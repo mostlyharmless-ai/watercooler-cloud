@@ -30,34 +30,38 @@ async def main():
     print("\n--- If this hangs, we've found Bug 2 ---\n")
 
     try:
-        # Call the tool through FastMCP's internal mechanism
-        from fastmcp import Context
+        # Get the list of tools
+        tools = mcp.get_tools()
+        print(f"Server has {len(tools)} tools")
 
-        # Create a fake context
-        class FakeCtx:
-            client_id = "test-client"
-
-        # Get the tool
-        tool = None
-        for t in mcp._tools:
-            if t.name == "watercooler_v1_sync":
-                tool = t
+        sync_tool = None
+        for tool in tools:
+            if tool.name == "watercooler_v1_sync":
+                sync_tool = tool
                 break
 
-        if not tool:
-            print("✗ Tool not found!")
+        if not sync_tool:
+            print("✗ watercooler_v1_sync not found!")
             return
 
-        print(f"Found tool: {tool.name}")
+        print(f"✓ Found tool: {sync_tool.name}")
 
-        # Call it (this goes through FastMCP's wrapper)
-        result = await tool.run({
-            "code_path": ".",
-            "action": "status"
-        })
+        # Call it through FastMCP's internal _call_tool method
+        # This is how the MCP protocol actually invokes tools
+        print("\nCalling via _call_tool...")
+        result = await mcp._call_tool(
+            name="watercooler_v1_sync",
+            arguments={
+                "code_path": ".",
+                "action": "status"
+            }
+        )
 
         print("\n✓ Tool returned!")
-        print(f"\n=== RESULT ===\n{result}\n==============\n")
+        print(f"\n=== RESULT ===")
+        print(f"Type: {type(result)}")
+        print(f"Content: {result}")
+        print(f"==============\n")
 
     except Exception as e:
         print(f"\n✗ Tool call failed: {e}")
