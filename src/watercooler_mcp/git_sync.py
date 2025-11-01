@@ -272,6 +272,10 @@ class GitSyncManager:
         self._log(f"RUN cwd={cwd_str or os.getcwd()} cmd={quoted}")
         start = time.time()
         try:
+            # On Windows, explicitly close file descriptors to prevent handle inheritance
+            # which can block parent stdio even with capture_output=True
+            close_fds = sys.platform == "win32"
+
             result = subprocess.run(
                 cmd,
                 cwd=cwd_str,
@@ -279,6 +283,7 @@ class GitSyncManager:
                 capture_output=True,
                 text=True,
                 timeout=timeout,
+                close_fds=close_fds,
             )
         except TimeoutExpired as exc:
             elapsed = time.time() - start
@@ -308,12 +313,14 @@ class GitSyncManager:
             f"DONE rc={result.returncode} elapsed={elapsed:.2f}s stdout='{stdout_preview}' stderr='{stderr_preview}'"
         )
 
-        # Workaround for Windows stdio hang: Force flush after subprocess
+        # Workaround for Windows stdio hang: Force flush and brief delay
         # On Windows, running git subprocess leaves stdio handles in bad state,
         # causing FastMCP's response to get stuck in stdout buffer.
-        # Explicitly flushing seems to clear the blockage.
+        # Brief delay ensures subprocess handles are fully released.
         if sys.platform == "win32":
             try:
+                import time as time_module
+                time_module.sleep(0.01)  # 10ms delay for handle cleanup
                 sys.stdout.flush()
                 sys.stderr.flush()
             except Exception:
