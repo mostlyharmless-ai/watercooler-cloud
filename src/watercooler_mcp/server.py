@@ -87,6 +87,13 @@ def _require_context(code_path: str) -> tuple[str | None, ThreadContext | None]:
             "code_path required: pass the code repository root (e.g., '.') so the server can resolve the correct threads repo/branch.",
             None,
         )
+    if os.getenv("WATERCOOLER_DEBUG_CODE_PATH", "0") not in {"0", "false", "off"}:
+        try:
+            log_path = Path.cwd() / ".watercooler-codepath-debug.log"
+            with log_path.open("a", encoding="utf-8") as fh:
+                fh.write(f"input={code_path!r}\n")
+        except Exception:
+            pass
     try:
         context = resolve_thread_context(Path(code_path))
     except Exception as exc:
