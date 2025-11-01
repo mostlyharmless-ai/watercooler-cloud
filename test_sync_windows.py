@@ -46,10 +46,32 @@ async def main():
     print(f"\nGetting async status...")
     status = sync.get_async_status()
 
-    print("\n=== ASYNC STATUS ===")
+    print("\n=== ASYNC STATUS (before flush) ===")
     for key, value in status.items():
         print(f"  {key}: {value}")
-    print("====================\n")
+    print("===================================\n")
+
+    # Step 4: Test flush (THIS IS WHERE IT MIGHT HANG)
+    print("Testing flush_async() - THIS IS THE CRITICAL TEST...")
+    print("If this hangs, we've found the bug.")
+
+    try:
+        print("Calling sync.flush_async(timeout=10.0)...")
+        sync.flush_async(timeout=10.0)
+        print("✓ Flush completed successfully!")
+    except Exception as e:
+        print(f"✗ Flush failed: {e}")
+        import traceback
+        traceback.print_exc()
+
+    # Step 5: Get status after
+    print(f"\nGetting async status after flush...")
+    status_after = sync.get_async_status()
+
+    print("\n=== ASYNC STATUS (after flush) ===")
+    for key, value in status_after.items():
+        print(f"  {key}: {value}")
+    print("==================================\n")
 
 if __name__ == "__main__":
     asyncio.run(main())
