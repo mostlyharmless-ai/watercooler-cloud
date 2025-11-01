@@ -4,6 +4,7 @@ from __future__ import annotations
 
 import argparse
 import sys
+from dataclasses import replace
 
 # Fail fast on unsupported interpreter version
 if sys.version_info < (3, 10):
@@ -115,6 +116,12 @@ def main(argv: list[str] | None = None) -> None:
     p_set_ball.add_argument("ball")
     p_set_ball.add_argument("--threads-dir")
 
+    p_sync = sub.add_parser("sync", help="Inspect or flush async git sync queue")
+    p_sync.add_argument("--code-path", help="Code repository root (default: current directory)")
+    p_sync.add_argument("--threads-dir", help="Threads directory override")
+    p_sync.add_argument("--status", action="store_true", help="Show pending queue status without flushing")
+    p_sync.add_argument("--now", action="store_true", help="Force an immediate push of pending commits")
+
     args = ap.parse_args(argv)
 
     if not args.cmd:
@@ -183,6 +190,81 @@ def main(argv: list[str] | None = None) -> None:
 
         out = set_ball(args.topic, threads_dir=resolve_threads_dir(args.threads_dir), ball=args.ball)
         print(str(out))
+        sys.exit(0)
+
+    if args.cmd == "sync":
+        from pathlib import Path
+        from .config import resolve_threads_dir
+        from watercooler_mcp.config import (
+            resolve_thread_context,
+            get_git_sync_manager_from_context,
+        )
+        from watercooler_mcp.git_sync import GitPushError
+
+        code_root = Path(args.code_path).resolve() if args.code_path else Path.cwd()
+        ctx = resolve_thread_context(code_root)
+        if args.threads_dir:
+            threads_override = resolve_threads_dir(args.threads_dir)
+            ctx = replace(ctx, threads_dir=threads_override, explicit_dir=True)
+
+        sync = get_git_sync_manager_from_context(ctx)
+        if not sync:
+            print("No git-enabled threads repository resolved for this context.", file=sys.stderr)
+            sys.exit(1)
+
+        status = sync.get_async_status()
+
+        def _print_status(info: dict) -> None:
+            if info.get("mode") != "async":
+                print("Async sync disabled; repository uses synchronous git writes.")
+                return
+            print("Async sync status:")
+            print(f"- Pending entries: {info.get('pending', 0)}")
+            topics = info.get("pending_topics") or []
+            if topics:
+                print(f"- Pending topics: {', '.join(topics)}")
+            last_pull = info.get("last_pull")
+            if last_pull:
+                age = info.get("last_pull_age_seconds")
+                age_str = f"{age:.1f}s ago" if age is not None else "recently"
+                stale = " (stale)" if info.get("stale") else ""
+                print(f"- Last pull: {last_pull} ({age_str}){stale}")
+            else:
+                print("- Last pull: never")
+            next_eta = info.get("next_pull_eta_seconds")
+            if next_eta is not None:
+                print(f"- Next background pull in: {next_eta:.1f}s")
+            if info.get("is_syncing"):
+                print("- Sync in progress")
+            if info.get("priority"):
+                print("- Priority flush requested")
+            if info.get("retry_at"):
+                retry_line = f"- Next retry attempt at: {info['retry_at']}"
+                retry_in = info.get("retry_in_seconds")
+                if retry_in is not None:
+                    retry_line += f" (in {retry_in:.1f}s)"
+                print(retry_line)
+            if info.get("last_error"):
+                print(f"- Last error: {info['last_error']}")
+
+        if status.get("mode") != "async":
+            print("Async sync disabled; repository uses synchronous git writes.")
+            sys.exit(0)
+
+        if args.status:
+            _print_status(status)
+            if not args.now:
+                sys.exit(0)
+
+        try:
+            sync.flush_async()
+            print("✅ Pending entries synced.")
+        except GitPushError as exc:
+            print(f"❌ Sync failed: {exc}", file=sys.stderr)
+            sys.exit(1)
+
+        if args.status:
+            _print_status(sync.get_async_status())
         sys.exit(0)
 
     if args.cmd == "list":

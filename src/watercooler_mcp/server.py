@@ -32,6 +32,7 @@ from .config import (
     get_git_sync_manager_from_context,
     resolve_thread_context,
 )
+from .git_sync import GitPushError
 
 # Initialize FastMCP server
 mcp = FastMCP(name="Watercooler Cloud")
@@ -116,6 +117,10 @@ def _refresh_threads(context: ThreadContext) -> None:
             sync.ensure_branch(branch)
         except Exception:
             pass
+    status = sync.get_async_status()
+    if status.get("mode") == "async":
+        # Async mode relies on background pulls; avoid blocking operations.
+        return
     sync.pull()
 
 
@@ -150,6 +155,7 @@ def run_with_sync(
     topic: str | None = None,
     entry_id: str | None = None,
     agent_spec: str | None = None,
+    priority_flush: bool = False,
 ) -> T:
     sync = get_git_sync_manager_from_context(context)
     if not sync:
@@ -169,7 +175,13 @@ def run_with_sync(
         agent_spec=agent_spec,
     )
     commit_message = commit_title if not footers else f"{commit_title}\n\n" + "\n".join(footers)
-    return sync.with_sync(operation, commit_message)
+    return sync.with_sync(
+        operation,
+        commit_message,
+        topic=topic,
+        entry_id=entry_id,
+        priority_flush=priority_flush,
+    )
 
 
 # ============================================================================
@@ -416,6 +428,30 @@ def list_threads(
         scan_elapsed = time.time() - scan_start
         _log_context(context, f"list_threads scanned {len(threads)} threads in {scan_elapsed:.2f}s")
 
+        sync = get_git_sync_manager_from_context(context)
+        pending_topics: set[str] = set()
+        async_summary = ""
+        if sync:
+            status_info = sync.get_async_status()
+            if status_info.get("mode") == "async":
+                pending_topics = {topic for topic in (status_info.get("pending_topics") or []) if topic}
+                summary_parts: list[str] = []
+                if status_info.get("is_syncing"):
+                    summary_parts.append("syncing…")
+                last_pull_age = status_info.get("last_pull_age_seconds")
+                if status_info.get("last_pull"):
+                    age_fragment = f"{int(last_pull_age)}s ago" if last_pull_age is not None else "recently"
+                    if status_info.get("stale"):
+                        age_fragment += " (stale)"
+                    summary_parts.append(f"last refresh {age_fragment}")
+                else:
+                    summary_parts.append("no refresh yet")
+                next_eta = status_info.get("next_pull_eta_seconds")
+                if next_eta is not None:
+                    summary_parts.append(f"next sync in {int(next_eta)}s")
+                summary_parts.append(f"pending {status_info.get('pending', 0)}")
+                async_summary = "*Async sync: " + ", ".join(summary_parts) + "*\n"
+
         if not threads:
             status_filter = "open " if open_only is True else ("closed " if open_only is False else "")
             _log_context(context, f"list_threads no {status_filter or ''}threads found")
@@ -425,6 +461,8 @@ def list_threads(
         agent_lower = agent.lower()
         output = []
         output.append(f"# Watercooler Threads ({len(threads)} total)\n")
+        if async_summary:
+            output.append(async_summary)
 
         # Separate threads by ball ownership
         classify_start = time.time()
@@ -451,23 +489,29 @@ def list_threads(
         if your_turn:
             output.append(f"\n## 🎾 Your Turn ({len(your_turn)} threads)\n")
             for title, status, ball, updated, topic, _ in your_turn:
-                output.append(f"- **{topic}** - {title}")
-                output.append(f"  Status: {status} | Ball: {ball} | Updated: {updated}")
+                local_marker = " ⏳" if topic in pending_topics else ""
+                updated_label = updated + (" (local)" if topic in pending_topics else "")
+                output.append(f"- **{topic}**{local_marker} - {title}")
+                output.append(f"  Status: {status} | Ball: {ball} | Updated: {updated_label}")
 
         # NEW entries section
         if new_entries:
             output.append(f"\n## 🆕 NEW Entries for You ({len(new_entries)} threads)\n")
             for title, status, ball, updated, topic, has_ball in new_entries:
                 marker = "🎾 " if has_ball else ""
-                output.append(f"- {marker}**{topic}** - {title}")
-                output.append(f"  Status: {status} | Ball: {ball} | Updated: {updated}")
+                local_marker = " ⏳" if topic in pending_topics else ""
+                updated_label = updated + (" (local)" if topic in pending_topics else "")
+                output.append(f"- {marker}**{topic}**{local_marker} - {title}")
+                output.append(f"  Status: {status} | Ball: {ball} | Updated: {updated_label}")
 
         # Waiting section
         if waiting:
             output.append(f"\n## ⏳ Waiting on Others ({len(waiting)} threads)\n")
             for title, status, ball, updated, topic, _ in waiting:
-                output.append(f"- **{topic}** - {title}")
-                output.append(f"  Status: {status} | Ball: {ball} | Updated: {updated}")
+                local_marker = " ⏳" if topic in pending_topics else ""
+                updated_label = updated + (" (local)" if topic in pending_topics else "")
+                output.append(f"- **{topic}**{local_marker} - {title}")
+                output.append(f"  Status: {status} | Ball: {ball} | Updated: {updated_label}")
 
         output.append(f"\n---\n*You are: {agent}*")
         output.append(f"*Threads dir: {threads_dir}*")
@@ -625,6 +669,7 @@ def say(
             topic=topic,
             entry_id=entry_id,
             agent_spec=agent_spec,
+            priority_flush=True,
         )
 
         # Get updated thread meta to show new ball owner
@@ -789,6 +834,7 @@ def handoff(
                 op,
                 topic=topic,
                 agent_spec=agent_spec,
+                priority_flush=True,
             )
 
             return (
@@ -811,6 +857,7 @@ def handoff(
                 op,
                 topic=topic,
                 agent_spec=agent_spec,
+                priority_flush=True,
             )
 
             # Get updated thread meta
@@ -872,12 +919,15 @@ def set_status(
         def op():
             commands.set_status(topic, threads_dir=threads_dir, status=status)
 
+        priority_flush = status.strip().upper() == "CLOSED"
+
         run_with_sync(
             context,
             f"{agent_base}: Status changed to {status} ({topic})",
             op,
             topic=topic,
             agent_spec=agent_spec,
+            priority_flush=priority_flush,
         )
 
         return (
@@ -887,6 +937,78 @@ def set_status(
 
     except Exception as e:
         return f"Error setting status for '{topic}': {str(e)}"
+
+
+@mcp.tool(name="watercooler_v1_sync")
+def force_sync(
+    ctx: Context,
+    code_path: str = "",
+    action: str = "now",
+) -> str:
+    """Inspect or flush the async git sync worker."""
+    try:
+        error, context = _require_context(code_path or ".")
+        if error:
+            return error
+        if context is None:
+            return "Error: Unable to resolve code context for the provided code_path."
+
+        sync = get_git_sync_manager_from_context(context)
+        if not sync:
+            return "Async sync unavailable: no git-enabled threads repository for this context."
+
+        action_normalized = (action or "now").strip().lower()
+
+        def _format_status(info: dict) -> str:
+            if info.get("mode") != "async":
+                return "Async sync disabled; repository uses synchronous git writes."
+            lines = ["Async sync status:"]
+            lines.append(f"- Pending entries: {info.get('pending', 0)}")
+            topics = info.get("pending_topics") or []
+            if topics:
+                lines.append(f"- Pending topics: {', '.join(topics)}")
+            last_pull = info.get("last_pull")
+            if last_pull:
+                age = info.get("last_pull_age_seconds")
+                age_fragment = f"{age:.1f}s ago" if age is not None else "recently"
+                stale = " (stale)" if info.get("stale") else ""
+                lines.append(f"- Last pull: {last_pull} ({age_fragment}){stale}")
+            else:
+                lines.append("- Last pull: never")
+            next_eta = info.get("next_pull_eta_seconds")
+            if next_eta is not None:
+                lines.append(f"- Next background pull in: {next_eta:.1f}s")
+            if info.get("is_syncing"):
+                lines.append("- Sync in progress")
+            if info.get("priority"):
+                lines.append("- Priority flush requested")
+            if info.get("retry_at"):
+                retry_in = info.get("retry_in_seconds")
+                extra = f" (in {retry_in:.1f}s)" if retry_in is not None else ""
+                lines.append(f"- Next retry at: {info['retry_at']}{extra}")
+            if info.get("last_error"):
+                lines.append(f"- Last error: {info['last_error']}")
+            return "\n".join(lines)
+
+        if action_normalized in {"status", "inspect"}:
+            status = sync.get_async_status()
+            return _format_status(status)
+
+        if action_normalized not in {"now", "flush"}:
+            return f"Unknown action '{action}'. Use 'status' or 'now'."
+
+        try:
+            sync.flush_async()
+        except GitPushError as exc:
+            return f"Sync failed: {exc}"
+
+        status_after = sync.get_async_status()
+        remaining = status_after.get("pending", 0)
+        prefix = "✅ Pending entries synced." if not remaining else f"⚠️ Sync completed with {remaining} entries still pending (retry scheduled)."
+        return f"{prefix}\n\n{_format_status(status_after)}"
+
+    except Exception as exc:  # pragma: no cover - defensive guard
+        return f"Error running sync: {exc}"
 
 
 @mcp.tool(name="watercooler_v1_reindex")

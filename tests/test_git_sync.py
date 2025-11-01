@@ -693,3 +693,74 @@ def test_commit_and_push_network_failure_aborts(monkeypatch, tmp_path):
     assert mgr._last_push_error is not None
     # No push attempts should occur because we bail early on ls-remote failure
     assert all(call[:2] != ("git", "push") for call in calls if isinstance(call, tuple))
+
+
+def test_async_mode_enqueues_and_flushes(monkeypatch, tmp_path):
+    git_sync = _import_git_sync()
+
+    monkeypatch.setenv("WATERCOOLER_ASYNC_SYNC", "1")
+
+    call_log = []
+
+    def fake_run(cmd, **kwargs):  # type: ignore[no-untyped-def]
+        args = tuple(cmd) if isinstance(cmd, (list, tuple)) else ()
+        call_log.append(args)
+
+        class Result:
+            returncode = 0
+            stdout = ""
+            stderr = ""
+
+        if args[:2] == ("git", "clone"):
+            target = Path(args[3])
+            target.mkdir(parents=True, exist_ok=True)
+            (target / ".git").mkdir(parents=True, exist_ok=True)
+        if args[:2] == ("git", "init"):
+            cwd = Path(kwargs.get("cwd", "."))
+            cwd.mkdir(parents=True, exist_ok=True)
+            (cwd / ".git").mkdir(parents=True, exist_ok=True)
+        if args[:3] == ("git", "diff", "--cached"):
+            Result.returncode = 1  # indicate staged changes present
+
+        return Result()
+
+    monkeypatch.setattr("subprocess.run", fake_run)
+
+    performed_sync = []
+
+    def fake_perform_sync(self):  # type: ignore[no-untyped-def]
+        performed_sync.append("sync")
+        return True
+
+    monkeypatch.setattr(
+        git_sync._AsyncSyncCoordinator,
+        "_perform_sync",
+        fake_perform_sync,
+    )
+
+    mgr = git_sync.GitSyncManager(
+        repo_url="git@github.com:org/threads.git",
+        local_path=tmp_path / "threads",
+        ssh_key_path=None,
+    )
+
+    def op():
+        thread_path = tmp_path / "threads" / "topic.md"
+        thread_path.parent.mkdir(parents=True, exist_ok=True)
+        thread_path.write_text("Entry body\n", encoding="utf-8")
+
+    mgr.with_sync(op, "Agent: async test", topic="topic", entry_id="01TESTASYNC")
+
+    # Commit should have been created locally (git commit invoked)
+    assert any(call[:2] == ("git", "commit") for call in call_log)
+    status = mgr.get_async_status()
+    assert status["mode"] == "async"
+    assert status["pending"] == 1
+
+    # Flush should trigger the background sync path
+    assert mgr._async is not None
+    mgr._async.flush_now()
+
+    assert performed_sync == ["sync"]
+    post_status = mgr.get_async_status()
+    assert post_status["pending"] == 0

@@ -57,42 +57,79 @@ when the remote is available.
 
 ## Operation Sequences
 
-### Pre-write / Read Refresh
+Watercooler supports two synchronization modes that share the same safety
+guarantees. Synchronous mode performs all git operations inline (legacy
+behaviour). Async mode records commits locally and lets a background worker pull
+and push in batches. Async mode is the default on Windows and can be enabled
+everywhere via `WATERCOOLER_ASYNC_SYNC=1`.
+
+### Common groundwork
 1. Resolve code context and threads directory (`resolve_thread_context`).
 2. Instantiate or reuse `GitSyncManager`. If the local checkout was removed,
-   `_ensure_local_repo_ready()` re-clones (or re-initialises) the threads repo
-   before any git commands execute.
-3. Perform repository bootstrap as
-   described above.
-4. Ensure the threads branch matches the code branch (`ensure_branch`).
-   - When the remote branch already exists, `ensure_branch` fetches it and sets
-     upstream tracking so the local branch is fast-forward to the remote tip
-     before any commits occur.
-5. If the code branch is published, require a successful `git pull --rebase
-   --autostash`. Failure (network outage, auth error, rebase conflict) raises
-   `GitPullError` and cancels the operation. When the code branch is local-only,
-   pull is skipped gracefully. If the remote threads repo exists but has no
-   refs yet (brand new project), the pull is also skipped so the first commit
-   can establish upstream state.
+   `_ensure_local_repo_ready()` re-clones (or re-initialises) the threads repo.
+3. Perform repository bootstrap as described earlier (provisioning, init,
+   remote detection).
+4. Ensure the threads branch matches the code branch (`ensure_branch`). When the
+   remote branch already exists, `ensure_branch` fetches it and sets upstream
+   tracking so the local branch is aligned with the remote tip before new
+   commits are recorded.
 
-### Write (say/ack/handoff/set_status)
-1. Repeat the pre-write refresh.
-2. Execute the requested operation (append entry, update status, etc.).
-3. Stage and commit all changes in the threads repo root.
-4. If the code branch is published:
-   - Verify the remote is reachable using `git ls-remote origin` (after any
-     auto-provision attempt).
-   - Push with retry-on-rejection. Network/auth failures cause
-     `GitPushError`; rejections trigger pull + retry up to three times before
-     failing.
-5. If the code branch is local-only, keep commits local. Once the code branch is
-   published, the next write will push the backlog.
+### Synchronous mode (legacy)
+1. Pull latest (`git pull --rebase --autostash`). Failure raises `GitPullError`.
+2. Execute the operation (append entry, status update, etc.).
+3. Stage, commit, and push with retry (`commit_and_push`). Network/auth failures
+   raise `GitPushError`; concurrent pushes trigger pull + retry up to three
+   times before failing.
+4. Local-only branches stop after the commit; once the branch is published the
+   next write will push the backlog automatically.
 
-### Post-Write Accounting
-- Every commit records the commit footers from `_build_commit_footers`, including
-  topic, ULID, code repo/branch, code commit SHA, and agent spec.
-- Callers should surface any `GitPullError`/`GitPushError` details to the agent
-  so they can retry after resolving connectivity issues.
+### Async mode
+1. Execute the operation immediately—no blocking pull.
+2. Stage and commit locally (`commit_local`). Each entry still maps to a single
+   git commit with the canonical footer block.
+3. Enqueue the commit for the async worker. The queue persists to
+   `.watercooler-pending-sync/queue.jsonl`.
+4. The worker runs continuously:
+   - Performs a background pull every `WATERCOOLER_SYNC_INTERVAL` seconds to keep
+     read operations fresh without blocking the caller.
+   - Pulls with rebase before pushing (preserves conflict guarantees) when local
+     commits are queued.
+   - Pushes all queued commits in a single operation.
+   - Retries with exponential backoff on network failures.
+5. Priority operations trigger an immediate flush (ball hand-offs, `say` calls,
+   `set_status(..., CLOSED)`). Other writes flush on the 5‑second batch window,
+   when 50 commits are queued, or after a 30‑second ceiling.
+6. `flush_now` / `watercooler sync --now` forces an immediate push, and
+   `list_threads` surfaces a ⏳ marker for entries awaiting sync.
+7. `list_threads` and `read_thread` return immediately using the cached view,
+   annotating the output with the last refresh age and pending local updates.
+
+### Post-write accounting
+- Every commit records the standard footer block (`Watercooler-Entry-ID`,
+  `Watercooler-Topic`, `Code-*`, `Spec`).
+- Async mode logs auto-merges as system entries whenever the worker replays
+  concurrent commits.
+- Errors captured during async flush (pull/push) bubble up as `GitPushError`
+  when a priority flush is requested so agents can react immediately.
+
+## Async Configuration
+
+Environment variables controlling async behaviour:
+
+| Variable | Default | Notes |
+|----------|---------|-------|
+| `WATERCOOLER_ASYNC_SYNC` | auto (`1` on Windows, `0` elsewhere) | Force async (`1`) or synchronous (`0`) mode. |
+| `WATERCOOLER_BATCH_WINDOW` | `5` seconds | Soft delay before batching commits. |
+| `WATERCOOLER_MAX_BATCH_DELAY` | `30` seconds | Hard ceiling; worker flushes even if retries are pending. |
+| `WATERCOOLER_MAX_BATCH_SIZE` | `50` commits | Flush once this many pending commits accumulate. |
+| `WATERCOOLER_MAX_SYNC_RETRIES` | `5` | Push retry attempts per flush cycle. |
+| `WATERCOOLER_MAX_BACKOFF` | `300` seconds | Maximum backoff delay after repeated failures. |
+| `WATERCOOLER_SYNC_INTERVAL` | `30` seconds | Background pull cadence that keeps reads fresh. |
+| `WATERCOOLER_STALE_THRESHOLD` | `60` seconds | Age after which `list_threads` marks the cache as stale. |
+
+Queue files live next to the threads repo (`.watercooler-pending-sync/`). Each
+line stores the commit metadata plus a checksum so the worker can resume safely
+after crashes. Removing the directory is safe—the next write will re-create it.
 
 ## Failure Modes & Recovery
 
@@ -118,3 +155,30 @@ when the remote is available.
 Keep this document aligned with the implementation: every code change affecting
 bootstrap, branching, or sync policy must update both this lifecycle and the
 associated tests under `tests/test_git_sync.py`.
+
+## Appendix: Why Not Unify Code and Threads Repos?
+
+Watercooler intentionally maintains a sibling repository (`<repo>-threads`)
+rather than colocating collaboration history inside the code repository.
+
+**Reasons:**
+- **Signal preservation** – application commits stay focused on code while
+  threads capture high-frequency planning and hand-offs without polluting the
+  code history.
+- **Operational isolation** – thread commits avoid triggering CI/CD pipelines,
+  and the async queue can push independently of application deploys.
+- **Access control** – collaboration logs often have different retention or
+  sharing requirements than code; separate repos make policy enforcement easier.
+- **Branch pairing semantics** – the “intentional sharing” contract (local
+  branches stay local, published branches push) is clearer when collaboration
+  history lives in a peer repo.
+
+Alternatives considered:
+- **Unified repo (`.watercooler/threads/` subdirectory)** – reduces git traffic
+  but clutters code history and entangles CI pipelines.
+- **Git notes** – keeps history clean but hides context behind tooling that most
+  developers and hosted platforms don’t surface.
+
+Given these constraints the sibling-pattern remains the most predictable option,
+and the new async sync path removes the primary performance pain for Windows
+without changing the repository contract.
