@@ -30,8 +30,8 @@ async def main():
     print("\n--- If this hangs, we've found Bug 2 ---\n")
 
     try:
-        # Get the list of tools
-        tools = mcp.get_tools()
+        # Get the list of tools (async method)
+        tools = await mcp.get_tools()
         print(f"Server has {len(tools)} tools")
 
         sync_tool = None
