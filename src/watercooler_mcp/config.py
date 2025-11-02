@@ -14,7 +14,7 @@ except ImportError:  # pragma: no cover - Python <3.8 fallback
 
 from watercooler.agents import _canonical_agent, _load_agents_registry
 
-from .git_sync import GitSyncManager
+from .git_sync import GitSyncManager, _diag
 from .provisioning import is_auto_provision_requested
 
 
@@ -106,6 +106,8 @@ def _normalize_code_root(code_root: Optional[Path]) -> Optional[Path]:
 
 
 def _run_git(args: list[str], cwd: Path) -> Optional[str]:
+    cmd = " ".join(args)
+    _diag(f"CONFIG_GIT_START: git {cmd} (cwd={cwd})")
     try:
         result = subprocess.run(
             ["git", *args],
@@ -114,8 +116,10 @@ def _run_git(args: list[str], cwd: Path) -> Optional[str]:
             capture_output=True,
             text=True,
         )
+        _diag(f"CONFIG_GIT_END: git {cmd} (returned {len(result.stdout)} chars)")
         return result.stdout.strip()
-    except (subprocess.CalledProcessError, FileNotFoundError):
+    except (subprocess.CalledProcessError, FileNotFoundError) as e:
+        _diag(f"CONFIG_GIT_FAIL: git {cmd} (error: {type(e).__name__})")
         return None
 
 

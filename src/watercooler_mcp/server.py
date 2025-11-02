@@ -32,7 +32,7 @@ from .config import (
     get_git_sync_manager_from_context,
     resolve_thread_context,
 )
-from .git_sync import GitPushError
+from .git_sync import GitPushError, _diag
 
 # Workaround for Windows stdio hang: Force auto-flush on every stdout write
 # On Windows, FastMCP's stdio transport gets stuck after subprocess operations
@@ -110,6 +110,7 @@ def _should_auto_branch() -> bool:
 
 
 def _require_context(code_path: str) -> tuple[str | None, ThreadContext | None]:
+    _diag(f"_require_context: entry with code_path={code_path!r}")
     if not code_path:
         return (
             "code_path required: pass the code repository root (e.g., '.') so the server can resolve the correct threads repo/branch.",
@@ -131,9 +132,13 @@ def _require_context(code_path: str) -> tuple[str | None, ThreadContext | None]:
         except Exception:
             pass
     try:
+        _diag(f"_require_context: calling resolve_thread_context({code_path!r})")
         context = resolve_thread_context(Path(code_path))
+        _diag(f"_require_context: resolve_thread_context returned")
     except Exception as exc:
+        _diag(f"_require_context: exception from resolve_thread_context: {exc}")
         return (f"Error resolving code context: {exc}", None)
+    _diag(f"_require_context: exit, returning context")
     return (None, context)
 
 
@@ -989,18 +994,24 @@ def force_sync(
     action: str = "now",
 ) -> str:
     """Inspect or flush the async git sync worker."""
+    _diag(f"TOOL_ENTRY: watercooler_v1_sync(code_path={code_path!r}, action={action!r})")
     try:
+        _diag("TOOL_STEP: calling _require_context")
         error, context = _require_context(code_path)
+        _diag(f"TOOL_STEP: _require_context returned (error={error!r}, context={'present' if context else 'None'})")
         if error:
             return error
         if context is None:
             return "Error: Unable to resolve code context for the provided code_path."
 
+        _diag("TOOL_STEP: calling get_git_sync_manager_from_context")
         sync = get_git_sync_manager_from_context(context)
+        _diag(f"TOOL_STEP: get_git_sync_manager returned {'present' if sync else 'None'}")
         if not sync:
             return "Async sync unavailable: no git-enabled threads repository for this context."
 
         action_normalized = (action or "now").strip().lower()
+        _diag(f"TOOL_STEP: action_normalized={action_normalized!r}")
 
         def _format_status(info: dict) -> str:
             if info.get("mode") != "async":
@@ -1034,8 +1045,13 @@ def force_sync(
             return "\n".join(lines)
 
         if action_normalized in {"status", "inspect"}:
+            _diag("TOOL_STEP: calling sync.get_async_status()")
             status = sync.get_async_status()
-            return _format_status(status)
+            _diag(f"TOOL_STEP: get_async_status returned {len(status)} keys")
+            result = _format_status(status)
+            _diag(f"TOOL_STEP: formatted status, length={len(result)}")
+            _diag("TOOL_EXIT: returning status result")
+            return result
 
         if action_normalized not in {"now", "flush"}:
             return f"Unknown action '{action}'. Use 'status' or 'now'."
