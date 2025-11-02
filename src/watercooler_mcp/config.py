@@ -15,6 +15,10 @@ except ImportError:  # pragma: no cover - Python <3.8 fallback
 from watercooler.agents import _canonical_agent, _load_agents_registry
 
 from .git_sync import GitSyncManager, _diag
+
+# GitPython for subprocess-free git discovery (fixes Windows stdio hang)
+from git import Repo, InvalidGitRepositoryError, GitCommandError
+
 from .provisioning import is_auto_provision_requested
 
 
@@ -124,42 +128,67 @@ def _run_git(args: list[str], cwd: Path) -> Optional[str]:
 
 
 def _discover_git(code_root: Optional[Path]) -> _GitDetails:
+    """Discover git repository info using GitPython (no subprocess, fixes Windows stdio hang)."""
     if code_root is None:
         return _GitDetails(None, None, None, None)
-    cwd = code_root
-    if not cwd.exists():
+    if not code_root.exists():
         return _GitDetails(None, None, None, None)
 
-    is_repo = _run_git(["rev-parse", "--is-inside-work-tree"], cwd)
-    if not is_repo or is_repo.lower() != "true":
+    _diag(f"CONFIG: Discovering git info for {code_root}")
+
+    try:
+        # Use GitPython to discover git info (no subprocess)
+        repo = Repo(code_root, search_parent_directories=True)
+
+        # Get repository root
+        root = Path(repo.working_dir) if repo.working_dir else None
+
+        # Get current branch (None if detached HEAD)
+        try:
+            branch = repo.active_branch.name
+        except TypeError:
+            # Detached HEAD state
+            branch = None
+
+        # Get short commit hash
+        try:
+            commit = repo.head.commit.hexsha[:7]
+        except (ValueError, AttributeError):
+            commit = None
+
+        # Get origin remote URL
+        try:
+            remote = repo.remotes.origin.url if 'origin' in [r.name for r in repo.remotes] else None
+        except (AttributeError, IndexError):
+            remote = None
+
+        if root is not None:
+            root = _resolve_path(root)
+
+        _diag(f"CONFIG: Git discovery complete (root={root}, branch={branch})")
+        return _GitDetails(root=root, branch=branch, commit=commit, remote=remote)
+
+    except InvalidGitRepositoryError:
+        _diag(f"CONFIG: Not a git repository: {code_root}")
         return _GitDetails(None, None, None, None)
-
-    root_str = _run_git(["rev-parse", "--show-toplevel"], cwd)
-    root = Path(root_str) if root_str else None
-    branch = _run_git(["rev-parse", "--abbrev-ref", "HEAD"], cwd)
-    commit = _run_git(["rev-parse", "--short", "HEAD"], cwd)
-    remote = _run_git(["remote", "get-url", "origin"], cwd)
-
-    if branch == "HEAD":
-        branch = None
-
-    if root is not None:
-        root = _resolve_path(root)
-
-    return _GitDetails(root=root, branch=branch, commit=commit, remote=remote)
+    except Exception as e:
+        _diag(f"CONFIG: Git discovery error: {e}")
+        return _GitDetails(None, None, None, None)
 
 
 def _branch_has_upstream(code_root: Optional[Path], branch: Optional[str]) -> bool:
+    """Check if branch has upstream using GitPython (no subprocess)."""
     if code_root is None or branch is None:
         return False
-    ref = f"{branch}@{{upstream}}"
-    result = _run_git([
-        "rev-parse",
-        "--abbrev-ref",
-        "--symbolic-full-name",
-        ref,
-    ], code_root)
-    return bool(result)
+
+    try:
+        repo = Repo(code_root, search_parent_directories=True)
+        if branch not in [b.name for b in repo.heads]:
+            return False
+        branch_obj = repo.heads[branch]
+        return branch_obj.tracking_branch() is not None
+    except (InvalidGitRepositoryError, AttributeError, IndexError):
+        return False
 
 
 def _strip_repo_suffix(value: str) -> str:
