@@ -1,0 +1,166 @@
+@tailwind base;
+@tailwind components;
+@tailwind utilities;
+
+:root {
+  /* Context7-inspired light mint theme */
+  --background: #EDF8F5;
+  --surface: #FFFFFF;
+  --text-primary: #0F172A;
+  --text-secondary: #475569;
+  --accent: #0D9488;
+  --accent-hover: #0F766E;
+  --border: #D1D5DB;
+  --code-bg: #F8FAFC;
+  --focus-ring: #0D948866;
+  
+  --page-max: 1100px;
+  --section-y: 8rem;
+  --section-y-md: 12rem;
+}
+
+* {
+  box-sizing: border-box;
+  padding: 0;
+  margin: 0;
+}
+
+html {
+  scroll-behavior: smooth;
+}
+
+html,
+body {
+  max-width: 100vw;
+  overflow-x: hidden;
+}
+
+body {
+  color: var(--text-primary);
+  background: linear-gradient(to bottom, #EDF8F5 0%, #F5FDFB 50%, #EDF8F5 100%);
+  background-attachment: fixed;
+  font-family: var(--font-inter), system-ui, sans-serif;
+  -webkit-font-smoothing: antialiased;
+  -moz-osx-font-smoothing: grayscale;
+}
+
+h1, h2, h3 {
+  letter-spacing: -0.02em;
+}
+
+h1 {
+  font-size: 1.875rem;
+  font-weight: 600;
+  line-height: 1.2;
+}
+
+@media (min-width: 768px) {
+  h1 {
+    font-size: 3rem;
+  }
+}
+
+p, li {
+  line-height: 1.75;
+  font-size: 0.875rem;
+  color: var(--text-secondary);
+}
+
+@media (min-width: 768px) {
+  p, li {
+    font-size: 1rem;
+  }
+}
+
+a {
+  color: inherit;
+  text-decoration: none;
+  text-underline-offset: 4px;
+}
+
+a:hover {
+  text-decoration: underline;
+}
+
+@media (prefers-reduced-motion: reduce) {
+  *,
+  *::before,
+  *::after {
+    animation-duration: 0.01ms !important;
+    animation-iteration-count: 1 !important;
+    transition-duration: 0.01ms !important;
+  }
+}
+
+::selection {
+  background-color: var(--accent);
+  color: white;
+}
+
+:focus-visible {
+  outline: none;
+  box-shadow: 0 0 0 3px var(--focus-ring);
+}
+
+code {
+  font-family: var(--font-ibm-plex-mono), monospace;
+}
+
+@keyframes fadeInUp {
+  from {
+    opacity: 0;
+    transform: translateY(30px);
+  }
+  to {
+    opacity: 1;
+    transform: translateY(0);
+  }
+}
+
+.animate-fade-in-up {
+  animation: fadeInUp 0.8s ease-out forwards;
+}
+
+.card-hover {
+  transition: all 0.3s cubic-bezier(0.4, 0, 0.2, 1);
+}
+
+.card-hover:hover {
+  transform: translateY(-4px);
+  box-shadow: 0 20px 25px -5px rgba(0, 0, 0, 0.1), 0 10px 10px -5px rgba(0, 0, 0, 0.04);
+}
+
+/* Terminal animation styles */
+.line-comment {
+  opacity: 0.75;
+}
+
+.line-ball {
+  animation: blip 0.6s ease-out;
+}
+
+.line-status {
+  animation: pulse 0.9s ease-out;
+  font-weight: 600;
+}
+
+@keyframes blip {
+  from {
+    background: rgba(245, 213, 71, 0.2);
+  }
+  to {
+    background: transparent;
+  }
+}
+
+@keyframes pulse {
+  0% {
+    text-shadow: 0 0 0px rgba(0, 0, 0, 0);
+  }
+  40% {
+    text-shadow: 0 0 12px rgba(80, 255, 120, 0.5);
+  }
+  100% {
+    text-shadow: 0 0 0px rgba(0, 0, 0, 0);
+  }
+}
