@@ -73,3 +73,38 @@ def test_resolve_thread_context_git_pattern(tmp_path, monkeypatch):
     assert context.threads_repo_url == "git@github.com:mostly/test-threads.git"
     assert context.code_repo == "mostly/test"
     assert context.code_branch in {"master", "main"}
+
+
+@pytest.mark.skipif(not _git_available(), reason="git not available in test environment")
+def test_resolve_thread_context_infers_repo_from_code_remote(tmp_path, monkeypatch):
+    repo_dir = tmp_path / "code"
+    repo_dir.mkdir()
+    subprocess.run(["git", "init"], cwd=repo_dir, check=True, capture_output=True)
+    subprocess.run(["git", "config", "user.name", "Test User"], cwd=repo_dir, check=True, capture_output=True)
+    subprocess.run(["git", "config", "user.email", "test@example.com"], cwd=repo_dir, check=True, capture_output=True)
+    (repo_dir / "README.md").write_text("test")
+    subprocess.run(["git", "add", "README.md"], cwd=repo_dir, check=True, capture_output=True)
+    subprocess.run(
+        ["git", "commit", "-m", "Initial"],
+        cwd=repo_dir,
+        check=True,
+        capture_output=True,
+    )
+    subprocess.run(
+        ["git", "remote", "add", "origin", "https://github.com/acme/example.git"],
+        cwd=repo_dir,
+        check=True,
+        capture_output=True,
+    )
+
+    monkeypatch.delenv("WATERCOOLER_DIR", raising=False)
+    monkeypatch.delenv("WATERCOOLER_THREADS_BASE", raising=False)
+    monkeypatch.delenv("WATERCOOLER_THREADS_PATTERN", raising=False)
+    monkeypatch.delenv("WATERCOOLER_GIT_REPO", raising=False)
+    monkeypatch.delenv("WATERCOOLER_CODE_REPO", raising=False)
+
+    context = resolve_thread_context(repo_dir)
+
+    # Derived URL should mirror the code remote host with -threads suffix
+    assert context.threads_repo_url.endswith("acme/example-threads.git")
+    assert context.threads_slug == "acme/example-threads"

@@ -1,6 +1,6 @@
 # Structured Entries Guide
 
-Watercooler-collab uses structured entries to provide rich metadata and context for collaboration between human developers and AI agents.
+Watercooler-cloud uses structured entries to provide rich metadata and context for collaboration between human developers and AI agents.
 
 ## Table of Contents
 
@@ -36,6 +36,17 @@ Each entry in a watercooler thread includes:
 - **Timestamp**: UTC timestamp
 - **Body**: The actual content
 
+## Identity Pre-Flight
+
+Before issuing write operations (`say`, `ack`, `handoff`, `set_status`), agents must declare identity:
+
+- Call `watercooler_v1_set_agent(base="Claude", spec="implementer-code")` once per session **or** supply `agent_func="Claude:implementer-code"` on each write.
+- Align `spec` with the role recorded in the entry (`planner`, `critic`, `implementer`, `tester`, `pm`, `scribe`).
+- Include a visible `Spec: <value>` line in the entry body. This keeps the Watercooler audit trail self-describing when rendered outside MCP tools.
+- Enable strict enforcement by setting `WATERCOOLER_REQUIRE_IDENTITY=1`. When active, writes using the default `Agent` identity are rejected with guidance.
+
+Identity impacts counterpart lookups, commit footers, and structured entry headers. Treat it as mandatory hygiene for multi-agent coordination.
+
 ## Entry Format
 
 Entries are formatted as:
@@ -53,7 +64,7 @@ Can span multiple lines and include markdown formatting.
 
 ## Agent Roles
 
-Watercooler-collab supports six distinct agent roles:
+Watercooler-cloud supports six distinct agent roles:
 
 ### `planner`
 **Purpose**: Architecture and design decisions

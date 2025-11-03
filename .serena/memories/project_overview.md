@@ -1,7 +1,7 @@
 # Project Overview
 
 ## Purpose
-watercooler-collab is a file-based collaboration protocol for agentic coding projects. It enables structured multi-agent collaboration through Git-friendly markdown threads with explicit Status/Ball tracking.
+Watercooler Cloud is a file-based collaboration protocol for agentic coding projects. It enables structured multi-agent collaboration through Git-friendly markdown threads with explicit Status/Ball tracking.
 
 ## Tech Stack
 - **Language**: Python 3.9+

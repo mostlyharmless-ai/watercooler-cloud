@@ -1,4 +1,4 @@
-# watercooler-collab
+# watercooler-cloud
 
 File-based collaboration protocol for agentic coding projects.
 
@@ -6,8 +6,22 @@ File-based collaboration protocol for agentic coding projects.
 
 Run the MCP server locally and sync threads to a dedicated GitHub repo. This is the default workflow for small teams.
 
-- Guide: `docs/LOCAL_QUICKSTART.md`
-- Remote (Cloudflare/Render) deployment is mothballed; see `docs/DEPLOYMENT_QUICK_START.md` for reactivation reference.
+- Canonical guide: `docs/SETUP_AND_QUICKSTART.md`
+- Remote (Cloudflare/Render) deployment is mothballed; see `.mothballed/docs/DEPLOYMENT_QUICK_START.md` for the archival instructions.
+
+### 2‑Step Install & Register (Claude example)
+
+```bash
+# 1. Install with MCP extras
+python -m pip install -e ".[mcp]"
+
+# 2. Register the server with Claude Code (swap python/python3/py as needed)
+claude mcp add watercooler-cloud \
+  -e WATERCOOLER_AGENT="Claude@Code" \
+  -- python -m watercooler_mcp
+```
+
+> Prefer the helper scripts? See `./scripts/install-mcp.sh` (bash) or `./scripts/install-mcp.ps1` (PowerShell) for the same commands with argument prompts.
 
 ### Branch Pairing
 Keep code and threads tightly linked:
@@ -17,8 +31,8 @@ Keep code and threads tightly linked:
 - See `docs/BRANCH_PAIRING.md` for details
 
 ### Tester Setup
-For a minimal, one‑liner install and usage flow (Claude; no per‑project configs), see:
-- `docs/TESTER_SETUP.md`
+For a minimal validation loop (Claude + universal dev server) see:
+- `docs/archive/TESTER_SETUP.md`
 
 ### Archived Remote Stack
 The Cloudflare/Render remote deployment has been mothballed. All related code and docs are being
@@ -27,6 +41,8 @@ gathered under `.mothballed/` for later deletion. Prefer the local stdio MCP uni
 ## Status
 
 ✅ **Full feature parity with acpmonkey achieved** - All phases (L1-L3) complete with 56 passing tests covering all features including structured entries, agent registry, and template system.
+
+📋 Prerelease checklist lives in `docs/PRE_RELEASE_TODO.md` — keep it current as we finalize polish.
 
 ## Design Principles
 
@@ -64,25 +80,16 @@ Thread-based collaboration with:
 Not yet published. For development:
 
 ```bash
-git clone https://github.com/mostlyharmless-ai/watercooler-collab.git
-cd watercooler-collab
+git clone https://github.com/mostlyharmless-ai/watercooler-cloud.git
+cd watercooler-cloud
 pip install -e .
 ```
 
-## Remote MCP Deployment — Quick Checklist
+> **Note:** On Windows shells that expose `py` instead of `python3`, substitute `py -3 -m pip install -e .` (or `python -m pip ...`).
 
-- Full guide: see `docs/DEPLOYMENT.md`.
-- Cloudflare Worker
-  - Set `BACKEND_URL` to your Render URL and `INTERNAL_AUTH_SECRET` (via Wrangler Secret or CF UI).
-  - Deploy: `npx wrangler secret put INTERNAL_AUTH_SECRET` then `npx wrangler deploy`.
-- Render Backend
-  - Env: `INTERNAL_AUTH_SECRET` (match Worker), `BASE_THREADS_ROOT=/data/wc-cloud`, `WATERCOOLER_DIR=/data/wc-cloud`.
-  - Optional Git backup: `WATERCOOLER_GIT_REPO`, `WATERCOOLER_GIT_AUTHOR`, `WATERCOOLER_GIT_EMAIL`, `GIT_SSH_PRIVATE_KEY` (PEM).
-  - Start: copy a one‑liner from `scratch.txt` into Render → Settings → Start command.
-  - Disk: attach a persistent disk mounted at `/data`.
-- Test end‑to‑end
-  - Backend direct: `POST /mcp/watercooler_v1_health | _say | _read_thread` with `X-Internal-Auth`.
-  - Worker path: `GET /sse` → `initialize` → `tools/list` → `tools/call`.
+## Remote MCP Deployment — Archived
+
+The hosted Cloudflare/Render deployment has been mothballed in favor of local universal dev mode. Historical notes and reactivation steps live under `.mothballed/` if you need to resurrect the stack.
 
 ### MCP Server (AI Agent Integration)
 
@@ -90,19 +97,68 @@ Enable AI agents (Claude, Codex) to discover and use watercooler tools automatic
 
 ```bash
 # Install with MCP support
-pip install -e ".[mcp]"
-
-# Quick setup for Claude Code (recommended)
-./scripts/install-mcp.sh
-
-# Or manually register
-fastmcp install claude-code src/watercooler_mcp/server.py \
-  --env WATERCOOLER_AGENT=Claude
+python -m pip install -e ".[mcp]"
 ```
 
+> If your system exposes `python3` or the Windows launcher `py`, replace the leading `python` with whichever command prints the correct Python 3 version (e.g., `python3 -m pip ...` or `py -m pip ...`).
+
+### Quick registration commands
+
+- **macOS / Linux / Git Bash** – use the helper script (requires Bash):
+
+  ```bash
+  ./scripts/install-mcp.sh
+  ```
+
+- **Windows PowerShell** – run the PowerShell helper (handles quoting automatically):
+
+  ```powershell
+  ./scripts/install-mcp.ps1 -Python python -Agent "Claude@Code"
+  ```
+
+  Override `-Python` with `py` or `python3` if needed. Additional flags are documented at the top of the script.
+  If the MCP server already exists, the script will emit a warning and continue.
+  Set `WATERCOOLER_THREADS_PATTERN` to an HTTPS URL if you prefer token/Git Credential Manager auth:
+
+  ```powershell
+  setx WATERCOOLER_THREADS_PATTERN "https://github.com/{namespace}/{repo}-threads.git"
+  ```
+
+- **Claude CLI command** – run directly from the repo root (swap `python` for `python3`/`py` if needed):
+
+  ```bash
+  claude mcp add --transport stdio watercooler-cloud --scope user \
+    -e WATERCOOLER_AGENT="Claude@Code" \
+    -e WATERCOOLER_THREADS_PATTERN="https://github.com/{org}/{repo}-threads.git" \
+    -e WATERCOOLER_AUTO_BRANCH=1 \
+    -- python -m watercooler_mcp
+  ```
+
+  _If you previously registered `watercooler-universal`, remove it first with `claude mcp remove watercooler-universal`._
+
+- **Codex CLI command** – same environment flags for Codex:
+
+  ```bash
+  codex mcp add watercooler-cloud \
+    -e WATERCOOLER_AGENT="Codex" \
+    -e WATERCOOLER_THREADS_PATTERN="https://github.com/{org}/{repo}-threads.git" \
+    -e WATERCOOLER_AUTO_BRANCH=1 \
+    -- python -m watercooler_mcp
+  ```
+
+- **Any shell** – prefer an installer-style workflow? Use `fastmcp` (ensures identical behavior across platforms):
+
+  ```bash
+  fastmcp install claude-code src/watercooler_mcp/server.py \
+    --server-name watercooler-cloud \
+    --env WATERCOOLER_AGENT="Claude@Code" \
+    --env WATERCOOLER_THREADS_PATTERN="https://github.com/{org}/{repo}-threads.git" \
+    --env WATERCOOLER_AUTO_BRANCH=1
+  ```
+
 See setup guides:
-- **[Claude Code Setup](docs/CLAUDE_CODE_SETUP.md)** - For Claude Code CLI
-- **[Claude Desktop Setup](docs/CLAUDE_DESKTOP_SETUP.md)** - For Claude Desktop app
+- **[Claude Code Setup](docs/archive/CLAUDE_CODE_SETUP.md)** - For Claude Code CLI
+- **[Claude Desktop Setup](docs/archive/CLAUDE_DESKTOP_SETUP.md)** - For Claude Desktop app
 - **[MCP Server Guide](docs/mcp-server.md)** - Complete tool reference
 
 ### Git Configuration (Multi-User Collaboration)
@@ -244,25 +300,25 @@ pytest tests/test_structured_entries.py -v
 
 ### Getting Started
 - **[Documentation Hub](docs/README.md)** - Complete documentation index
-- **[Use Cases Guide](docs/USE_CASES.md)** - 6 comprehensive workflow examples:
+- **[Use Cases Guide](docs/archive/USE_CASES.md)** - 6 comprehensive workflow examples:
   - Multi-agent collaboration with role specialization
   - Extended context for LLM sessions
   - Handoff workflows (developer→reviewer, human→agent)
   - Async team collaboration across timezones
   - Decision tracking and architectural records
   - PR review workflow from design to deployment
-- **[Claude Collaboration](docs/claude-collab.md)** - Practical patterns for working with Claude
+- **[Claude Collaboration](docs/archive/claude-collab.md)** - Practical patterns for working with Claude
 - **[FAQ](docs/FAQ.md)** - Frequently asked questions and troubleshooting
 
 ### Configuration & Reference
-- **[API Reference](docs/api.md)** - Python library API documentation
-- **[Integration Guide](docs/integration.md)** - Installation and integration tutorial
+- **[API Reference](docs/archive/integration.md#python-api-reference)** - Python library API documentation
+- **[Integration Guide](docs/archive/integration.md)** - Installation and integration tutorial
 - **[MCP Server Guide](docs/mcp-server.md)** - AI agent integration via Model Context Protocol
-- **[Claude Code Setup](docs/CLAUDE_CODE_SETUP.md)** - Register watercooler with Claude Code
-- **[Claude Desktop Setup](docs/CLAUDE_DESKTOP_SETUP.md)** - Register watercooler with Claude Desktop
+- **[Claude Code Setup](docs/archive/CLAUDE_CODE_SETUP.md)** - Register watercooler with Claude Code
+- **[Claude Desktop Setup](docs/archive/CLAUDE_DESKTOP_SETUP.md)** - Register watercooler with Claude Desktop
 - **[Structured Entries](docs/STRUCTURED_ENTRIES.md)** - Entry format, 6 roles, 5 types, ball auto-flip
-- **[Agent Registry](docs/AGENT_REGISTRY.md)** - Agent configuration and counterpart mappings
-- **[Templates](docs/TEMPLATES.md)** - Customizing thread and entry templates
+- **[Agent Registry](docs/archive/AGENT_REGISTRY.md)** - Agent configuration and counterpart mappings
+- **[Templates](docs/archive/TEMPLATES.md)** - Customizing thread and entry templates
 - **[Git Setup](./github/WATERCOOLER_SETUP.md)** - Merge strategies and pre-commit hooks
 - **[Migration Guide](docs/MIGRATION.md)** - Migrating from acpmonkey
 
@@ -272,5 +328,5 @@ MIT License - see LICENSE file
 
 ## Links
 
-- Repository: https://github.com/mostlyharmless-ai/watercooler-collab
-- Issues: https://github.com/mostlyharmless-ai/watercooler-collab/issues
+- Repository: https://github.com/mostlyharmless-ai/watercooler-cloud
+- Issues: https://github.com/mostlyharmless-ai/watercooler-cloud/issues

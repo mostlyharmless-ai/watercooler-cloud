@@ -1,6 +1,6 @@
 # Environment Variables Reference
 
-Complete reference for all watercooler-collab environment variables.
+Complete reference for all watercooler-cloud environment variables.
 
 ---
 
@@ -9,7 +9,12 @@ Complete reference for all watercooler-collab environment variables.
 | Variable | Required | Default | Used By | Purpose |
 |----------|----------|---------|---------|---------|
 | [`WATERCOOLER_AGENT`](#watercooler_agent) | MCP: Yes<br>CLI: No | `"Agent"` | MCP Server | Agent identity for entries |
-| [`WATERCOOLER_DIR`](#watercooler_dir) | No | `./.watercooler` | MCP & CLI | Threads directory location |
+| [`WATERCOOLER_THREADS_BASE`](#watercooler_threads_base) | No | _Sibling `<repo>-threads`_ | MCP Server | Optional central root for threads repos |
+| [`WATERCOOLER_THREADS_PATTERN`](#watercooler_threads_pattern) | No | `git@github.com:{org}/{repo}-threads.git` | MCP Server | Remote threads repo URL template |
+| [`WATERCOOLER_THREADS_AUTO_PROVISION`](#watercooler_threads_auto_provision) | No | `"0"` | MCP Server | Opt-in creation of missing threads repos |
+| [`WATERCOOLER_THREADS_CREATE_CMD`](#watercooler_threads_create_cmd) | No | _Unset_ | MCP Server | Command template for auto-provisioning |
+| [`WATERCOOLER_AUTO_BRANCH`](#watercooler_auto_branch) | No | `"1"` | MCP Server | Auto-create/check out matching branch |
+| [`WATERCOOLER_DIR`](#watercooler_dir) | No | _Unset_ | MCP & CLI | Manual override for a fixed threads directory |
 | [`WATERCOOLER_GIT_REPO`](#watercooler_git_repo) | Cloud: Yes<br>Local: No | None | MCP Server | Git repository URL (enables cloud sync) |
 | [`WATERCOOLER_GIT_SSH_KEY`](#watercooler_git_ssh_key) | No | None | MCP Server | Path to SSH private key |
 | [`WATERCOOLER_GIT_AUTHOR`](#watercooler_git_author) | No | `"Watercooler MCP"` | MCP Server | Git commit author name |
@@ -60,7 +65,7 @@ Where:
 
 **Codex (`~/.codex/config.toml`):**
 ```toml
-[mcp_servers.watercooler.env]
+[mcp_servers.wc_universal.env]
 WATERCOOLER_AGENT = "Codex"
 ```
 
@@ -68,7 +73,7 @@ WATERCOOLER_AGENT = "Codex"
 ```json
 {
   "mcpServers": {
-    "watercooler": {
+    "watercooler-cloud": {
       "env": {
         "WATERCOOLER_AGENT": "Claude"
       }
@@ -81,7 +86,7 @@ WATERCOOLER_AGENT = "Codex"
 ```json
 {
   "mcpServers": {
-    "watercooler": {
+    "watercooler-cloud": {
       "env": {
         "WATERCOOLER_AGENT": "Claude"
       }
@@ -101,86 +106,179 @@ export WATERCOOLER_AGENT="Claude"
 
 ---
 
-### WATERCOOLER_DIR
+### WATERCOOLER_THREADS_BASE
 
-**Purpose:** Override threads directory location.
+**Purpose:** Optional override for where the MCP server stores threads clones.
 
 **Required:** No
 
-**Default:** `./.watercooler` (current working directory)
+**Default:** Sibling `<repo>-threads` directory beside the detected code repo
 
-**Format:** Absolute or relative path (e.g., `"/Users/agent/project/.watercooler"`, `"~/threads"`)
+**Format:** Absolute path (environment variables are expanded)
+
+**Used by:** MCP Server
+
+```bash
+# Example: central cache for all threads repos
+export WATERCOOLER_THREADS_BASE="/srv/watercooler-threads"
+```
+
+---
+
+### WATERCOOLER_THREADS_PATTERN
+
+**Purpose:** Template for constructing the remote threads repository URL from `{org}` and `{repo}`.
+
+**Required:** No
+
+**Default:** `git@github.com:{org}/{repo}-threads.git`
+
+**Used by:** MCP Server
+
+```bash
+export WATERCOOLER_THREADS_PATTERN="https://git.example.com/{org}/{repo}-threads.git"
+```
+
+---
+
+### WATERCOOLER_THREADS_AUTO_PROVISION
+
+**Purpose:** Controls automatic creation of missing threads repositories when a
+`git clone` fails with "repository not found".
+
+**Required:** No
+
+**Default:** `"0"` (disabled)
+
+**Format:** Boolean-like string (`"1"`, `"true"`, `"yes"`, `"on"` to enable; `"0"` to disable)
+
+**Used by:** MCP Server
+
+**Details:**
+
+- Only applies when the threads repository is derived dynamically from the code
+  repo (no `WATERCOOLER_DIR`) and uses an SSH remote (starting with `git@`).
+- When enabled, the server will execute the command defined in
+  [`WATERCOOLER_THREADS_CREATE_CMD`](#watercooler_threads_create_cmd) after a
+  failed clone. If provisioning succeeds the clone is retried, otherwise the
+  operation aborts with a detailed error.
+- Branch bootstrapping continues to respect `WATERCOOLER_AUTO_BRANCH`.
+
+```bash
+# Enable auto-provisioning (if you want automatic repo creation)
+export WATERCOOLER_THREADS_AUTO_PROVISION="1"
+```
+
+---
+
+### WATERCOOLER_THREADS_CREATE_CMD
+
+**Purpose:** Command template that provisions the remote threads repository
+when auto-provisioning is enabled.
+
+**Required:** No
+
+**Default:** _Unset_ (required when auto-provisioning is enabled)
+
+**Format:** String template executed via the system shell. The following
+placeholders are available:
+
+- `{slug}` – Resolved threads repo slug (e.g. `mostlyharmless-ai/watercooler-dashboard-threads`)
+- `{repo_url}` – Full git URL (e.g. `git@github.com:mostlyharmless-ai/watercooler-dashboard-threads.git`)
+- `{code_repo}` – Paired code repo (e.g. `mostlyharmless-ai/watercooler-dashboard`)
+- `{namespace}` – Namespace/organisation portion of the slug (`mostlyharmless-ai`)
+- `{repo}` – Repository name portion of the slug (`watercooler-dashboard-threads`)
+- `{org}` – Shortcut to the top-level org (`mostlyharmless-ai`)
+
+**Used by:** MCP Server
+
+**Details:**
+
+- Executed with `shell=True`; stdout and stderr are captured and surfaced on
+  failure.
+- Override to call an internal provisioning script or other tooling if needed
+- If the command succeeds but the remote is still empty, the MCP server falls
+  back to initialising a local git repo and will push on the first write.
+
+```bash
+# Override with custom provisioning command
+export WATERCOOLER_THREADS_CREATE_CMD='my-org-tool create-repo {slug} --private'
+```
+
+---
+
+### WATERCOOLER_AUTO_BRANCH
+
+**Purpose:** Controls automatic creation and checkout of the matching branch in the threads repository.
+
+**Required:** No
+
+**Default:** `"1"` (enabled)
+
+**Used by:** MCP Server
+
+```bash
+# Disable automatic branch creation
+export WATERCOOLER_AUTO_BRANCH="0"
+```
+
+---
+
+### WATERCOOLER_DIR
+
+**Purpose:** Manual override for a fixed threads directory (disables automatic discovery).
+
+**Required:** No
+
+**Default:** _Unset_
+
+**Format:** Absolute or relative path (e.g., `"/srv/watercooler/custom-project-threads"`, `"../my-repo-threads"`)
 
 **Used by:** MCP Server & CLI
 
 **Details:**
 
-Specifies where watercooler threads are stored. Supports three resolution strategies:
-
-**Resolution order:**
-1. `WATERCOOLER_DIR` env var (explicit override - highest priority)
-2. Upward search from CWD for existing `.watercooler/` directory
-   - Stops at: git repository root, HOME directory, or filesystem root
-   - Works from any subdirectory in your repo
-3. Fallback: `{CWD}/.watercooler` (auto-created if needed)
-
-**Upward search behavior:**
-
-The MCP server automatically searches upward from your current working directory to find an existing `.watercooler/` directory. This means:
-
-✅ **Works without configuration** if `.watercooler/` exists at repo root
-✅ **No need to set WATERCOOLER_DIR** for most projects
-✅ **Consistent across subdirectories** within same project
+Universal mode derives the threads repository from git metadata (`code_path`, repo origin, branch). Set this variable only when you intentionally keep threads in a specific location that differs from the sibling `<repo>-threads` directory.
 
 **When to set explicitly:**
-- Working with multiple projects simultaneously
-- Want threads outside current project
-- Using cloud sync with dedicated threads repository
-- Testing in non-standard directory structure
+- Running in an environment without git metadata (rare)
+- Executing targeted tests that need an isolated threads sandbox
+- Temporarily pointing at a staging directory while you relocate it into the sibling `<repo>-threads` repository
 
 **Configuration examples:**
 
-**Absolute path (recommended for reliability):**
+**Absolute path example:**
 ```bash
-export WATERCOOLER_DIR="/Users/agent/project/.watercooler"
+export WATERCOOLER_DIR="/srv/watercooler/custom-project-threads"
 ```
 
-**Home directory:**
+**Alternative location:**
 ```bash
-export WATERCOOLER_DIR="$HOME/.watercooler-threads"
+export WATERCOOLER_DIR="/Volumes/threads-cache/project-threads"
 ```
 
-**MCP config:**
+**MCP config example:**
 ```toml
-[mcp_servers.watercooler.env]
-WATERCOOLER_DIR = "/Users/agent/project/.watercooler"
+[mcp_servers.wc_universal.env]
+WATERCOOLER_DIR = "/srv/watercooler/custom-project-threads"
 ```
 
-**VS Code workspace variable (Cline):**
+**VS Code workspace example:**
 ```json
 {
   "mcp.servers": {
-    "watercooler": {
+    "watercooler-cloud": {
       "env": {
-        "WATERCOOLER_DIR": "${workspaceFolder}/.watercooler"
+        "WATERCOOLER_DIR": "/srv/watercooler/custom-project-threads"
       }
     }
   }
 }
 ```
 
-**Relative paths:**
-```bash
-# Relative to CWD
-export WATERCOOLER_DIR="./my-threads"
-
-# Relative to home
-export WATERCOOLER_DIR="~/threads"
-```
-
 **Related:**
-- See [QUICKSTART.md](./QUICKSTART.md#environment-variables) for basic setup
-- See [CLOUD_SYNC_GUIDE.md](./CLOUD_SYNC_GUIDE.md) for team collaboration
+- See [SETUP_AND_QUICKSTART.md](./SETUP_AND_QUICKSTART.md#3-optional-global-overrides) for the canonical setup flow
+- See [CLOUD_SYNC_GUIDE.md](../.mothballed/docs/CLOUD_SYNC_GUIDE.md) for team collaboration
 
 ---
 
@@ -230,21 +328,21 @@ unset WATERCOOLER_GIT_REPO  # Disables cloud sync
 
 **MCP config with cloud sync:**
 ```toml
-[mcp_servers.watercooler.env]
+[mcp_servers.wc_universal.env]
 WATERCOOLER_AGENT = "Claude"
 WATERCOOLER_GIT_REPO = "git@github.com:team/threads.git"
-WATERCOOLER_DIR = "/Users/agent/.watercooler-threads"
+WATERCOOLER_THREADS_BASE = "/srv/watercooler-threads"
 ```
 
 **Best practices:**
 - Use **dedicated repository** for threads (not mixed with code)
 - Use **SSH** with deploy keys for security
 - Set [`WATERCOOLER_GIT_SSH_KEY`](#watercooler_git_ssh_key) for custom keys
-- Clone repository locally and point `WATERCOOLER_DIR` to it
+- Let the server clone into `WATERCOOLER_THREADS_BASE` (avoid manual per-project overrides)
 
 **Related:**
-- See [CLOUD_SYNC_GUIDE.md](./CLOUD_SYNC_GUIDE.md) for complete setup
-- See [CLOUD_SYNC_STRATEGY.md](./CLOUD_SYNC_STRATEGY.md) for architecture details
+- See [CLOUD_SYNC_GUIDE.md](../.mothballed/docs/CLOUD_SYNC_GUIDE.md) for complete setup
+- See [CLOUD_SYNC_STRATEGY.md](../.mothballed/docs/CLOUD_SYNC_STRATEGY.md) for architecture details
 
 ---
 
@@ -298,7 +396,7 @@ export WATERCOOLER_GIT_SSH_KEY="$HOME/.ssh/id_ed25519_watercooler"
 
 **MCP config:**
 ```toml
-[mcp_servers.watercooler.env]
+[mcp_servers.wc_universal.env]
 WATERCOOLER_GIT_REPO = "git@github.com:team/threads.git"
 WATERCOOLER_GIT_SSH_KEY = "/Users/agent/.ssh/id_ed25519_watercooler"
 ```
@@ -314,7 +412,7 @@ ssh-add ~/.ssh/id_ed25519_watercooler
 2. Add as deploy key with write access in repository settings
 
 **Related:**
-- See [CLOUD_SYNC_GUIDE.md](./CLOUD_SYNC_GUIDE.md#ssh-key-setup) for detailed setup
+- See [CLOUD_SYNC_GUIDE.md](../.mothballed/docs/CLOUD_SYNC_GUIDE.md#ssh-key-setup) for detailed setup
 - See [WATERCOOLER_GIT_REPO](#watercooler_git_repo) for enabling cloud sync
 
 ---
@@ -353,7 +451,7 @@ export WATERCOOLER_GIT_AUTHOR="Claude Agent"
 
 **MCP config:**
 ```toml
-[mcp_servers.watercooler.env]
+[mcp_servers.wc_universal.env]
 WATERCOOLER_GIT_AUTHOR = "Claude Agent"
 WATERCOOLER_GIT_EMAIL = "claude@team.com"
 ```
@@ -369,7 +467,7 @@ export WATERCOOLER_GIT_AUTHOR="Bob's Claude"
 
 **Related:**
 - See [WATERCOOLER_GIT_EMAIL](#watercooler_git_email) for author email
-- See [CLOUD_SYNC_GUIDE.md](./CLOUD_SYNC_GUIDE.md) for team setup
+- See [CLOUD_SYNC_GUIDE.md](../.mothballed/docs/CLOUD_SYNC_GUIDE.md) for team setup
 
 ---
 
@@ -398,14 +496,14 @@ export WATERCOOLER_GIT_EMAIL="claude@team.com"
 
 **MCP config:**
 ```toml
-[mcp_servers.watercooler.env]
+[mcp_servers.wc_universal.env]
 WATERCOOLER_GIT_AUTHOR = "Claude Agent"
 WATERCOOLER_GIT_EMAIL = "claude@team.com"
 ```
 
 **Related:**
 - See [WATERCOOLER_GIT_AUTHOR](#watercooler_git_author) for author name
-- See [CLOUD_SYNC_GUIDE.md](./CLOUD_SYNC_GUIDE.md) for team setup
+- See [CLOUD_SYNC_GUIDE.md](../.mothballed/docs/CLOUD_SYNC_GUIDE.md) for team setup
 
 ---
 
@@ -456,8 +554,8 @@ Title: {{TITLE}}
 ```
 
 **Related:**
-- See [TEMPLATES.md](./TEMPLATES.md) for template customization guide
-- See [integration.md](./integration.md) for Python API usage
+- See [archive/TEMPLATES.md](./archive/TEMPLATES.md) for template customization guide
+- See [archive/integration.md](./archive/integration.md) for Python API usage
 
 ---
 
@@ -507,7 +605,7 @@ Created: 2025-10-10T08:00:00Z
 ```
 
 **Related:**
-- See [integration.md](./integration.md#locking-configuration) for lock system details
+- See [archive/integration.md](./archive/integration.md#locking-configuration) for lock system details
 - See [FAQ.md](./FAQ.md) for lock behavior explanation
 
 ---
@@ -519,31 +617,31 @@ Created: 2025-10-10T08:00:00Z
 **Minimal configuration for single developer:**
 
 ```toml
-[mcp_servers.watercooler.env]
+[mcp_servers.wc_universal.env]
 WATERCOOLER_AGENT = "Claude"
 ```
 
 **Explanation:**
-- `WATERCOOLER_DIR` uses upward search (finds `.watercooler/` automatically)
+- Threads are stored automatically in the sibling `<repo>-threads` directory
 - No cloud sync
-- Works from any subdirectory in project
+- Works from any subdirectory in the project (pass `code_path` with each tool call)
 
 ---
 
-### Explicit Directory (Local Mode)
+### Manual Threads Directory
 
-**When you want specific directory:**
+**Use only for short-lived experiments or specialized testing:**
 
 ```toml
-[mcp_servers.watercooler.env]
+[mcp_servers.wc_universal.env]
 WATERCOOLER_AGENT = "Codex"
-WATERCOOLER_DIR = "/Users/agent/project/.watercooler"
+WATERCOOLER_DIR = "/srv/watercooler/custom-project-threads"
 ```
 
 **Use cases:**
-- Multiple projects with different thread directories
-- Non-standard project structure
-- Testing in specific location
+- Temporarily reading threads left in a repo-local staging folder before relocating them
+- Running in environments without git metadata (e.g., ad-hoc scripts)
+- Experimental setups where a bespoke location is required
 
 ---
 
@@ -552,10 +650,10 @@ WATERCOOLER_DIR = "/Users/agent/project/.watercooler"
 **Full setup for distributed team:**
 
 ```toml
-[mcp_servers.watercooler.env]
+[mcp_servers.wc_universal.env]
 WATERCOOLER_AGENT = "Claude"
 WATERCOOLER_GIT_REPO = "git@github.com:team/threads.git"
-WATERCOOLER_DIR = "/Users/agent/.watercooler-threads"
+WATERCOOLER_THREADS_BASE = "/srv/watercooler-threads"
 WATERCOOLER_GIT_SSH_KEY = "/Users/agent/.ssh/id_ed25519_watercooler"
 WATERCOOLER_GIT_AUTHOR = "Alice's Claude"
 WATERCOOLER_GIT_EMAIL = "alice+claude@team.com"
@@ -563,12 +661,12 @@ WATERCOOLER_GIT_EMAIL = "alice+claude@team.com"
 
 **Explanation:**
 - `WATERCOOLER_GIT_REPO` enables cloud mode
-- `WATERCOOLER_DIR` points to cloned repository
+- `WATERCOOLER_THREADS_BASE` controls where clones live locally
 - `WATERCOOLER_GIT_SSH_KEY` uses dedicated deploy key
 - `WATERCOOLER_GIT_AUTHOR/EMAIL` customize git identity
 
 **Related:**
-- See [CLOUD_SYNC_GUIDE.md](./CLOUD_SYNC_GUIDE.md) for complete cloud setup
+- See [CLOUD_SYNC_GUIDE.md](../.mothballed/docs/CLOUD_SYNC_GUIDE.md) for complete cloud setup
 
 ---
 
@@ -577,37 +675,16 @@ WATERCOOLER_GIT_EMAIL = "alice+claude@team.com"
 **Dynamic directory per project:**
 
 ```toml
-[mcp_servers.watercooler.env]
+[mcp_servers.wc_universal.env]
 WATERCOOLER_AGENT = "Claude"
-# No WATERCOOLER_DIR - uses upward search
+# No additional environment variables needed
 ```
 
-**Launch from different project directories:**
-```bash
-cd ~/project-a
-claude  # Uses ~/project-a/.watercooler
+The server resolves the correct sibling threads repository for whichever code repo you open (based on `code_path`).
 
-cd ~/project-b
-claude  # Uses ~/project-b/.watercooler
-```
+**Per-project overrides:**
 
-**Alternative: Per-project config with direnv:**
-
-**`~/project-a/.envrc`:**
-```bash
-export WATERCOOLER_DIR="$PWD/.watercooler"
-export WATERCOOLER_GIT_REPO="git@github.com:team/project-a-threads.git"
-```
-
-**`~/project-b/.envrc`:**
-```bash
-export WATERCOOLER_DIR="$PWD/.watercooler"
-export WATERCOOLER_GIT_REPO="git@github.com:team/project-b-threads.git"
-```
-
-**Related:**
-- See [direnv](https://direnv.net/) for automatic environment switching
-- See [CLOUD_SYNC_GUIDE.md](./CLOUD_SYNC_GUIDE.md#multiple-projects)
+If you still maintain repo-local threads directories, you can set `WATERCOOLER_DIR` in a `.envrc`, but this disables universal discovery. Prefer converting those projects to the sibling repo layout.
 
 ---
 
@@ -644,16 +721,13 @@ export WATERCOOLER_AGENT="CorrectName"
 
 **Fix options:**
 
-1. **Let upward search find it:**
-   ```bash
-   # Create .watercooler at repo root
-   mkdir -p $(git rev-parse --show-toplevel)/.watercooler
-   ```
+1. **Use universal defaults:** `watercooler_v1_health(code_path=".")` will report the expected sibling directory (for example `/workspace/<repo>-threads`). Ensure that path exists and is writable.
 
-2. **Set explicit path:**
+2. **Override location (manual):**
    ```bash
-   export WATERCOOLER_DIR="/full/path/to/.watercooler"
+   export WATERCOOLER_DIR="/full/path/to/custom-threads"
    ```
+   Only do this when relocating a staging folder that you created manually inside the code repo.
 
 ---
 
@@ -669,13 +743,13 @@ echo $WATERCOOLER_GIT_REPO
 
 **Check git access:**
 ```bash
-cd $WATERCOOLER_DIR
+cd ../<repo>-threads
 git pull
 # Should succeed without errors
 ```
 
 **Common issues:**
-- SSH key not configured → See [CLOUD_SYNC_GUIDE.md](./CLOUD_SYNC_GUIDE.md#ssh-key-setup)
+- SSH key not configured → See [CLOUD_SYNC_GUIDE.md](../.mothballed/docs/CLOUD_SYNC_GUIDE.md#ssh-key-setup)
 - Wrong repository URL → Verify `WATERCOOLER_GIT_REPO`
 - Directory not a git clone → Re-clone repository
 
@@ -685,10 +759,10 @@ git pull
 
 - **[QUICKSTART.md](./QUICKSTART.md)** - Basic setup and configuration
 - **[MCP Server Guide](./mcp-server.md)** - MCP server documentation
-- **[CLOUD_SYNC_GUIDE.md](./CLOUD_SYNC_GUIDE.md)** - Team collaboration setup
-- **[integration.md](./integration.md)** - Python library configuration
+- **[CLOUD_SYNC_GUIDE.md](../.mothballed/docs/CLOUD_SYNC_GUIDE.md)** - Team collaboration setup
+- **[archive/integration.md](./archive/integration.md)** - Python library configuration
 - **[TROUBLESHOOTING.md](./TROUBLESHOOTING.md)** - Common issues and solutions
-- **[TEMPLATES.md](./TEMPLATES.md)** - Template customization
+- **[archive/TEMPLATES.md](./archive/TEMPLATES.md)** - Template customization
 
 ---
 

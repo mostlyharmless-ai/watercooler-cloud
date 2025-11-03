@@ -102,8 +102,8 @@ TOML
 }
 
 # Ensure we are in repo root
-if [[ ! -f "pyproject.toml" ]] || ! grep -q "watercooler-collab" pyproject.toml 2>/dev/null; then
-  error "This script must be run from the watercooler-collab directory"
+if [[ ! -f "pyproject.toml" ]] || ! grep -q "watercooler-cloud" pyproject.toml 2>/dev/null; then
+  error "This script must be run from the watercooler-cloud directory"
 fi
 
 PROJECT_ROOT="$(pwd)"
@@ -182,17 +182,17 @@ PY_PATH="$(which "${PY}" 2>/dev/null || command -v "${PY}")"
 info "Using Python: $(${PY} --version) at ${PY_PATH}"
 
 if ! "${PY}" -c "import watercooler_mcp" 2>/dev/null; then
-  echo "watercooler-collab[mcp] is not installed."
+  echo "watercooler-cloud[mcp] is not installed."
   read -p "Install now? (y/n) " -n 1 -r; echo
   if [[ $REPLY =~ ^[Yy]$ ]]; then
-    info "Installing watercooler-collab[mcp]..."
+    info "Installing watercooler-cloud[mcp]..."
     "${PY}" -m pip install -e ".[mcp]"
     success "Installation complete"
   else
     error "Installation required. Run: pip install -e .[mcp]"
   fi
 else
-  success "watercooler-collab[mcp] is installed"
+  success "watercooler-cloud[mcp] is installed"
 fi
 
 # Step 2: Agent identity overrides (optional)

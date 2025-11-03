@@ -2,6 +2,10 @@
 
 Common issues and solutions for the watercooler MCP server.
 
+> Replace any repo-local thread folders with your actual threads repository (for example, the sibling `../<repo>-threads` directory).
+
+> 📘 Start with [SETUP_AND_QUICKSTART.md](SETUP_AND_QUICKSTART.md) to ensure you're following the universal flow. Many issues disappear once `code_path` and identity are configured there.
+
 ## Table of Contents
 
 - [Quick Diagnostic Flowchart](#quick-diagnostic-flowchart)
@@ -15,10 +19,11 @@ Common issues and solutions for the watercooler MCP server.
   - [Tools Not Working](#tools-not-working)
   - [Git Not Found](#git-not-found)
   - [Git Sync Issues (Cloud Mode)](#git-sync-issues-cloud-mode)
-  - [Upward Search Not Finding .watercooler](#upward-search-not-finding-watercooler)
-  - [Ball Not Flipping](#ball-not-flipping)
-  - [Server Crashes or Hangs](#server-crashes-or-hangs)
-  - [Format Parameter Errors](#format-parameter-errors)
+- [Thread folder inside code repo](#thread-folder-inside-code-repo)
+- [Ball Not Flipping](#ball-not-flipping)
+- [Server Crashes or Hangs](#server-crashes-or-hangs)
+- [Format Parameter Errors](#format-parameter-errors)
+- [401 Unauthorized (Remote MCP)](#401-unauthorized-remote-mcp)
 - [Getting More Help](#getting-more-help)
 
 ---
@@ -46,7 +51,7 @@ graph TD
 
     Q4 -->|Wrong agent name| WrongAgent[<b>Wrong Agent Identity</b><br/>Jump to section below]
     Q4 -->|Ball not flipping| BallNotFlip[<b>Ball Not Flipping</b><br/>Jump to section below]
-    Q4 -->|Can't find threads| UpwardSearch[<b>Upward Search Issues</b><br/>Jump to section below]
+    Q4 -->|Can't find threads| StrayPaths[<b>Thread Folder Inside Repo</b><br/>Jump to section below]
     Q4 -->|Server crashes| Crashes[<b>Server Crashes or Hangs</b><br/>Jump to section below]
     Q4 -->|"Client ID is None"| ClientIDNone[<b>Client ID is None</b><br/>Jump to section below]
 
@@ -59,7 +64,7 @@ graph TD
     style ToolError fill:#ffcccc
     style WrongAgent fill:#ffffcc
     style BallNotFlip fill:#ffffcc
-    style UpwardSearch fill:#ffffcc
+    style StrayPaths fill:#ffffcc
     style Crashes fill:#ffcccc
     style ClientIDNone fill:#ccffcc
 ```
@@ -140,7 +145,7 @@ MCP tools don't appear in your client (Claude Desktop, Claude Code, Codex).
 
    **Codex config.toml:**
    ```toml
-   [mcp_servers.watercooler.env]
+   [mcp_servers.wc_universal.env]
    WATERCOOLER_AGENT = "Codex"  # ← Must match your desired name
    ```
 
@@ -167,77 +172,61 @@ MCP tools don't appear in your client (Claude Desktop, Claude Code, Codex).
 
 ### Symptom
 ```
-No threads directory found at: /some/path/.watercooler
+No threads directory found at: /some/path/threads-local
 ```
 
 ### Solutions
 
-1. **Understand resolution order**
-   1. `WATERCOOLER_DIR` env var (explicit override)
-   2. Upward search from CWD for existing `.watercooler/`
-   3. Fallback: `{CWD}/.watercooler` (for auto-creation)
+1. **Confirm `code_path` is present**
+   - Every tool call must include `code_path` (e.g., `"."`) so the server can resolve the repo/branch
+   - Missing `code_path` is the most common cause of this error in universal mode
 
-2. **Let upward search find it**
-
-   If you have `.watercooler/` at your repo root:
+2. **Check the health output**
    ```bash
-   # No configuration needed!
-   # Works from any subdirectory in the repo
+   watercooler_v1_health(code_path=".")
    ```
+   Expect `Threads Dir` to live in the sibling `<repo>-threads` directory (e.g., `/workspace/<repo>-threads`)
 
-   The upward search stops at:
-   - Git repository root
-   - HOME directory
-   - Filesystem root (safety)
+3. **Remove manual overrides**
+   - Unset `WATERCOOLER_DIR` in your environment or MCP config
+   - Re-register the MCP server using the universal command in `SETUP_AND_QUICKSTART.md`
 
-3. **Set explicit directory**
+4. **Ensure git metadata is available**
+   - `code_path` must point to a git repository with a configured `origin`
+   - If the repo is detached (no remote), set `WATERCOOLER_CODE_REPO` manually or add a remote
 
-   **Codex config.toml:**
-   ```toml
-   [mcp_servers.watercooler.env]
-   WATERCOOLER_DIR = "/Users/agent/projects/my-project/.watercooler"
-   ```
-
-   **Use absolute paths** to avoid ambiguity.
-
-4. **Create threads directory manually**
-   ```bash
-   mkdir -p /path/to/project/.watercooler
-   ```
-
-5. **Verify with health check**
-   ```
-   watercooler_v1_health
-   ```
-   Shows: `Threads Dir: /path` and `Threads Dir Exists: True/False`
+5. **Advanced: force a directory**
+   - If you intentionally need a bespoke location, set `WATERCOOLER_DIR` to an absolute path and create it ahead of time
+   - Remember this disables universal discovery—use sparingly
 
 ## Permission Errors
 
 ### Symptom
 ```
-PermissionError: [Errno 13] Permission denied: '/path/.watercooler/thread.md'
+PermissionError: [Errno 13] Permission denied: '/workspace/<repo>-threads/thread.md'
 ```
 
 ### Solutions
 
 1. **Check directory permissions**
    ```bash
-   ls -la /path/.watercooler
+   THREADS_DIR="../<repo>-threads"
+   ls -la "$THREADS_DIR"
    ```
 
    Should be writable by your user:
    ```bash
-   chmod 755 /path/.watercooler
+   chmod 755 "$THREADS_DIR"
    ```
 
 2. **Check file permissions**
    ```bash
-   chmod 644 /path/.watercooler/*.md
+   chmod 644 "$THREADS_DIR"/*.md
    ```
 
 3. **Verify ownership**
    ```bash
-   chown -R $USER /path/.watercooler
+   chown -R "$USER" "$THREADS_DIR"
    ```
 
 ## Client ID is None
@@ -349,7 +338,7 @@ If you enabled cloud sync via `WATERCOOLER_GIT_REPO`, here are common problems a
 
 - Staged unrelated files
   - If the threads dir is co-located with other project files, `git add -A` may stage unrelated files
-  - Fix: restrict staging path to `.watercooler/` or use a dedicated threads repo
+  - Fix: move templates/indexes into the sibling `<repo>-threads` repository before staging
 
 - Stale content after Worker cache
   - If using Cloudflare Worker + R2, ensure cache keys include a version/commit SHA and are invalidated/rotated on write
@@ -358,33 +347,35 @@ If you enabled cloud sync via `WATERCOOLER_GIT_REPO`, here are common problems a
   - Apply exponential backoff and consider short batching windows
    - All other functionality works normally
 
-## Upward Search Not Finding .watercooler
+## Thread folder inside code repo
 
 ### Symptom
-Server finds `CWD/.watercooler` instead of repo root `.watercooler`.
+Server resolves threads inside the code repository instead of the sibling `<repo>-threads` directory.
 
 ### Solutions
 
-1. **Verify .watercooler exists at repo root**
+1. **Confirm universal location**
    ```bash
-   cd /path/to/repo
-   ls -la .watercooler
+   watercooler_v1_health(code_path=".")
    ```
+   Check the `Threads Dir` line (should be the sibling `<repo>-threads` path).
 
-2. **Check you're in a git repository**
+2. **Move stray data**
    ```bash
-   git status
+   THREADS_DIR="../<repo>-threads"
+   mkdir -p "$THREADS_DIR"
+
+   # Replace STRAY_DIR with the actual repo-local folder you discovered
+   STRAY_DIR="./threads-local"
+   if [ -d "$STRAY_DIR" ]; then
+     rsync -av --remove-source-files "$STRAY_DIR"/ "$THREADS_DIR"/
+     rm -rf "$STRAY_DIR"
+   fi
    ```
 
-   If not in a git repo:
-   - Search stops at HOME directory
-   - May not find repo-level `.watercooler`
-
-3. **Use explicit WATERCOOLER_DIR**
-   ```toml
-   [mcp_servers.watercooler.env]
-   WATERCOOLER_DIR = "/path/to/repo/.watercooler"
-   ```
+3. **Remove manual overrides**
+   - Delete any `WATERCOOLER_DIR` overrides unless you intentionally need them.
+   - Re-register the MCP server following `SETUP_AND_QUICKSTART.md`.
 
 ## Ball Not Flipping
 
@@ -395,7 +386,8 @@ Server finds `CWD/.watercooler` instead of repo root `.watercooler`.
 
 1. **Check agents.json configuration**
    ```bash
-   cat .watercooler/agents.json
+   THREADS_DIR="../<repo>-threads"
+   cat "$THREADS_DIR"/agents.json
    ```
 
    Should define counterparts:
@@ -409,7 +401,7 @@ Server finds `CWD/.watercooler` instead of repo root `.watercooler`.
    ```
 
 2. **Create agents.json if missing**
-   See [docs/integration.md](./integration.md) for configuration guide.
+   See [docs/archive/integration.md](./archive/integration.md) for configuration guide.
 
 3. **Verify with read_thread**
    ```
@@ -466,7 +458,28 @@ Currently only markdown output is supported. JSON support is a deferred feature 
    ```
 
 2. **Check ROADMAP.md for status**
-   JSON support will be implemented if real-world usage demonstrates the need.
+JSON support will be implemented if real-world usage demonstrates the need.
+
+## 401 Unauthorized (Remote MCP)
+
+> Applies only to the archived remote/worker deployment. Local stdio mode does **not** use OAuth.
+
+### Symptom
+- Client shows "Unauthorized - No session" or cannot open `/sse`
+- FastMCP logs report `401 Unauthorized`
+
+### Causes
+- No OAuth cookie session or bearer token when hitting the worker endpoint
+- Attempted `?session=dev` while the dev session toggle is disabled (default in staging/production)
+
+### Solutions
+1. **Browser session:** visit `/auth/login` on the worker (CLI should pop it open) to complete OAuth.
+2. **Headless/token:** visit `/console` on the worker to generate a personal token, then connect with `Authorization: Bearer <token>`.
+3. **Dev session (only for testing):** set `ALLOW_DEV_SESSION="true"` on the worker and reconnect with `?session=dev`. Never enable this in production.
+
+### Verification
+- `watercooler_v1_whoami` returns a non-null `user_id` and `project_id`
+- Worker logs contain `session_validated` entries
 
 ## Getting More Help
 
@@ -517,10 +530,10 @@ Still stuck? Review these guides:
 
 - **[Quickstart Guide](./QUICKSTART.md)** - Step-by-step setup instructions
 - **[Environment Variables](./ENVIRONMENT_VARS.md)** - Complete configuration reference
-- **[Cloud Sync Guide](./CLOUD_SYNC_GUIDE.md)** - Git sync setup and troubleshooting
+- **[Cloud Sync Guide](../.mothballed/docs/CLOUD_SYNC_GUIDE.md)** - Git sync setup and troubleshooting
 - **[MCP Server Guide](./mcp-server.md)** - Tool reference and usage examples
-- **[Claude Code Setup](./CLAUDE_CODE_SETUP.md)** - Claude Code specific configuration
-- **[Claude Desktop Setup](./CLAUDE_DESKTOP_SETUP.md)** - Claude Desktop specific configuration
+- **[Claude Code Setup](./archive/CLAUDE_CODE_SETUP.md)** - Claude Code specific configuration
+- **[Claude Desktop Setup](./archive/CLAUDE_DESKTOP_SETUP.md)** - Claude Desktop specific configuration
 
 ### 4. Report Issues
 
@@ -539,7 +552,7 @@ If you encounter a bug, open an issue with:
 - Whether using local or cloud mode
 
 **Where to Report:**
-- GitHub Issues: https://github.com/mostlyharmless-ai/watercooler-collab/issues
+- GitHub Issues: https://github.com/mostlyharmless-ai/watercooler-cloud/issues
 
 ---
 

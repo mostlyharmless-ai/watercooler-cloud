@@ -1,17 +1,17 @@
 # Watercooler MCP Server
 
-FastMCP server that exposes watercooler-collab tools to AI agents through the Model Context Protocol (MCP).
+FastMCP server that exposes watercooler-cloud tools to AI agents through the Model Context Protocol (MCP).
 
 ## Overview
 
-The watercooler MCP server allows AI agents (like Claude, Codex, etc.) to naturally discover and use watercooler collaboration tools without manual CLI commands. All tools are namespaced as `watercooler_v1_*` for provider compatibility.
+The Watercooler Cloud MCP server allows AI agents (like Claude, Codex, etc.) to naturally discover and use Watercooler Cloud tools without manual CLI commands. All tools are namespaced as `watercooler_v1_*` for provider compatibility.
 
-**Current Status:** Production Ready (Phase 1A/1B/2A complete)
-**Version:** v0.2.0 + Phase 2A git sync
+**Current Status:** Production Ready (Phase 1A/1B/2A complete)  
+**Version:** v0.0.1 + Phase 2A git sync
 
 ## Installation
 
-Install watercooler-collab with MCP support:
+Install watercooler-cloud with MCP support:
 
 ```bash
 pip install -e .[mcp]
@@ -21,17 +21,17 @@ This installs `fastmcp>=2.0` and creates the `watercooler-mcp` command.
 
 ## Quick Start
 
-**For complete setup instructions, see [QUICKSTART.md](./QUICKSTART.md)**
+**For complete setup instructions, see [SETUP_AND_QUICKSTART.md](./SETUP_AND_QUICKSTART.md)**
 
 ### Configuration Examples
 
 **Codex (`~/.codex/config.toml`):**
 ```toml
-[mcp_servers.watercooler]
+[mcp_servers.wc_universal]
 command = "python3"
 args = ["-m", "watercooler_mcp"]
 
-[mcp_servers.watercooler.env]
+[mcp_servers.wc_universal.env]
 WATERCOOLER_AGENT = "Codex"
 ```
 
@@ -39,7 +39,7 @@ WATERCOOLER_AGENT = "Codex"
 ```json
 {
   "mcpServers": {
-    "watercooler": {
+    "watercooler-cloud": {
       "command": "python3",
       "args": ["-m", "watercooler_mcp"],
       "env": {
@@ -54,7 +54,7 @@ WATERCOOLER_AGENT = "Codex"
 ```json
 {
   "mcpServers": {
-    "watercooler": {
+    "watercooler-cloud": {
       "command": "python3",
       "args": ["-m", "watercooler_mcp"],
       "env": {
@@ -71,49 +71,56 @@ WATERCOOLER_AGENT = "Codex"
 Your agent identity (e.g., "Claude", "Codex"). Set in MCP config.
 
 ### WATERCOOLER_DIR (Optional)
-Explicit threads directory override.
+Explicit override for bespoke setups. Universal mode clones threads beside your
+code repository as a sibling `<code-root>-threads` directory (for example
+`/workspace/my-app` ↔ `/workspace/my-app-threads`); you usually do not need to
+set this variable.
 
-**Resolution order (Phase 1B):**
-1. `WATERCOOLER_DIR` env var (highest priority)
-2. Upward search from CWD for existing `.watercooler/` (stops at git root or HOME)
-3. Fallback: `{CWD}/.watercooler` (for auto-creation)
+Only set `WATERCOOLER_DIR` when you require a fixed threads directory (for example, while debugging environments where the server cannot infer the correct repository).
 
-**The upward search is automatic** - works from any subdirectory in your repo without configuration.
+### Universal thread location controls
 
-**Claude Desktop** (`~/Library/Application Support/Claude/claude_desktop_config.json` on macOS):
+| Variable | Purpose | Default |
+|----------|---------|---------|
+| `WATERCOOLER_THREADS_BASE` | Optional root for local thread clones | _Sibling of the code repo_ |
+| `WATERCOOLER_THREADS_PATTERN` | Remote URL pattern for auto-clone | `git@github.com:{org}/{repo}-threads.git` |
+| `WATERCOOLER_THREADS_AUTO_PROVISION` | Opt-in creation of missing threads repos | `0` |
+| `WATERCOOLER_THREADS_CREATE_CMD` | Command template for provisioning | _Unset_ |
+| `WATERCOOLER_AUTO_BRANCH` | Auto create / checkout matching branch | `1` |
+
+Example (Claude Desktop, macOS):
+
 ```json
 {
   "mcpServers": {
-    "watercooler": {
-      "command": "/opt/anaconda3/envs/watercooler/bin/watercooler-mcp",
+    "watercooler-cloud": {
+      "command": "python3",
+      "args": ["-m", "watercooler_mcp"],
       "env": {
-        "WATERCOOLER_AGENT": "Claude",
-        "WATERCOOLER_DIR": "/Users/agent/projects/watercooler-test/.watercooler"
+        "WATERCOOLER_AGENT": "Claude@Desktop",
+        "WATERCOOLER_THREADS_PATTERN": "git@github.com:{org}/{repo}-threads.git",
+        "WATERCOOLER_AUTO_BRANCH": "1"
       }
     }
   }
 }
 ```
 
-**Cline** (`.vscode/settings.json` or VS Code settings):
-```json
-{
-  "mcp.servers": {
-    "watercooler": {
-      "command": "/opt/anaconda3/envs/watercooler/bin/watercooler-mcp",
-      "args": [],
-      "env": {
-        "WATERCOOLER_AGENT": "Codex",
-        "WATERCOOLER_DIR": "${workspaceFolder}/.watercooler"
-      }
-    }
-  }
-}
-```
+**Manual override:**
 
-**Note:** Adjust paths for your system:
-- Use `which watercooler-mcp` to find the command path
-- Use absolute paths for `WATERCOOLER_DIR` or relative to project root
+If you set `WATERCOOLER_DIR`, that path takes priority and the sibling repo rules are skipped. Use the override sparingly—it's easy to create stray repo-local thread folders inside the code repo when this variable stays set.
+
+**Auto-provisioning (optional):**
+
+- Set `WATERCOOLER_THREADS_AUTO_PROVISION=1` to allow the server to create the
+  missing `<repo>-threads` repository when the initial clone returns
+  "repository not found".
+- Provide `WATERCOOLER_THREADS_CREATE_CMD` with a one-line shell command (for
+  example, `gh repo create {slug} --private`). The command receives useful
+  placeholders (`{slug}`, `{repo_url}`, `{code_repo}`, `{namespace}`, `{repo}`,
+  `{org}`) and its stdout/stderr is surfaced on failure.
+- Auto-provisioning is skipped when `WATERCOOLER_DIR` is set or when the remote
+  uses HTTPS.
 
 ## Available Tools
 
@@ -128,11 +135,12 @@ Check server health and configuration.
 
 **Example output:**
 ```
-Watercooler MCP Server v0.1.0
+Watercooler MCP Server v0.2.0
 Status: Healthy
 Agent: Codex
-Threads Dir: /path/to/.watercooler
+Threads Dir: /workspace/watercooler-cloud-threads
 Threads Dir Exists: True
+Resolution Source: pattern
 ```
 
 #### `watercooler_v1_whoami`
@@ -223,6 +231,18 @@ Update thread status.
 
 **Returns:** Confirmation message
 
+
+#### `watercooler_v1_sync`
+Synchronize the local threads repository with its remote using the same flow as the MCP server (pull → commit → push). Useful when CLI or other tools mutate threads outside the MCP session and you want parity.
+
+**Parameters:**
+- `code_path` (str): Code repo root, same as other tools
+- `agent_func` (str): Optional specialization for provenance
+
+**Returns:** Confirmation once sync completes (errors if remote unreachable).
+
+**Returns:** Confirmation once sync completes (errors if remote unreachable).
+
 #### `watercooler_v1_reindex`
 Generate index summary of all threads.
 
@@ -236,13 +256,22 @@ Generate index summary of all threads.
 
 ### Environment Variables
 
-- **`WATERCOOLER_AGENT`**: Your agent identity (default: "Agent")
-  - Used when creating entries
-  - Determines which threads show as "Your Turn"
+- **`WATERCOOLER_AGENT`**: Agent identity (default: `Agent`). Determines entry authorship and ball ownership.
 
-- **`WATERCOOLER_DIR`**: Threads directory path (default: `./.watercooler`)
-  - Can be absolute or relative path
-  - Server auto-creates if it doesn't exist
+- **Universal overrides (optional):**
+  - `WATERCOOLER_THREADS_BASE` — optional override when you want all threads repos under a fixed root (otherwise the sibling `<code>-threads` directory is used)
+  - `WATERCOOLER_THREADS_PATTERN` — pattern for building the remote URL (`git@github.com:{org}/{repo}-threads.git` by default)
+  - `WATERCOOLER_AUTO_BRANCH` — set to `0` to skip auto-creating the matching branch
+  - `WATERCOOLER_GIT_AUTHOR` / `WATERCOOLER_GIT_EMAIL` — override commit metadata in the threads repo
+
+- **Manual override:** `WATERCOOLER_DIR` forces a specific threads directory. Use only if you must disable universal repo discovery.
+
+### Required parameters
+
+Every tool call must include:
+
+- `code_path` — points to the code repository root (e.g., `"."`). The server resolves repo/branch/commit from this path.
+- `agent_func` — required on write operations; format `<AgentBase>:<spec>` (e.g., `"Claude:pm"`). Supplies the specialization recorded in thread entries.
 
 ### Deferred Features
 
@@ -258,55 +287,45 @@ These features will be implemented if real-world usage demonstrates the need.
 ### Example 1: Check Server Health
 
 ```python
-# AI agent calls
-health()
+watercooler_v1_health(code_path=".")
 
-# Returns:
-# Watercooler MCP Server v0.1.0
+# Sample response:
+# Watercooler MCP Server v0.2.0
 # Status: Healthy
 # Agent: Codex
-# Threads Dir: /path/to/.watercooler
+# Threads Dir: /workspace/repo-threads
 # Threads Dir Exists: True
 ```
 
-### Example 2: List Threads Where You Have the Ball
+### Example 2: List threads where you have the ball
 
 ```python
-# AI agent calls
-list_threads(open_only=True)
-
-# Returns organized list showing:
-# - Threads where you have the ball (🎾)
-# - Threads with NEW entries (🆕)
-# - Threads waiting on others (⏳)
+watercooler_v1_list_threads(code_path=".")
 ```
 
-### Example 3: Respond to a Thread
+### Example 3: Respond to a thread
 
 ```python
-# AI agent reads thread
-content = read_thread("feature-auth")
-
-# AI agent responds
-say(
-    "feature-auth",
-    "Implementation complete",
-    "All unit tests passing. Integration tests added. Ready for code review.",
+watercooler_v1_say(
+    topic="feature-auth",
+    title="Implementation complete",
+    body="Spec: implementer-code — unit tests passing, integration tests added.",
     role="implementer",
-    entry_type="Note"
+    entry_type="Note",
+    code_path=".",
+    agent_func="Claude:implementer-code"
 )
-
-# Ball automatically flips to counterpart
 ```
 
-### Example 4: Hand Off to Specific Team Member
+### Example 4: Hand off to a specific teammate
 
 ```python
-# AI agent hands off to specific reviewer
-handoff(
-    "feature-auth",
-    "Security review needed for OAuth implementation",
-    target_agent="SecurityBot"
+watercooler_v1_handoff(
+    topic="feature-auth",
+    note="Security review needed for OAuth implementation",
+    target_agent="SecurityBot",
+    code_path=".",
+    agent_func="Claude:pm"
 )
 ```
 
@@ -318,7 +337,7 @@ If `watercooler-mcp` command is not found:
 
 ```bash
 # Check installation
-pip list | grep watercooler-collab
+pip list | grep watercooler-cloud
 
 # Reinstall with MCP extras
 pip install -e .[mcp]
@@ -343,17 +362,17 @@ export WATERCOOLER_AGENT="YourAgentName"
 
 ### Threads Directory Not Found
 
-If server can't find threads:
+If the server can't resolve the threads repository:
 
 ```bash
-# Check current directory
-python -c "from watercooler_mcp.config import get_threads_dir; print(get_threads_dir())"
-
-# Set explicit path
-export WATERCOOLER_DIR="/full/path/to/.watercooler"
-
-# Or use relative path from project root
+# Inspect resolved context
+python -c "from pathlib import Path; from watercooler_mcp.config import resolve_thread_context; print(resolve_thread_context(Path('.')).threads_dir)"
 ```
+
+- Ensure `code_path` points inside a git repository with a configured remote.
+- Run `watercooler_v1_health(code_path=".")` to confirm the expected sibling directory (for example `/workspace/my-app-threads`).
+- If health reports any location inside the code repository (for example `./threads-local`), remove stale overrides, copy the data into the sibling `<repo>-threads` directory, and delete the stray directory.
+- As a last resort, set `WATERCOOLER_DIR` to a specific path (see Environment Variables) while you move data into the sibling `<repo>-threads` repository.
 
 ### Format Not Supported Error
 
@@ -415,14 +434,14 @@ asyncio.run(show_tools())
 
 ## See Also
 
-- [watercooler-collab README](../README.md) - Main project documentation
+- [watercooler-cloud README](../README.md) - Main project documentation
 - [L5 MCP Plan](../L5_MCP_PLAN.md) - Detailed implementation plan
-- [Python API Reference](./api.md) - Watercooler library API
-- [Integration Guide](./integration.md) - Using watercooler-collab in projects
+- [Python API Reference](./archive/integration.md#python-api-reference) - Watercooler library API
+- [Integration Guide](./archive/integration.md) - Using watercooler-cloud in projects
 
 ## Support
 
-- **Issues**: https://github.com/mostlyharmless-ai/watercooler-collab/issues
+- **Issues**: https://github.com/mostlyharmless-ai/watercooler-cloud/issues
 - **Discussions**: Use GitHub Discussions for questions
 - **MCP Protocol**: https://spec.modelcontextprotocol.io/
 - **FastMCP Docs**: https://gofastmcp.com/

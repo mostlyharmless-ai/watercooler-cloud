@@ -3,7 +3,7 @@ requires = ["setuptools>=61.0"]
 build-backend = "setuptools.build_meta"
 
 [project]
-name = "watercooler-collab"
+name = "watercooler-cloud"
 version = "0.0.1"
 description = "File-based collaboration protocol for agentic coding projects"
 readme = "README.md"
@@ -15,6 +15,7 @@ authors = [
 dependencies = [
     "fastmcp>=2.0",
     "python-ulid>=2.0",
+    "GitPython>=3.1.0",
 ]
 classifiers = [
     "Development Status :: 2 - Pre-Alpha",
@@ -29,9 +30,9 @@ classifiers = [
 ]
 
 [project.urls]
-Homepage = "https://github.com/mostlyharmless-ai/watercooler-collab"
-Repository = "https://github.com/mostlyharmless-ai/watercooler-collab"
-Issues = "https://github.com/mostlyharmless-ai/watercooler-collab/issues"
+Homepage = "https://github.com/mostlyharmless-ai/watercooler-cloud"
+Repository = "https://github.com/mostlyharmless-ai/watercooler-cloud"
+Issues = "https://github.com/mostlyharmless-ai/watercooler-cloud/issues"
 
 [project.optional-dependencies]
 dev = [

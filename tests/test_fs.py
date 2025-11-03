@@ -33,10 +33,19 @@ def test_paths(tmp_path: Path):
     assert lp.name == ".topic.lock"
 
 
+def test_paths_sanitize_illegal_characters(tmp_path: Path):
+    tp = thread_path("gh:caleb/watercooler", tmp_path)
+    assert tp.name == "gh-caleb-watercooler.md"
+    lp = lock_path_for_topic("gh:caleb/watercooler", tmp_path)
+    assert lp.name == ".gh-caleb-watercooler.lock"
+
+
 def test_read_body_string_or_file(tmp_path: Path):
     assert read_body(None) == ""
     assert read_body("plain text") == "plain text"
     p = tmp_path / "b.txt"
     write(p, "file body")
     assert read_body(str(p)) == "file body"
-
+    assert read_body(f"@{p}") == "file body"
+    missing = tmp_path / "missing.txt"
+    assert read_body(f"@{missing}") == f"@{missing}"

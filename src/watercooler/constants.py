@@ -1,4 +1,4 @@
-"""Constants for watercooler collaboration protocol."""
+"""Constants for the Watercooler Cloud protocol."""
 
 from __future__ import annotations
 

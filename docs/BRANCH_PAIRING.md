@@ -49,6 +49,9 @@ Watercooler-Topic: <topic>
 
 ## Edge Cases
 - Not in a git repo: default to `threads:main`
-- Code branch renamed: first write auto‑creates the new threads branch; history remains
-- Heavy concurrency: start with one file per topic and `*.md merge=union`; switch to per‑entry files only if conflicts are frequent
-
+- Code branch renamed: first write auto-creates the new threads branch; history remains
+- Heavy concurrency: start with one file per topic and `*.md merge=union`; switch to per-entry files only if conflicts are frequent
+- Threads repo missing: enable `WATERCOOLER_THREADS_AUTO_PROVISION` and provide
+  `WATERCOOLER_THREADS_CREATE_CMD` so the MCP server can run your approved
+  provisioning command when the initial clone fails. Otherwise, create the
+  `<repo>-threads` repository manually before writing.

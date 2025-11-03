@@ -1,6 +1,6 @@
-# Contributing to Watercooler-Collab
+# Contributing to Watercooler-Cloud
 
-Thank you for your interest in contributing to watercooler-collab! This document provides guidelines and information for contributors.
+Thank you for your interest in contributing to watercooler-cloud! This document provides guidelines and information for contributors.
 
 ## Table of Contents
 
@@ -33,7 +33,7 @@ Report any unacceptable behavior to the project maintainers.
 
 ### Prerequisites
 
-- **Python 3.10 or later** (required for watercooler-collab)
+- **Python 3.10 or later** (required for watercooler-cloud)
 - **Git** for version control
 - **GitHub account** for submitting pull requests
 
@@ -42,12 +42,12 @@ Report any unacceptable behavior to the project maintainers.
 1. **Fork the repository** on GitHub
 2. **Clone your fork:**
    ```bash
-   git clone https://github.com/YOUR_USERNAME/watercooler-collab.git
-   cd watercooler-collab
+   git clone https://github.com/YOUR_USERNAME/watercooler-cloud.git
+   cd watercooler-cloud
    ```
 3. **Add upstream remote:**
    ```bash
-   git remote add upstream https://github.com/mostlyharmless-ai/watercooler-collab.git
+   git remote add upstream https://github.com/mostlyharmless-ai/watercooler-cloud.git
    ```
 
 ---
@@ -326,7 +326,7 @@ pytest tests/test_commands.py::test_say_command
 def test_feature_name():
     """Test description of what this validates."""
     # Arrange
-    threads_dir = tmp_path / ".watercooler"
+    threads_dir = tmp_path / "threads"
     threads_dir.mkdir()
 
     # Act
@@ -352,7 +352,7 @@ Use pytest fixtures for common setup:
 @pytest.fixture
 def temp_threads_dir(tmp_path: Path) -> Path:
     """Create temporary threads directory."""
-    threads_dir = tmp_path / ".watercooler"
+    threads_dir = tmp_path / "threads"
     threads_dir.mkdir()
     return threads_dir
 ```
@@ -380,13 +380,13 @@ def temp_threads_dir(tmp_path: Path) -> Path:
 
 Update these files as needed:
 - `docs/QUICKSTART.md` - Getting started guide
-- `docs/integration.md` - Integration patterns
+- `docs/archive/integration.md` - Integration patterns
 - `docs/mcp-server.md` - MCP tool reference
 - `docs/TROUBLESHOOTING.md` - Common issues
 
 #### 3. API Documentation
 
-- `docs/api.md` - Python API reference
+- `docs/archive/integration.md#python-api-reference` - Python API reference
 - Keep examples current
 - Document all public APIs
 
@@ -520,7 +520,7 @@ Any other relevant information
 Understanding the codebase:
 
 ```
-watercooler-collab/
+watercooler-cloud/
 ├── src/
 │   ├── watercooler/          # Core library
 │   │   ├── __init__.py
@@ -546,7 +546,7 @@ watercooler-collab/
 ├── docs/                      # Documentation
 │   ├── README.md
 │   ├── QUICKSTART.md
-│   ├── integration.md
+│   ├── archive/integration.md
 │   └── ...
 └── ROADMAP.md                 # Project status and roadmap
 ```
@@ -562,7 +562,7 @@ By contributing, you agree that your contributions will be licensed under the sa
 ## Questions?
 
 - **Documentation**: Check [docs/](.)
-- **Issues**: [GitHub Issues](https://github.com/mostlyharmless-ai/watercooler-collab/issues)
-- **Discussions**: [GitHub Discussions](https://github.com/mostlyharmless-ai/watercooler-collab/discussions)
+- **Issues**: [GitHub Issues](https://github.com/mostlyharmless-ai/watercooler-cloud/issues)
+- **Discussions**: [GitHub Discussions](https://github.com/mostlyharmless-ai/watercooler-cloud/discussions)
 
-Thank you for contributing to watercooler-collab! 🎉
+Thank you for contributing to watercooler-cloud! 🎉

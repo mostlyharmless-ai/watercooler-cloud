@@ -369,6 +369,13 @@ def handoff(
         user_tag: Optional user tag for agent identification (GitHub username)
     """
     tp = thread_path(topic, threads_dir)
+    if not tp.exists():
+        tp = init_thread(
+            topic,
+            threads_dir=threads_dir,
+            templates_dir=templates_dir,
+        )
+
     # Determine current counterpart based on registry and existing ball
     title, status, ball, updated = thread_meta(tp)
     target = _counterpart_of(ball, registry)
