@@ -80,6 +80,8 @@ def test_resolve_thread_context_infers_repo_from_code_remote(tmp_path, monkeypat
     repo_dir = tmp_path / "code"
     repo_dir.mkdir()
     subprocess.run(["git", "init"], cwd=repo_dir, check=True, capture_output=True)
+    subprocess.run(["git", "config", "user.name", "Test User"], cwd=repo_dir, check=True, capture_output=True)
+    subprocess.run(["git", "config", "user.email", "test@example.com"], cwd=repo_dir, check=True, capture_output=True)
     (repo_dir / "README.md").write_text("test")
     subprocess.run(["git", "add", "README.md"], cwd=repo_dir, check=True, capture_output=True)
     subprocess.run(
