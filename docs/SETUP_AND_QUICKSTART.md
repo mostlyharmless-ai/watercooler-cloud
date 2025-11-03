@@ -107,10 +107,10 @@ If `code_path` or `agent_func` is omitted, the server fails fast with an actiona
 
 ## 8. Next steps
 
-- Need CLI specifics? Read [claude-collab.md](claude-collab.md) for manual workflows
+- Need CLI specifics? Read [archive/claude-collab.md](archive/claude-collab.md) for manual workflows
 - Want the full tool surface area? See the [MCP Server Reference](mcp-server.md)
-- Running validation? Follow the [Tester Playbook](TESTER_SETUP.md)
-- Custom agent behaviors? Configure [AGENT_REGISTRY.md](AGENT_REGISTRY.md)
+- Running validation? Follow the [Tester Playbook](archive/TESTER_SETUP.md)
+- Custom agent behaviors? Configure [archive/AGENT_REGISTRY.md](archive/AGENT_REGISTRY.md)
 
 ## Coming soon
 

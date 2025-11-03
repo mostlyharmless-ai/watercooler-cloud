@@ -8,11 +8,13 @@ File-based collaboration protocol for agentic coding projects with CLI tools and
 
 ## 🚀 Quick Start (Choose Your Path)
 
+> ℹ️ Looking for legacy appendices or CLI deep-dives? They now live under [`docs/archive/`](archive/).
+
 ### I want to use watercooler with AI agents (Claude, Codex)
 **→ [Setup & Quickstart](SETUP_AND_QUICKSTART.md)** - Universal dev mode + first-call walkthrough
 **→ [MCP Server Guide](mcp-server.md)** - Tool reference and parameters
-**→ [Claude Code Setup](CLAUDE_CODE_SETUP.md)** - Client-specific appendix
-**→ [Claude Desktop Setup](CLAUDE_DESKTOP_SETUP.md)** - Desktop appendix
+**→ [Claude Code Setup](archive/CLAUDE_CODE_SETUP.md)** - Client-specific appendix
+**→ [Claude Desktop Setup](archive/CLAUDE_DESKTOP_SETUP.md)** - Desktop appendix
 **→ [Troubleshooting](TROUBLESHOOTING.md)** - MCP setup issues
 
 **Why MCP?** AI agents automatically discover watercooler tools - no manual commands needed.
@@ -20,13 +22,13 @@ File-based collaboration protocol for agentic coding projects with CLI tools and
 ### I want to use watercooler CLI commands
 **→ [Setup & Quickstart](SETUP_AND_QUICKSTART.md)** - Same universal guide (CLI applies the same rules)
 **→ [Main README](../README.md)** - Installation and command reference
-**→ [Claude Collaboration (CLI)](claude-collab.md)** - Manual CLI workflows
+**→ [Claude Collaboration (CLI)](archive/claude-collab.md)** - Manual CLI workflows
 
 **When to use CLI:** Manual control, scripting, or when MCP isn't available.
 
 ### I want to integrate watercooler in my Python project
-**→ [Integration Guide](integration.md)** - Library usage and configuration
-**→ [API Reference](integration.md#python-api-reference)** - Complete Python API documentation
+**→ [Integration Guide](archive/integration.md)** - Library usage and configuration
+**→ [API Reference](archive/integration.md#python-api-reference)** - Complete Python API documentation
 
 ---
 
@@ -61,7 +63,7 @@ File-based collaboration protocol for agentic coding projects with CLI tools and
 - Large group discussions (>5 participants)
 - Ad-hoc brainstorming without structure
 
-**→ See [Use Cases Guide](USE_CASES.md)** for detailed examples
+**→ See [Use Cases Guide](archive/USE_CASES.md)** for detailed examples
 
 ---
 
@@ -70,21 +72,21 @@ File-based collaboration protocol for agentic coding projects with CLI tools and
 ### Getting Started
 - [Install watercooler](QUICKSTART.md#installation) - CLI or MCP setup
 - [Create your first thread](QUICKSTART.md#creating-threads) - Initialize and add entries
-- [Set up for AI agents](CLAUDE_CODE_SETUP.md) - MCP configuration
+- [Set up for AI agents](archive/CLAUDE_CODE_SETUP.md) - MCP configuration
 
 ### Multi-Agent Collaboration
-- [Configure agent registry](AGENT_REGISTRY.md) - Define agents and counterparts
+- [Configure agent registry](archive/AGENT_REGISTRY.md) - Define agents and counterparts
 - [Set up ball flipping](STRUCTURED_ENTRIES.md#ball-auto-flip) - Automatic handoffs
-- [Multi-agent use case](USE_CASES.md#multi-agent-collaboration) - Complete example
+- [Multi-agent use case](archive/USE_CASES.md#multi-agent-collaboration) - Complete example
 
 ### Team Collaboration
 - [Enable cloud sync](.mothballed/docs/CLOUD_SYNC_STRATEGY.md) - Git-based team mode (Phase 2A)
 - [Configure git merge strategy](../.github/WATERCOOLER_SETUP.md) - Required setup
-- [Async collaboration use case](USE_CASES.md#async-team-collaboration) - Cross-timezone example
+- [Async collaboration use case](archive/USE_CASES.md#async-team-collaboration) - Cross-timezone example
 
 ### Customization
-- [Customize templates](TEMPLATES.md) - Thread and entry formatting
-- [Configure environment variables](integration.md#environment-variables) - WATERCOOLER_* vars
+- [Customize templates](archive/TEMPLATES.md) - Thread and entry formatting
+- [Configure environment variables](archive/integration.md#environment-variables) - WATERCOOLER_* vars
 - [Set up pre-commit hooks](../.github/WATERCOOLER_SETUP.md) - Enforce append-only
 
 ---
@@ -98,26 +100,26 @@ File-based collaboration protocol for agentic coding projects with CLI tools and
 
 ### MCP Server (AI Agent Integration)
 - **[MCP Server Guide](mcp-server.md)** - Tool reference and architecture
-- **[Claude Code Setup](CLAUDE_CODE_SETUP.md)** - Register with Claude Code CLI
-- **[Claude Desktop Setup](CLAUDE_DESKTOP_SETUP.md)** - Register with Claude Desktop app
+- **[Claude Code Setup](archive/CLAUDE_CODE_SETUP.md)** - Register with Claude Code CLI
+- **[Claude Desktop Setup](archive/CLAUDE_DESKTOP_SETUP.md)** - Register with Claude Desktop app
 - **[Troubleshooting](TROUBLESHOOTING.md)** - MCP setup issues and solutions
-- **[Claude Collaboration (CLI)](claude-collab.md)** - Manual CLI workflows
+- **[Claude Collaboration (CLI)](archive/claude-collab.md)** - Manual CLI workflows
 
 ### Guides & Workflows
-- **[Use Cases Guide](USE_CASES.md)** ⭐ - 6 comprehensive practical examples:
+- **[Use Cases Guide](archive/USE_CASES.md)** ⭐ - 6 comprehensive practical examples:
   1. Multi-Agent Collaboration
   2. Extended Context for LLMs
   3. Handoff Workflows
   4. Async Team Collaboration
   5. Decision Tracking
   6. PR Review Workflow
-- **[Integration Guide](integration.md)** - Python library usage and configuration
+- **[Integration Guide](archive/integration.md)** - Python library usage and configuration
 
 ### Reference Documentation
-- **[API Reference](integration.md#python-api-reference)** - Complete Python library API
+- **[API Reference](archive/integration.md#python-api-reference)** - Complete Python library API
 - **[Structured Entries](STRUCTURED_ENTRIES.md)** - Entry format, 6 roles, 5 types
-- **[Agent Registry](AGENT_REGISTRY.md)** - Agent configuration and counterparts
-- **[Templates](TEMPLATES.md)** - Template syntax and customization
+- **[Agent Registry](archive/AGENT_REGISTRY.md)** - Agent configuration and counterparts
+- **[Templates](archive/TEMPLATES.md)** - Template syntax and customization
 
 ### Advanced Topics
 - **[Cloud Sync Strategy](.mothballed/docs/CLOUD_SYNC_STRATEGY.md)** - Git-based cloud sync (Phase 2A)
@@ -156,16 +158,16 @@ See **[ROADMAP.md](ROADMAP.md)** for detailed phase status.
 ### Beginner
 1. Read [QUICKSTART](QUICKSTART.md) - Get basic understanding
 2. Follow [First Thread Tutorial](QUICKSTART.md#creating-threads) - Hands-on practice
-3. Try [Claude Code Setup](CLAUDE_CODE_SETUP.md) - Enable AI agent tools
+3. Try [Claude Code Setup](archive/CLAUDE_CODE_SETUP.md) - Enable AI agent tools
 
 ### Intermediate
-4. Explore [Use Cases Guide](USE_CASES.md) - See real-world patterns
-5. Configure [Agent Registry](AGENT_REGISTRY.md) - Set up multi-agent workflows
-6. Customize [Templates](TEMPLATES.md) - Make threads your own
+4. Explore [Use Cases Guide](archive/USE_CASES.md) - See real-world patterns
+5. Configure [Agent Registry](archive/AGENT_REGISTRY.md) - Set up multi-agent workflows
+6. Customize [Templates](archive/TEMPLATES.md) - Make threads your own
 
 ### Advanced
 7. Enable [Cloud Sync](.mothballed/docs/CLOUD_SYNC_STRATEGY.md) - Team collaboration
-8. Study [API Reference](integration.md#python-api-reference) - Python library integration
+8. Study [API Reference](archive/integration.md#python-api-reference) - Python library integration
 9. Read [Architecture](.mothballed/docs/CLOUD_SYNC_STRATEGY.md) - Implementation deep-dive
 
 ---
@@ -218,4 +220,4 @@ Documentation improvements welcome! Please:
 
 ---
 
-*Last updated: 2025-10-09 | Documentation version: 1.0*
+*Last updated: 2025-11-03 | Documentation version: 1.0*

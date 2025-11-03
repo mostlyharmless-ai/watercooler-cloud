@@ -79,7 +79,17 @@ def lock_path_for_topic(topic: str, threads_dir: Path) -> Path:
 def read_body(maybe_path: str | None) -> str:
     if not maybe_path:
         return ""
-    p = Path(maybe_path)
+    text = maybe_path.strip()
+    if not text:
+        return ""
+
+    # Support @filename convention while preserving legacy behaviour.
+    if text.startswith("@") and len(text) > 1:
+        candidate = Path(text[1:]).expanduser()
+        if candidate.is_file():
+            return read(candidate)
+
+    p = Path(text).expanduser()
     if p.exists() and p.is_file():
         return read(p)
     return maybe_path

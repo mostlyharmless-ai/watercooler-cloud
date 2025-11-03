@@ -9,6 +9,20 @@ Run the MCP server locally and sync threads to a dedicated GitHub repo. This is 
 - Canonical guide: `docs/SETUP_AND_QUICKSTART.md`
 - Remote (Cloudflare/Render) deployment is mothballed; see `.mothballed/docs/DEPLOYMENT_QUICK_START.md` for the archival instructions.
 
+### 2‑Step Install & Register (Claude example)
+
+```bash
+# 1. Install with MCP extras
+python -m pip install -e ".[mcp]"
+
+# 2. Register the server with Claude Code (swap python/python3/py as needed)
+claude mcp add watercooler-cloud \
+  -e WATERCOOLER_AGENT="Claude@Code" \
+  -- python -m watercooler_mcp
+```
+
+> Prefer the helper scripts? See `./scripts/install-mcp.sh` (bash) or `./scripts/install-mcp.ps1` (PowerShell) for the same commands with argument prompts.
+
 ### Branch Pairing
 Keep code and threads tightly linked:
 - Pair each code repo with `<repo>-threads`
@@ -18,7 +32,7 @@ Keep code and threads tightly linked:
 
 ### Tester Setup
 For a minimal validation loop (Claude + universal dev server) see:
-- `docs/TESTER_SETUP.md`
+- `docs/archive/TESTER_SETUP.md`
 
 ### Archived Remote Stack
 The Cloudflare/Render remote deployment has been mothballed. All related code and docs are being
@@ -143,8 +157,8 @@ python -m pip install -e ".[mcp]"
   ```
 
 See setup guides:
-- **[Claude Code Setup](docs/CLAUDE_CODE_SETUP.md)** - For Claude Code CLI
-- **[Claude Desktop Setup](docs/CLAUDE_DESKTOP_SETUP.md)** - For Claude Desktop app
+- **[Claude Code Setup](docs/archive/CLAUDE_CODE_SETUP.md)** - For Claude Code CLI
+- **[Claude Desktop Setup](docs/archive/CLAUDE_DESKTOP_SETUP.md)** - For Claude Desktop app
 - **[MCP Server Guide](docs/mcp-server.md)** - Complete tool reference
 
 ### Git Configuration (Multi-User Collaboration)
@@ -286,25 +300,25 @@ pytest tests/test_structured_entries.py -v
 
 ### Getting Started
 - **[Documentation Hub](docs/README.md)** - Complete documentation index
-- **[Use Cases Guide](docs/USE_CASES.md)** - 6 comprehensive workflow examples:
+- **[Use Cases Guide](docs/archive/USE_CASES.md)** - 6 comprehensive workflow examples:
   - Multi-agent collaboration with role specialization
   - Extended context for LLM sessions
   - Handoff workflows (developer→reviewer, human→agent)
   - Async team collaboration across timezones
   - Decision tracking and architectural records
   - PR review workflow from design to deployment
-- **[Claude Collaboration](docs/claude-collab.md)** - Practical patterns for working with Claude
+- **[Claude Collaboration](docs/archive/claude-collab.md)** - Practical patterns for working with Claude
 - **[FAQ](docs/FAQ.md)** - Frequently asked questions and troubleshooting
 
 ### Configuration & Reference
-- **[API Reference](docs/integration.md#python-api-reference)** - Python library API documentation
-- **[Integration Guide](docs/integration.md)** - Installation and integration tutorial
+- **[API Reference](docs/archive/integration.md#python-api-reference)** - Python library API documentation
+- **[Integration Guide](docs/archive/integration.md)** - Installation and integration tutorial
 - **[MCP Server Guide](docs/mcp-server.md)** - AI agent integration via Model Context Protocol
-- **[Claude Code Setup](docs/CLAUDE_CODE_SETUP.md)** - Register watercooler with Claude Code
-- **[Claude Desktop Setup](docs/CLAUDE_DESKTOP_SETUP.md)** - Register watercooler with Claude Desktop
+- **[Claude Code Setup](docs/archive/CLAUDE_CODE_SETUP.md)** - Register watercooler with Claude Code
+- **[Claude Desktop Setup](docs/archive/CLAUDE_DESKTOP_SETUP.md)** - Register watercooler with Claude Desktop
 - **[Structured Entries](docs/STRUCTURED_ENTRIES.md)** - Entry format, 6 roles, 5 types, ball auto-flip
-- **[Agent Registry](docs/AGENT_REGISTRY.md)** - Agent configuration and counterpart mappings
-- **[Templates](docs/TEMPLATES.md)** - Customizing thread and entry templates
+- **[Agent Registry](docs/archive/AGENT_REGISTRY.md)** - Agent configuration and counterpart mappings
+- **[Templates](docs/archive/TEMPLATES.md)** - Customizing thread and entry templates
 - **[Git Setup](./github/WATERCOOLER_SETUP.md)** - Merge strategies and pre-commit hooks
 - **[Migration Guide](docs/MIGRATION.md)** - Migrating from acpmonkey
 

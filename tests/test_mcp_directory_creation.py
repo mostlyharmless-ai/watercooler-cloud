@@ -61,11 +61,19 @@ def test_list_threads_creates_directory_if_missing(temp_project_dir, mock_contex
 
     # Call list_threads with required code_path parameter
     result = list_threads.fn(mock_context, code_path=str(temp_project_dir))
+    # FastMCP tools now return ToolResult objects
+    if hasattr(result, "content"):
+        text = " ".join(
+            getattr(part, "text", "")
+            for part in result.content
+        )
+    else:
+        text = str(result)
 
     # Verify directory was created
     assert watercooler_dir.exists()
     assert watercooler_dir.is_dir()
-    assert "Threads directory created" in result
+    assert "Threads directory created" in text
 
 
 def test_read_thread_creates_directory_if_missing(temp_project_dir, monkeypatch):

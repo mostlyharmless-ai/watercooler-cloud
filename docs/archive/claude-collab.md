@@ -45,7 +45,7 @@ git config merge.ours.driver true
 git config core.hooksPath .githooks
 ```
 
-See [.github/WATERCOOLER_SETUP.md](../.github/WATERCOOLER_SETUP.md) for details.
+See [.github/WATERCOOLER_SETUP.md](../../.github/WATERCOOLER_SETUP.md) for details.
 
 ---
 
@@ -367,4 +367,4 @@ git push
 - [USE_CASES.md](USE_CASES.md) - Comprehensive use case examples
 - [STRUCTURED_ENTRIES.md](STRUCTURED_ENTRIES.md) - Entry format and metadata
 - [AGENT_REGISTRY.md](AGENT_REGISTRY.md) - Agent configuration details
-- [README.md](../README.md) - Command reference and installation
+- [README.md](../../README.md) - Command reference and installation

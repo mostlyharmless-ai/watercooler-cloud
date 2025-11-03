@@ -584,4 +584,4 @@ Title: {{TITLE}}
 
 - [STRUCTURED_ENTRIES.md](STRUCTURED_ENTRIES.md) - Entry roles and types
 - [AGENT_REGISTRY.md](AGENT_REGISTRY.md) - Agent configuration
-- [README.md](../README.md) - General usage
+- [README.md](../../README.md) - General usage

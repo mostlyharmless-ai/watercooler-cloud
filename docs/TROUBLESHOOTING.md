@@ -19,10 +19,11 @@ Common issues and solutions for the watercooler MCP server.
   - [Tools Not Working](#tools-not-working)
   - [Git Not Found](#git-not-found)
   - [Git Sync Issues (Cloud Mode)](#git-sync-issues-cloud-mode)
-  - [Thread folder inside code repo](#thread-folder-inside-code-repo)
-  - [Ball Not Flipping](#ball-not-flipping)
-  - [Server Crashes or Hangs](#server-crashes-or-hangs)
-  - [Format Parameter Errors](#format-parameter-errors)
+- [Thread folder inside code repo](#thread-folder-inside-code-repo)
+- [Ball Not Flipping](#ball-not-flipping)
+- [Server Crashes or Hangs](#server-crashes-or-hangs)
+- [Format Parameter Errors](#format-parameter-errors)
+- [401 Unauthorized (Remote MCP)](#401-unauthorized-remote-mcp)
 - [Getting More Help](#getting-more-help)
 
 ---
@@ -400,7 +401,7 @@ Server resolves threads inside the code repository instead of the sibling `<repo
    ```
 
 2. **Create agents.json if missing**
-   See [docs/integration.md](./integration.md) for configuration guide.
+   See [docs/archive/integration.md](./archive/integration.md) for configuration guide.
 
 3. **Verify with read_thread**
    ```
@@ -457,7 +458,28 @@ Currently only markdown output is supported. JSON support is a deferred feature 
    ```
 
 2. **Check ROADMAP.md for status**
-   JSON support will be implemented if real-world usage demonstrates the need.
+JSON support will be implemented if real-world usage demonstrates the need.
+
+## 401 Unauthorized (Remote MCP)
+
+> Applies only to the archived remote/worker deployment. Local stdio mode does **not** use OAuth.
+
+### Symptom
+- Client shows "Unauthorized - No session" or cannot open `/sse`
+- FastMCP logs report `401 Unauthorized`
+
+### Causes
+- No OAuth cookie session or bearer token when hitting the worker endpoint
+- Attempted `?session=dev` while the dev session toggle is disabled (default in staging/production)
+
+### Solutions
+1. **Browser session:** visit `/auth/login` on the worker (CLI should pop it open) to complete OAuth.
+2. **Headless/token:** visit `/console` on the worker to generate a personal token, then connect with `Authorization: Bearer <token>`.
+3. **Dev session (only for testing):** set `ALLOW_DEV_SESSION="true"` on the worker and reconnect with `?session=dev`. Never enable this in production.
+
+### Verification
+- `watercooler_v1_whoami` returns a non-null `user_id` and `project_id`
+- Worker logs contain `session_validated` entries
 
 ## Getting More Help
 
@@ -510,8 +532,8 @@ Still stuck? Review these guides:
 - **[Environment Variables](./ENVIRONMENT_VARS.md)** - Complete configuration reference
 - **[Cloud Sync Guide](../.mothballed/docs/CLOUD_SYNC_GUIDE.md)** - Git sync setup and troubleshooting
 - **[MCP Server Guide](./mcp-server.md)** - Tool reference and usage examples
-- **[Claude Code Setup](./CLAUDE_CODE_SETUP.md)** - Claude Code specific configuration
-- **[Claude Desktop Setup](./CLAUDE_DESKTOP_SETUP.md)** - Claude Desktop specific configuration
+- **[Claude Code Setup](./archive/CLAUDE_CODE_SETUP.md)** - Claude Code specific configuration
+- **[Claude Desktop Setup](./archive/CLAUDE_DESKTOP_SETUP.md)** - Claude Desktop specific configuration
 
 ### 4. Report Issues
 

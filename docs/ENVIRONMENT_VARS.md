@@ -554,8 +554,8 @@ Title: {{TITLE}}
 ```
 
 **Related:**
-- See [TEMPLATES.md](./TEMPLATES.md) for template customization guide
-- See [integration.md](./integration.md) for Python API usage
+- See [archive/TEMPLATES.md](./archive/TEMPLATES.md) for template customization guide
+- See [archive/integration.md](./archive/integration.md) for Python API usage
 
 ---
 
@@ -605,7 +605,7 @@ Created: 2025-10-10T08:00:00Z
 ```
 
 **Related:**
-- See [integration.md](./integration.md#locking-configuration) for lock system details
+- See [archive/integration.md](./archive/integration.md#locking-configuration) for lock system details
 - See [FAQ.md](./FAQ.md) for lock behavior explanation
 
 ---
@@ -760,9 +760,9 @@ git pull
 - **[QUICKSTART.md](./QUICKSTART.md)** - Basic setup and configuration
 - **[MCP Server Guide](./mcp-server.md)** - MCP server documentation
 - **[CLOUD_SYNC_GUIDE.md](../.mothballed/docs/CLOUD_SYNC_GUIDE.md)** - Team collaboration setup
-- **[integration.md](./integration.md)** - Python library configuration
+- **[archive/integration.md](./archive/integration.md)** - Python library configuration
 - **[TROUBLESHOOTING.md](./TROUBLESHOOTING.md)** - Common issues and solutions
-- **[TEMPLATES.md](./TEMPLATES.md)** - Template customization
+- **[archive/TEMPLATES.md](./archive/TEMPLATES.md)** - Template customization
 
 ---
 

@@ -716,7 +716,7 @@ No manual conflict resolution needed! Both entries preserved in chronological or
    git config merge.ours.driver true
    git config core.hooksPath .githooks
    ```
-   See [.github/WATERCOOLER_SETUP.md](../.github/WATERCOOLER_SETUP.md)
+   See [.github/WATERCOOLER_SETUP.md](../../.github/WATERCOOLER_SETUP.md)
 
 5. **Regenerate Index After Merge**:
    ```bash
@@ -1351,5 +1351,5 @@ watercooler handoff pr-api-endpoint \
 - [STRUCTURED_ENTRIES.md](STRUCTURED_ENTRIES.md) - Detailed guide to roles, types, and entry format
 - [AGENT_REGISTRY.md](AGENT_REGISTRY.md) - Agent configuration and counterpart mappings
 - [TEMPLATES.md](TEMPLATES.md) - Customizing thread and entry templates
-- [.github/WATERCOOLER_SETUP.md](../.github/WATERCOOLER_SETUP.md) - Git configuration for collaboration
-- [README.md](../README.md) - Quick start and command reference
+- [.github/WATERCOOLER_SETUP.md](../../.github/WATERCOOLER_SETUP.md) - Git configuration for collaboration
+- [README.md](../../README.md) - Quick start and command reference

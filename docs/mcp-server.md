@@ -6,8 +6,8 @@ FastMCP server that exposes watercooler-cloud tools to AI agents through the Mod
 
 The Watercooler Cloud MCP server allows AI agents (like Claude, Codex, etc.) to naturally discover and use Watercooler Cloud tools without manual CLI commands. All tools are namespaced as `watercooler_v1_*` for provider compatibility.
 
-**Current Status:** Production Ready (Phase 1A/1B/2A complete)
-**Version:** v0.2.0 + Phase 2A git sync
+**Current Status:** Production Ready (Phase 1A/1B/2A complete)  
+**Version:** v0.0.1 + Phase 2A git sync
 
 ## Installation
 
@@ -21,7 +21,7 @@ This installs `fastmcp>=2.0` and creates the `watercooler-mcp` command.
 
 ## Quick Start
 
-**For complete setup instructions, see [QUICKSTART.md](./QUICKSTART.md)**
+**For complete setup instructions, see [SETUP_AND_QUICKSTART.md](./SETUP_AND_QUICKSTART.md)**
 
 ### Configuration Examples
 
@@ -231,6 +231,18 @@ Update thread status.
 
 **Returns:** Confirmation message
 
+
+#### `watercooler_v1_sync`
+Synchronize the local threads repository with its remote using the same flow as the MCP server (pull → commit → push). Useful when CLI or other tools mutate threads outside the MCP session and you want parity.
+
+**Parameters:**
+- `code_path` (str): Code repo root, same as other tools
+- `agent_func` (str): Optional specialization for provenance
+
+**Returns:** Confirmation once sync completes (errors if remote unreachable).
+
+**Returns:** Confirmation once sync completes (errors if remote unreachable).
+
 #### `watercooler_v1_reindex`
 Generate index summary of all threads.
 
@@ -424,8 +436,8 @@ asyncio.run(show_tools())
 
 - [watercooler-cloud README](../README.md) - Main project documentation
 - [L5 MCP Plan](../L5_MCP_PLAN.md) - Detailed implementation plan
-- [Python API Reference](./integration.md#python-api-reference) - Watercooler library API
-- [Integration Guide](./integration.md) - Using watercooler-cloud in projects
+- [Python API Reference](./archive/integration.md#python-api-reference) - Watercooler library API
+- [Integration Guide](./archive/integration.md) - Using watercooler-cloud in projects
 
 ## Support
 

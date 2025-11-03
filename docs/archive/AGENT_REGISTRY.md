@@ -664,4 +664,4 @@ watercooler --threads-dir "$THREADS_DIR" say topic --agents-file agents.json --a
 
 - [STRUCTURED_ENTRIES.md](STRUCTURED_ENTRIES.md) - Agent roles and entry types
 - [TEMPLATES.md](TEMPLATES.md) - Template customization
-- [README.md](../README.md) - General usage
+- [README.md](../../README.md) - General usage

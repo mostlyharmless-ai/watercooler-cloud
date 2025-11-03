@@ -431,7 +431,12 @@ def _build_sync_manager(ctx: ThreadContext) -> Optional[GitSyncManager]:
         # Clear any stale cache entry for this directory (repo URL changed)
         stale_keys = [k for k in _SYNC_MANAGER_CACHE if k[0] == key[0]]
         for stale in stale_keys:
-            _SYNC_MANAGER_CACHE.pop(stale, None)
+            old_manager = _SYNC_MANAGER_CACHE.pop(stale, None)
+            if old_manager is not None:
+                try:
+                    old_manager.shutdown()
+                except Exception:
+                    pass
 
         author, email = _get_git_identity()
         ssh_key = _get_git_ssh_key()

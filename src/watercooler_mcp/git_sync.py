@@ -447,11 +447,9 @@ class GitSyncManager:
             self._log(f"Clone completed successfully")
         except GitCommandError as e:
             # Check if we should attempt provisioning
-            error_text = str(e).lower()
-            if self._provision_enabled and self._remote_allowed:
-                if "repository not found" in error_text or ("repository" in error_text and "not found" in error_text):
-                    self._handle_provisioning_clone_gitpython(e)
-                    return
+            if self._should_attempt_provision(e):
+                self._handle_provisioning_clone_gitpython(e)
+                return
             message = f"Failed to clone {self.repo_url}: {e}"
             raise GitSyncError(message) from e
         except Exception as e:
@@ -480,7 +478,9 @@ class GitSyncManager:
             return False
         if "repository not found" in text:
             return True
-        return "repository" in text and "not found" in text
+        if "repository" in text and "not found" in text:
+            return True
+        return "repository" in text and "does not exist" in text
 
     def _handle_provisioning_clone(self, error: subprocess.CalledProcessError) -> None:
         if not self._remote_allowed or not self._provision_enabled:
@@ -531,6 +531,45 @@ class GitSyncManager:
                     or "Provisioned threads repo but bootstrap failed"
                 )
                 raise GitSyncError(message) from bootstrap_exc
+
+    def _handle_provisioning_clone_gitpython(self, error: GitCommandError) -> None:
+        """Handle provisioning when GitPython reports a missing repository."""
+        if not self._remote_allowed or not self._provision_enabled:
+            self._bootstrap_local_repo()
+            return
+
+        try:
+            output = provision_threads_repo(
+                repo_url=self.repo_url,
+                slug=self.threads_slug,
+                code_repo=self.code_repo,
+                env=self._env,
+            )
+            if output:
+                self._last_provision_output = output
+        except ProvisioningError as provision_error:
+            message = (
+                f"Failed to clone {self.repo_url}; auto-provision attempt aborted: "
+                f"{provision_error}"
+            )
+            raise GitSyncError(message) from provision_error
+
+        # After provisioning, retry clone. If it still fails, bootstrap locally.
+        try:
+            with git.Git().custom_environment(**self._env):
+                Repo.clone_from(
+                    self.repo_url,
+                    self.local_path,
+                    env=self._env,
+                )
+            return
+        except GitCommandError as retry_error:
+            message = str(retry_error)
+            if message:
+                self._last_provision_output = (
+                    (self._last_provision_output or "") + "\n" + message
+                ).strip()
+            self._bootstrap_local_repo()
 
     def _bootstrap_local_repo(self) -> None:
         """Initialize local git repository using GitPython (no subprocess)."""

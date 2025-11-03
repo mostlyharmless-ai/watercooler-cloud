@@ -21,3 +21,10 @@ def test_handoff_flips_ball(tmp_path: Path):
     assert "Ball: Claude" in s or "Ball: claude" in s
     assert "please take a look" in s
 
+
+def test_handoff_initialises_missing_thread(tmp_path: Path):
+    cp = run_cli("handoff", "brand-new-topic", "--threads-dir", str(tmp_path), "--agent", "codex")
+    assert cp.returncode == 0
+    content = (tmp_path / "brand-new-topic.md").read_text(encoding="utf-8")
+    assert "Handoff to Claude" in content
+    assert "Ball: Claude" in content or "Ball: claude" in content

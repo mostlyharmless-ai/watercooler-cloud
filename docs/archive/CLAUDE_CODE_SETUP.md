@@ -370,9 +370,9 @@ After setup:
 ## Related Documentation
 
 - **[MCP Server Guide](./mcp-server.md)** - Complete tool documentation
-- **[Project Roadmap](../ROADMAP.md)** - Phase status and future plans
+- **[Project Roadmap](../../ROADMAP.md)** - Phase status and future plans
 - **[Testing Results](./archive/TESTING_RESULTS_PHASE1A.md)** - Phase 1A validation (historical)
-- **[Implementation Plan](../L5_MCP_PLAN.md)** - Technical details and timeline
+- **[Implementation Plan](../../L5_MCP_PLAN.md)** - Technical details and timeline
 
 ## Support
 

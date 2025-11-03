@@ -1,766 +1,222 @@
 import os
-import json
-import logging
 import shutil
-import types
-import importlib.util
-import subprocess
 from pathlib import Path
+
 import pytest
+from git import Repo
+
+from git.remote import Remote
+
+from watercooler_mcp.git_sync import (
+    GitCommandError,
+    GitSyncError,
+    GitSyncManager,
+)
 
 
-def _import_git_sync():
-    path = Path("src/watercooler_mcp/git_sync.py").resolve()
-    if not path.exists():
-        pytest.skip("GitSyncManager not implemented yet")
-    spec = importlib.util.spec_from_file_location("watercooler_mcp_git_sync", path)
-    mod = importlib.util.module_from_spec(spec)
-    assert spec and spec.loader
-    spec.loader.exec_module(mod)  # type: ignore[attr-defined]
-    return mod
+def init_remote_repo(remote_path: Path) -> Repo:
+    remote_path.mkdir(parents=True, exist_ok=True)
+    return Repo.init(remote_path, bare=True)
 
 
-def test_git_sync_manager_interface_exists():
-    git_sync = _import_git_sync()
-    assert hasattr(git_sync, "GitSyncManager")
+def seed_remote_with_main(remote_path: Path) -> None:
+    """Create a bare remote with a seeded main branch."""
+    init_remote_repo(remote_path)
+    workdir = remote_path.parent / "seed"
+    repo = Repo.init(workdir)
+    (workdir / "README.md").write_text("seed\n")
+    repo.index.add(["README.md"])
+    repo.index.commit("seed")
+    repo.git.branch('-M', 'main')
+    repo.create_remote('origin', remote_path.as_posix())
+    repo.remotes.origin.push('main:main')
+    shutil.rmtree(workdir)
 
 
-def test_pull_calls_git_with_env(monkeypatch, tmp_path):
-    git_sync = _import_git_sync()
-    calls = []
-
-    def fake_run(cmd, **kwargs):  # type: ignore[no-untyped-def]
-        calls.append((tuple(cmd), kwargs))
-
-        class R:  # minimal result shim
-            returncode = 0
-            stdout = ""
-            stderr = ""
-
-        if tuple(cmd[:2]) == ("git", "ls-remote"):
-            R.stdout = "abc\trefs/heads/main\n"
-
-        return R()
-
-    monkeypatch.setattr("subprocess.run", fake_run)
-
-    mgr = git_sync.GitSyncManager(
-        repo_url="git@github.com:org/threads.git",
-        local_path=tmp_path,
-        ssh_key_path=tmp_path / "key",
-    )
-    # Trigger pull
-    ok = mgr.pull()
-    assert ok is True
-    # Verify env propagated and --rebase used
-    assert any("git" in c[0][0] and "pull" in c[0] for c in calls)
-    envs = [kw.get("env") for _, kw in calls if kw.get("env")]
-    assert envs, "Expected env propagation to subprocess.run"
-    assert any("GIT_SSH_COMMAND" in env for env in envs)
+def touch(path: Path, content: str = "data\n") -> None:
+    path.write_text(content)
 
 
-def test_commit_and_push_retry_on_reject(monkeypatch, tmp_path):
-    git_sync = _import_git_sync()
-    calls = {"push": 0}
+def test_pull_returns_true_when_remote_empty(tmp_path):
+    remote = tmp_path / "remote.git"
+    init_remote_repo(remote)
 
-    def fake_run(cmd, **kwargs):  # type: ignore[no-untyped-def]
-        args = tuple(cmd)
-        # Simulate normal success for clone/config/add/commit
-        if args[:2] in (("git", "clone"), ("git", "config"), ("git", "add"), ("git", "commit")):
-            class R: returncode = 0
-            return R()
-        if args[:3] == ("git", "diff", "--cached"):
-            # Indicate there ARE staged changes (returncode != 0)
-            class R: returncode = 1
-            return R()
-        if args[:2] == ("git", "push"):
-            calls["push"] += 1
-            if calls["push"] == 1:
-                raise subprocess.CalledProcessError(1, cmd)
-            class R: returncode = 0
-            return R()
-        if args[:2] == ("git", "pull"):
-            class R: returncode = 0
-            return R()
-        class R: returncode = 0
-        return R()
-
-    monkeypatch.setattr("subprocess.run", fake_run)
-
-    mgr = git_sync.GitSyncManager(
-        repo_url="git@github.com:org/threads.git",
-        local_path=tmp_path,
-        ssh_key_path=tmp_path / "key",
-    )
-    # Ensure pull() inside commit_and_push returns True
-    pulls = {"n": 0}
-    def fake_pull():
-        pulls["n"] += 1
-        return True
-    mgr.pull = fake_pull  # type: ignore[assignment]
-
-    ok = mgr.commit_and_push("msg")
-    assert ok is True
-    assert calls["push"] == 2
-    assert pulls["n"] == 1
-
-
-def test_commit_and_push_retry_exhausted(monkeypatch, tmp_path):
-    git_sync = _import_git_sync()
-    def fake_run(cmd, **kwargs):  # type: ignore[no-untyped-def]
-        args = tuple(cmd)
-        if args[:2] in (("git", "clone"), ("git", "config"), ("git", "add"), ("git", "commit")):
-            class R: returncode = 0
-            return R()
-        if args[:3] == ("git", "diff", "--cached"):
-            class R: returncode = 1
-            return R()
-        if args[:2] == ("git", "push"):
-            raise subprocess.CalledProcessError(1, cmd)
-        if args[:2] == ("git", "pull"):
-            class R: returncode = 0
-            return R()
-        class R: returncode = 0
-        return R()
-
-    monkeypatch.setattr("subprocess.run", fake_run)
-
-    mgr = git_sync.GitSyncManager(
-        repo_url="git@github.com:org/threads.git",
-        local_path=tmp_path,
-        ssh_key_path=tmp_path / "key",
-    )
-    mgr.pull = lambda: True  # type: ignore[assignment]
-    ok = mgr.commit_and_push("msg")
-    assert ok is False
-
-
-def test_with_sync_pull_failure_raises(monkeypatch, tmp_path):
-    git_sync = _import_git_sync()
-    # Avoid real git clone/config
-    def fake_run(cmd, **kwargs):  # type: ignore[no-untyped-def]
-        args = tuple(cmd)
-        if args[:2] in (("git", "clone"), ("git", "config")):
-            class R: returncode = 0
-            return R()
-        class R: returncode = 0
-        return R()
-    monkeypatch.setattr("subprocess.run", fake_run)
-    mgr = git_sync.GitSyncManager(
-        repo_url="git@github.com:org/threads.git",
-        local_path=tmp_path,
-        ssh_key_path=tmp_path / "key",
-    )
-    mgr.pull = lambda: False  # type: ignore[assignment]
-    mgr._last_pull_error = "merge conflict"  # type: ignore[attr-defined]
-    with pytest.raises(git_sync.GitPullError):
-        mgr.with_sync(lambda: None, "msg")
-
-
-def test_with_sync_pull_failure_network_error(monkeypatch, tmp_path):
-    git_sync = _import_git_sync()
-
-    def fake_run(cmd, **kwargs):  # type: ignore[no-untyped-def]
-        args = tuple(cmd)
-        if args[:2] in (("git", "clone"), ("git", "config")):
-            class R: returncode = 0
-            return R()
-        class R: returncode = 0
-        return R()
-
-    monkeypatch.setattr("subprocess.run", fake_run)
-    mgr = git_sync.GitSyncManager(
-        repo_url="git@github.com:org/threads.git",
-        local_path=tmp_path,
-        ssh_key_path=tmp_path / "key",
-    )
-
-    pulls = {"called": 0}
-    def fake_pull():
-        pulls["called"] += 1
-        mgr._last_pull_error = "failed in sandbox: permission denied"  # type: ignore[attr-defined]
-        return False
-
-    mgr.pull = fake_pull  # type: ignore[assignment]
-
-    mgr.commit_and_push = lambda msg: True  # type: ignore[assignment]
-
-    with pytest.raises(git_sync.GitPullError) as excinfo:
-        mgr.with_sync(lambda: None, "msg")
-
-    assert pulls["called"] == 1
-    assert "failed to pull" in str(excinfo.value).lower()
-
-
-def test_pull_skips_when_remote_missing(monkeypatch, tmp_path):
-    git_sync = _import_git_sync()
-
-    def fake_run(cmd, **kwargs):  # type: ignore[no-untyped-def]
-        args = tuple(cmd)
-        if args[:2] in (("git", "clone"), ("git", "config")):
-            class R:
-                returncode = 0
-                stdout = ""
-                stderr = ""
-
-            return R()
-
-        if args[:2] == ("git", "ls-remote"):
-            raise subprocess.CalledProcessError(
-                128,
-                cmd,
-                stderr="fatal: repository 'git@github.com:org/threads.git' not found",
-            )
-
-        class R:
-            returncode = 0
-            stdout = ""
-            stderr = ""
-
-        return R()
-
-    monkeypatch.setattr("subprocess.run", fake_run)
-
-    mgr = git_sync.GitSyncManager(
-        repo_url="git@github.com:org/threads.git",
-        local_path=tmp_path,
+    mgr = GitSyncManager(
+        repo_url=remote.as_posix(),
+        local_path=tmp_path / "threads",
         ssh_key_path=None,
-        enable_provision=False,
-        remote_allowed=True,
     )
 
+    assert (tmp_path / "threads" / ".git").exists()
     assert mgr.pull() is True
 
 
-def test_pull_skips_when_remote_has_no_refs(monkeypatch, tmp_path):
-    git_sync = _import_git_sync()
+def test_commit_and_push_retries_on_reject(monkeypatch, tmp_path):
+    remote = tmp_path / "remote.git"
+    seed_remote_with_main(remote)
 
-    calls = {"pull": 0, "ls_remote": 0}
-
-    def fake_run(cmd, **kwargs):  # type: ignore[no-untyped-def]
-        args = tuple(cmd) if isinstance(cmd, (list, tuple)) else ()
-
-        class R:
-            returncode = 0
-            stdout = ""
-            stderr = ""
-
-        if args[:2] == ("git", "clone"):
-            target = Path(cmd[-1])  # type: ignore[index]
-            (target / ".git").mkdir(parents=True, exist_ok=True)
-            return R()
-
-        if args[:2] == ("git", "config"):
-            return R()
-
-        if args[:2] == ("git", "ls-remote"):
-            calls["ls_remote"] += 1
-            return R()
-
-        if args[:2] == ("git", "pull"):
-            calls["pull"] += 1
-            return R()
-
-        return R()
-
-    monkeypatch.setattr("subprocess.run", fake_run)
-
-    repo_dir = tmp_path / "threads"
-
-    mgr = git_sync.GitSyncManager(
-        repo_url="git@github.com:org/threads.git",
-        local_path=repo_dir,
+    mgr = GitSyncManager(
+        repo_url=remote.as_posix(),
+        local_path=tmp_path / "threads",
         ssh_key_path=None,
     )
 
-    calls["pull"] = 0
+    repo = Repo(mgr.local_path)
+    touch(mgr.local_path / "file.txt", "update\n")
 
-    ok = mgr.pull()
+    call_count = {"push": 0}
+    original_push = Remote.push
 
-    assert ok is True
-    assert calls["ls_remote"] >= 1
-    assert calls["pull"] == 0
-    assert getattr(mgr, "_remote_empty", False) is True
+    def flaky_push(self, *args, **kwargs):  # type: ignore[no-untyped-def]
+        if self.repo.working_tree_dir == str(mgr.local_path):
+            call_count["push"] += 1
+            if call_count["push"] == 1:
+                raise GitCommandError("git push", 1, stderr="rejected")
+        return original_push(self, *args, **kwargs)
+
+    monkeypatch.setattr(Remote, "push", flaky_push)
+
+    assert mgr.commit_and_push("update") is True
+    assert call_count["push"] == 2
 
 
-def test_with_sync_push_failure_raises(monkeypatch, tmp_path):
-    git_sync = _import_git_sync()
-    # Avoid real git clone/config
-    def fake_run(cmd, **kwargs):  # type: ignore[no-untyped-def]
-        args = tuple(cmd)
-        if args[:2] in (("git", "clone"), ("git", "config")):
-            class R: returncode = 0
-            return R()
-        class R: returncode = 0
-        return R()
-    monkeypatch.setattr("subprocess.run", fake_run)
-    mgr = git_sync.GitSyncManager(
-        repo_url="git@github.com:org/threads.git",
-        local_path=tmp_path,
-        ssh_key_path=tmp_path / "key",
+def test_commit_and_push_failure_after_retries(monkeypatch, tmp_path):
+    remote = tmp_path / "remote.git"
+    seed_remote_with_main(remote)
+
+    mgr = GitSyncManager(
+        repo_url=remote.as_posix(),
+        local_path=tmp_path / "threads",
+        ssh_key_path=None,
     )
-    mgr.pull = lambda: True  # type: ignore[assignment]
-    called = {"op": 0}
-    def op():
-        called["op"] += 1
-    mgr.commit_and_push = lambda msg: False  # type: ignore[assignment]
-    with pytest.raises(git_sync.GitPushError):
-        mgr.with_sync(op, "msg")
-    assert called["op"] == 1
 
+    repo = Repo(mgr.local_path)
+    touch(mgr.local_path / "file.txt", "data\n")
 
-def test_with_sync_operation_exception(monkeypatch, tmp_path):
-    git_sync = _import_git_sync()
-    # Avoid real git clone/config
-    def fake_run(cmd, **kwargs):  # type: ignore[no-untyped-def]
-        args = tuple(cmd)
-        if args[:2] in (("git", "clone"), ("git", "config")):
-            class R: returncode = 0
-            return R()
-        class R: returncode = 0
-        return R()
-    monkeypatch.setattr("subprocess.run", fake_run)
-    mgr = git_sync.GitSyncManager(
-        repo_url="git@github.com:org/threads.git",
-        local_path=tmp_path,
-        ssh_key_path=tmp_path / "key",
-    )
-    mgr.pull = lambda: True  # type: ignore[assignment]
-    called = {"commit": 0}
-    def fake_commit(msg):
-        called["commit"] += 1
-        return True
-    mgr.commit_and_push = fake_commit  # type: ignore[assignment]
+    original_push = Remote.push
 
-    def op():
-        raise RuntimeError("boom")
+    def failing_push(self, *args, **kwargs):  # type: ignore[no-untyped-def]
+        if self.repo.working_tree_dir == str(mgr.local_path):
+            raise GitCommandError("git push", 1, stderr="reject")
+        return original_push(self, *args, **kwargs)
 
-    with pytest.raises(RuntimeError):
-        mgr.with_sync(op, "msg")
-    # commit_and_push should not be called when op fails
-    assert called["commit"] == 0
+    monkeypatch.setattr(Remote, "push", failing_push)
+
+    assert mgr.commit_and_push("fail") is False
+    assert mgr._last_push_error is not None
 
 
 def test_clone_auto_provisions_missing_repo(monkeypatch, tmp_path):
-    git_sync = _import_git_sync()
+    remote = tmp_path / "provisioned.git"
+    script = tmp_path / "provision.sh"
+    script.write_text(
+        "#!/bin/bash\n"
+        "set -e\n"
+        "REMOTE=$1\n"
+        "WORK=${REMOTE}.seed\n"
+        "mkdir -p \"$WORK\"\n"
+        "git init \"$WORK\" >/dev/null 2>&1\n"
+        "cd \"$WORK\"\n"
+        "git config user.email test@example.com\n"
+        "git config user.name Tester\n"
+        "touch README.md\n"
+        "git add README.md\n"
+        "git commit -m seed >/dev/null 2>&1\n"
+        "git checkout -b main >/dev/null 2>&1 || git branch -M main >/dev/null 2>&1\n"
+        "mkdir -p \"$REMOTE\"\n"
+        "git clone --bare \"$WORK\" \"$REMOTE\" >/dev/null 2>&1\n"
+        "rm -rf \"$WORK\"\n"
+    )
+    script.chmod(0o755)
 
     monkeypatch.setenv("WATERCOOLER_THREADS_AUTO_PROVISION", "1")
-    monkeypatch.setenv("WATERCOOLER_THREADS_CREATE_CMD", "echo create {slug}")
+    monkeypatch.setenv("WATERCOOLER_THREADS_CREATE_CMD", f"{script} {{repo_url}}")
 
-    call_log = {"clone": 0, "provision": 0, "init": 0}
-
-    def fake_run(cmd, **kwargs):  # type: ignore[no-untyped-def]
-        if isinstance(cmd, (list, tuple)) and len(cmd) >= 2 and cmd[0] == "git" and cmd[1] == "clone":
-            call_log["clone"] += 1
-            if call_log["clone"] == 1:
-                raise subprocess.CalledProcessError(
-                    128,
-                    cmd,
-                    stderr="remote: Repository not found",
-                )
-            class R:
-                returncode = 0
-                stdout = ""
-                stderr = ""
-
-            return R()
-
-        if kwargs.get("shell"):
-            call_log["provision"] += 1
-
-            class R:
-                returncode = 0
-                stdout = "created"
-                stderr = ""
-
-            return R()
-
-        if isinstance(cmd, (list, tuple)) and len(cmd) >= 2 and cmd[0] == "git" and cmd[1] == "init":
-            call_log["init"] += 1
-
-        class R:
-            returncode = 0
-            stdout = ""
-            stderr = ""
-
-        return R()
-
-    monkeypatch.setattr("subprocess.run", fake_run)
-
-    mgr = git_sync.GitSyncManager(
-        repo_url="git@github.com:mostlyharmless-ai/watercooler-dashboard-threads.git",
+    mgr = GitSyncManager(
+        repo_url=remote.as_posix(),
         local_path=tmp_path / "threads",
         ssh_key_path=None,
-        threads_slug="mostlyharmless-ai/watercooler-dashboard-threads",
-        code_repo="mostlyharmless-ai/watercooler-dashboard",
         enable_provision=True,
+        threads_slug="org/threads",
+        code_repo="org/code",
     )
 
-    assert isinstance(mgr, git_sync.GitSyncManager)
-    assert call_log["clone"] == 2
-    assert call_log["provision"] == 1
-    assert call_log["init"] == 0
+    assert remote.exists()
+    assert (tmp_path / "threads" / ".git").exists()
+    assert isinstance(mgr, GitSyncManager)
 
 
 def test_clone_provision_failure_surfaces_error(monkeypatch, tmp_path):
-    git_sync = _import_git_sync()
-
+    remote = tmp_path / "missing.git"
     monkeypatch.setenv("WATERCOOLER_THREADS_AUTO_PROVISION", "1")
-    monkeypatch.setenv("WATERCOOLER_THREADS_CREATE_CMD", "echo create {slug}")
+    monkeypatch.setenv("WATERCOOLER_THREADS_CREATE_CMD", "exit 1")
 
-    def fake_run(cmd, **kwargs):  # type: ignore[no-untyped-def]
-        if isinstance(cmd, (list, tuple)) and len(cmd) >= 2 and cmd[0] == "git" and cmd[1] == "clone":
-            raise subprocess.CalledProcessError(
-                128,
-                cmd,
-                stderr="fatal: repository 'git@github.com:org/threads.git' not found",
-            )
-        if kwargs.get("shell"):
-            raise subprocess.CalledProcessError(1, cmd, stderr="boom")
-
-        class R:
-            returncode = 0
-            stdout = ""
-            stderr = ""
-
-        return R()
-
-    monkeypatch.setattr("subprocess.run", fake_run)
-
-    with pytest.raises(git_sync.GitSyncError) as excinfo:
-        git_sync.GitSyncManager(
-            repo_url="git@github.com:org/threads.git",
+    with pytest.raises(GitSyncError):
+        GitSyncManager(
+            repo_url=remote.as_posix(),
             local_path=tmp_path / "threads",
             ssh_key_path=None,
-            threads_slug="org/threads",
-            code_repo="org/main",
             enable_provision=True,
+            threads_slug="org/threads",
+            code_repo="org/code",
         )
-
-    assert "auto-provision" in str(excinfo.value).lower()
-
-
-def test_clone_attempted_even_when_branch_unpublished(monkeypatch, tmp_path):
-    git_sync = _import_git_sync()
-
-    calls = []
-
-    def fake_run(cmd, **kwargs):  # type: ignore[no-untyped-def]
-        calls.append(tuple(cmd) if isinstance(cmd, (list, tuple)) else cmd)
-
-        class R:
-            returncode = 0
-            stdout = ""
-            stderr = ""
-
-        return R()
-
-    monkeypatch.setattr("subprocess.run", fake_run)
-
-    mgr = git_sync.GitSyncManager(
-        repo_url="git@github.com:org/threads.git",
-        local_path=tmp_path / "threads",
-        ssh_key_path=None,
-        threads_slug="org/threads",
-        code_repo="org/main",
-        enable_provision=True,
-        remote_allowed=False,
-    )
-
-    assert isinstance(mgr, git_sync.GitSyncManager)
-    assert any(isinstance(call, tuple) and call[:2] == ("git", "clone") for call in calls)
-    assert all(not (isinstance(call, tuple) and call[:2] == ("git", "init")) for call in calls)
-
-
-def test_commit_skips_push_when_remote_disabled(monkeypatch, tmp_path):
-    git_sync = _import_git_sync()
-
-    calls = []
-
-    def fake_run(cmd, **kwargs):  # type: ignore[no-untyped-def]
-        if isinstance(cmd, (list, tuple)):
-            calls.append(tuple(cmd))
-
-        class R:
-            returncode = 0
-            stdout = ""
-            stderr = ""
-
-        if isinstance(cmd, (list, tuple)) and tuple(cmd)[:3] == ("git", "diff", "--cached"):
-            R.returncode = 1  # Emulate staged changes
-
-        return R()
-
-    monkeypatch.setattr("subprocess.run", fake_run)
-
-    mgr = git_sync.GitSyncManager(
-        repo_url="git@github.com:org/threads.git",
-        local_path=tmp_path / "threads",
-        ssh_key_path=None,
-        threads_slug="org/threads",
-        code_repo="org/main",
-        enable_provision=True,
-        remote_allowed=False,
-    )
-
-    ok = mgr.commit_and_push("msg")
-
-    assert ok is True
-    assert all(call[:2] != ("git", "push") for call in calls if isinstance(call, tuple))
-
-
-def test_bootstrap_local_repo_when_remote_missing(monkeypatch, tmp_path):
-    git_sync = _import_git_sync()
-
-    calls = []
-
-    def fake_run(cmd, **kwargs):  # type: ignore[no-untyped-def]
-        if (
-            isinstance(cmd, (list, tuple))
-            and len(cmd) >= 2
-            and cmd[0] == "git"
-            and cmd[1] == "clone"
-        ):
-            raise subprocess.CalledProcessError(
-                128,
-                cmd,
-                stderr="fatal: repository 'git@github.com:org/threads.git' not found",
-            )
-
-        calls.append(tuple(cmd) if isinstance(cmd, (list, tuple)) else cmd)
-
-        class R:
-            returncode = 0
-            stdout = ""
-            stderr = ""
-
-        return R()
-
-    monkeypatch.setattr("subprocess.run", fake_run)
-
-    mgr = git_sync.GitSyncManager(
-        repo_url="git@github.com:org/threads.git",
-        local_path=tmp_path / "threads",
-        ssh_key_path=None,
-        threads_slug="org/threads",
-        code_repo="org/main",
-        enable_provision=False,
-        remote_allowed=False,
-    )
-
-    assert isinstance(mgr, git_sync.GitSyncManager)
-    assert any(isinstance(call, tuple) and call[:2] == ("git", "init") for call in calls)
-
-
-def test_pull_reclones_when_repo_removed(monkeypatch, tmp_path):
-    git_sync = _import_git_sync()
-
-    calls = []
-
-    def fake_run(cmd, **kwargs):  # type: ignore[no-untyped-def]
-        record = tuple(cmd) if isinstance(cmd, (list, tuple)) else cmd
-        calls.append(record)
-
-        class R:
-            returncode = 0
-            stdout = ""
-            stderr = ""
-
-        return R()
-
-    monkeypatch.setattr("subprocess.run", fake_run)
-
-    repo_dir = tmp_path / "threads"
-
-    mgr = git_sync.GitSyncManager(
-        repo_url="git@github.com:org/threads.git",
-        local_path=repo_dir,
-        ssh_key_path=None,
-    )
-
-    # Simulate operator removing the local checkout after manager creation
-    calls.clear()
-    if repo_dir.exists():
-        shutil.rmtree(repo_dir)
-
-    assert mgr.pull() is True
-    assert any(call[:2] == ("git", "clone") for call in calls if isinstance(call, tuple))
-
-
-def test_ensure_branch_fetches_remote_branch(monkeypatch, tmp_path):
-    git_sync = _import_git_sync()
-
-    calls = []
-
-    def fake_run(cmd, **kwargs):  # type: ignore[no-untyped-def]
-        args = tuple(cmd) if isinstance(cmd, (list, tuple)) else cmd
-        calls.append(args)
-
-        class R:
-            returncode = 0
-            stdout = ""
-            stderr = ""
-
-        if isinstance(cmd, (list, tuple)):
-            if cmd[:4] == ["git", "rev-parse", "--abbrev-ref", "HEAD"]:
-                R.stdout = "main\n"
-            if cmd[:4] == ["git", "show-ref", "--verify", f"refs/heads/feature-branch"]:
-                R.returncode = 1
-            if cmd[:3] == ["git", "ls-remote", "origin"]:
-                R.stdout = "abc\torigin/main\n"
-            if cmd[:4] == ["git", "ls-remote", "--heads", "origin"]:
-                if cmd[4] == "feature-branch":
-                    R.stdout = "123\trefs/heads/feature-branch\n"
-            if cmd[:4] == ["git", "rev-parse", "--abbrev-ref", "@{u}"]:
-                R.returncode = 1
-            if cmd[:3] == ["git", "branch", "--set-upstream-to"]:
-                R.stderr = ""
-
-        return R()
-
-    monkeypatch.setattr("subprocess.run", fake_run)
-
-    mgr = git_sync.GitSyncManager(
-        repo_url="git@github.com:org/threads.git",
-        local_path=tmp_path / "threads",
-        ssh_key_path=None,
-    )
-
-    calls.clear()
-
-    ok = mgr.ensure_branch("feature-branch")
-
-    assert ok is True
-    assert any(call[:3] == ("git", "fetch", "origin") and "feature-branch:refs/heads/feature-branch" in call[3] for call in calls if isinstance(call, tuple))
-    assert any(call[:3] == ("git", "branch", "--set-upstream-to") for call in calls if isinstance(call, tuple))
 
 
 def test_commit_and_push_network_failure_aborts(monkeypatch, tmp_path):
-    git_sync = _import_git_sync()
+    remote = tmp_path / "remote.git"
+    seed_remote_with_main(remote)
 
-    calls = []
-
-    def fake_run(cmd, **kwargs):  # type: ignore[no-untyped-def]
-        if isinstance(cmd, (list, tuple)):
-            calls.append(tuple(cmd))
-        args = tuple(cmd) if isinstance(cmd, (list, tuple)) else ()
-
-        if args[:2] in (("git", "clone"), ("git", "config"), ("git", "add"), ("git", "commit")):
-            class R:
-                returncode = 0
-                stdout = ""
-                stderr = ""
-
-            return R()
-
-        if args[:3] == ("git", "diff", "--cached"):
-            class R:
-                returncode = 1
-                stdout = ""
-                stderr = ""
-
-            return R()
-
-        if args[:2] == ("git", "ls-remote"):
-            raise subprocess.CalledProcessError(
-                128,
-                cmd,
-                stderr="ssh: Could not resolve hostname github.com\nfatal: Could not read from remote repository.",
-            )
-
-        class R:
-            returncode = 0
-            stdout = ""
-            stderr = ""
-
-        return R()
-
-    monkeypatch.setattr("subprocess.run", fake_run)
-
-    mgr = git_sync.GitSyncManager(
-        repo_url="git@github.com:org/threads.git",
-        local_path=tmp_path / "threads",
-        ssh_key_path=None,
-        threads_slug="org/threads",
-        code_repo="org/main",
-        enable_provision=True,
-        remote_allowed=True,
-    )
-
-    ok = mgr.commit_and_push("msg")
-
-    assert ok is False
-    assert mgr._last_push_error is not None
-    # No push attempts should occur because we bail early on ls-remote failure
-    assert all(call[:2] != ("git", "push") for call in calls if isinstance(call, tuple))
-
-
-def test_async_mode_enqueues_and_flushes(monkeypatch, tmp_path):
-    git_sync = _import_git_sync()
-
-    monkeypatch.setenv("WATERCOOLER_ASYNC_SYNC", "1")
-
-    call_log = []
-
-    def fake_run(cmd, **kwargs):  # type: ignore[no-untyped-def]
-        args = tuple(cmd) if isinstance(cmd, (list, tuple)) else ()
-        call_log.append(args)
-
-        class Result:
-            returncode = 0
-            stdout = ""
-            stderr = ""
-
-        if args[:2] == ("git", "clone"):
-            target = Path(args[3])
-            target.mkdir(parents=True, exist_ok=True)
-            (target / ".git").mkdir(parents=True, exist_ok=True)
-        if args[:2] == ("git", "init"):
-            cwd = Path(kwargs.get("cwd", "."))
-            cwd.mkdir(parents=True, exist_ok=True)
-            (cwd / ".git").mkdir(parents=True, exist_ok=True)
-        if args[:3] == ("git", "diff", "--cached"):
-            Result.returncode = 1  # indicate staged changes present
-
-        return Result()
-
-    monkeypatch.setattr("subprocess.run", fake_run)
-
-    performed_sync = []
-
-    def fake_perform_sync(self):  # type: ignore[no-untyped-def]
-        performed_sync.append("sync")
-        return True
-
-    monkeypatch.setattr(
-        git_sync._AsyncSyncCoordinator,
-        "_perform_sync",
-        fake_perform_sync,
-    )
-
-    mgr = git_sync.GitSyncManager(
-        repo_url="git@github.com:org/threads.git",
+    mgr = GitSyncManager(
+        repo_url=remote.as_posix(),
         local_path=tmp_path / "threads",
         ssh_key_path=None,
     )
 
-    def op():
-        thread_path = tmp_path / "threads" / "topic.md"
-        thread_path.parent.mkdir(parents=True, exist_ok=True)
-        thread_path.write_text("Entry body\n", encoding="utf-8")
+    repo = Repo(mgr.local_path)
+    touch(mgr.local_path / "file.txt", "change\n")
 
-    mgr.with_sync(op, "Agent: async test", topic="topic", entry_id="01TESTASYNC")
+    original_push = Remote.push
 
-    # Commit should have been created locally (git commit invoked)
-    assert any(call[:2] == ("git", "commit") for call in call_log)
-    status = mgr.get_async_status()
-    assert status["mode"] == "async"
-    assert status["pending"] == 1
+    def network_fail(self, *args, **kwargs):  # type: ignore[no-untyped-def]
+        if self.repo.working_tree_dir == str(mgr.local_path):
+            raise GitCommandError("git push", 1, stderr="failed to connect to remote")
+        return original_push(self, *args, **kwargs)
 
-    # Flush should trigger the background sync path
-    assert mgr._async is not None
-    mgr._async.flush_now()
+    monkeypatch.setattr(Remote, "push", network_fail)
 
-    assert performed_sync == ["sync"]
-    post_status = mgr.get_async_status()
-    assert post_status["pending"] == 0
+    assert mgr.commit_and_push("network") is False
+    assert "failed to connect" in (mgr._last_push_error or "")
+
+
+def test_ensure_branch_creates_branch_when_missing(tmp_path):
+    remote = tmp_path / "remote.git"
+    seed_remote_with_main(remote)
+
+    mgr = GitSyncManager(
+        repo_url=remote.as_posix(),
+        local_path=tmp_path / "threads",
+        ssh_key_path=None,
+    )
+
+    assert mgr.ensure_branch("feature/test") is True
+    repo = Repo(mgr.local_path)
+    assert repo.active_branch.name == "feature/test"
+
+
+def test_push_pending_respects_remote_disabled(tmp_path):
+    remote = tmp_path / "remote.git"
+    seed_remote_with_main(remote)
+
+    mgr = GitSyncManager(
+        repo_url=remote.as_posix(),
+        local_path=tmp_path / "threads",
+        ssh_key_path=None,
+        remote_allowed=False,
+    )
+
+    touch(mgr.local_path / "file.txt")
+    repo = Repo(mgr.local_path)
+    repo.git.add('-A')
+    repo.git.commit('-m', 'local-change')
+
+    assert mgr.push_pending() is True

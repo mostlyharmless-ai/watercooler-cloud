@@ -46,3 +46,6 @@ def test_read_body_string_or_file(tmp_path: Path):
     p = tmp_path / "b.txt"
     write(p, "file body")
     assert read_body(str(p)) == "file body"
+    assert read_body(f"@{p}") == "file body"
+    missing = tmp_path / "missing.txt"
+    assert read_body(f"@{missing}") == f"@{missing}"

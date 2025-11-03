@@ -139,7 +139,7 @@ watercooler list --threads-dir "$THREADS_DIR"
 # 2025-10-07T10:00:00Z    open    codex        feature-auth    $THREADS_DIR/feature-auth.md
 ```
 
-See [README.md](../README.md) for complete CLI reference.
+See [README.md](../../README.md) for complete CLI reference.
 
 ---
 
@@ -523,7 +523,7 @@ index.md merge=ours
 
 This keeps thread entries from both sides during merges while allowing the index to regenerate cleanly after branch joins.
 
-See [Git Setup Guide](../.github/WATERCOOLER_SETUP.md) for detailed configuration.
+See [Git Setup Guide](../../.github/WATERCOOLER_SETUP.md) for detailed configuration.
 
 ---
 
@@ -571,9 +571,9 @@ Watercooler supports **git-based cloud sync** for distributed team collaboration
 
 > **Note**: Cloud sync features have been mothballed in favor of local-first architecture. See [SETUP_AND_QUICKSTART.md](./SETUP_AND_QUICKSTART.md) for current setup.
 
-- **[Cloud Sync Guide](../.mothballed/docs/CLOUD_SYNC_GUIDE.md)** - 5-minute setup walkthrough (archived)
-- **[Cloud Sync Strategy](../.mothballed/docs/CLOUD_SYNC_STRATEGY.md)** - Decision rationale and trade-offs (archived)
-- **[Cloud Sync Architecture](../.mothballed/docs/CLOUD_SYNC_ARCHITECTURE.md)** - Technical implementation details (archived)
+- **[Cloud Sync Guide](../../.mothballed/docs/CLOUD_SYNC_GUIDE.md)** - 5-minute setup walkthrough (archived)
+- **[Cloud Sync Strategy](../../.mothballed/docs/CLOUD_SYNC_STRATEGY.md)** - Decision rationale and trade-offs (archived)
+- **[Cloud Sync Architecture](../../.mothballed/docs/CLOUD_SYNC_ARCHITECTURE.md)** - Technical implementation details (archived)
 
 ---
 
@@ -786,7 +786,7 @@ CONFLICT (content): Merge conflict in threads/feature-auth.md
 **Solutions:**
 - Configure merge driver: `git config merge.ours.driver true`
 - Create `.gitattributes`: `*.md merge=union` and `index.md merge=ours`
-- See [Git Setup Guide](../.github/WATERCOOLER_SETUP.md)
+- See [Git Setup Guide](../../.github/WATERCOOLER_SETUP.md)
 
 ---
 
@@ -803,15 +803,15 @@ CONFLICT (content): Merge conflict in threads/feature-auth.md
 - [Templates Guide](TEMPLATES.md) - Template customization reference
 
 ### Cloud Sync (Archived)
-- [Cloud Sync Guide](../.mothballed/docs/CLOUD_SYNC_GUIDE.md) - User-facing setup walkthrough (archived)
-- [Cloud Sync Strategy](../.mothballed/docs/CLOUD_SYNC_STRATEGY.md) - Decision rationale (archived)
-- [Cloud Sync Architecture](../.mothballed/docs/CLOUD_SYNC_ARCHITECTURE.md) - Technical details (archived)
+- [Cloud Sync Guide](../../.mothballed/docs/CLOUD_SYNC_GUIDE.md) - User-facing setup walkthrough (archived)
+- [Cloud Sync Strategy](../../.mothballed/docs/CLOUD_SYNC_STRATEGY.md) - Decision rationale (archived)
+- [Cloud Sync Architecture](../../.mothballed/docs/CLOUD_SYNC_ARCHITECTURE.md) - Technical details (archived)
 
 ### Reference
 - [MCP Server Guide](./mcp-server.md) - MCP tool documentation
 - [Python API Reference](#python-api-reference) - Library usage summary
 - [Troubleshooting](./TROUBLESHOOTING.md) - Common issues and solutions
-- [Roadmap](../ROADMAP.md) - Project status and future plans
+- [Roadmap](../../ROADMAP.md) - Project status and future plans
 
 ### Community
 - [Use Cases Guide](USE_CASES.md) - Real-world examples
