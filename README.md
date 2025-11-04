@@ -2,6 +2,8 @@
 
 File-based collaboration protocol for agentic coding projects.
 
+> **Landing Page:** The official website is maintained in a separate repository at [watercooler-site](https://github.com/mostlyharmless-ai/watercooler-site)
+
 ## Local MCP Quickstart (Recommended)
 
 Run the MCP server locally and sync threads to a dedicated GitHub repo. This is the default workflow for small teams.
