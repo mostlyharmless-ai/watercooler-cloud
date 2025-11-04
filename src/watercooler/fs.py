@@ -76,9 +76,17 @@ def lock_path_for_topic(topic: str, threads_dir: Path) -> Path:
     return threads_dir / f".{safe}.lock"
 
 
-def read_body(maybe_path: str | None) -> str:
+def read_body(maybe_path: str | Path | None) -> str:
     if not maybe_path:
         return ""
+
+    # Handle Path objects directly
+    if isinstance(maybe_path, Path):
+        if maybe_path.exists() and maybe_path.is_file():
+            return read(maybe_path)
+        return ""
+
+    # Handle string paths
     text = maybe_path.strip()
     if not text:
         return ""
