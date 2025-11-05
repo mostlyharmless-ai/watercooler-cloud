@@ -21,7 +21,7 @@ One-line command (context-aware, no per‑project config):
 ```bash
 claude mcp add --transport stdio watercooler-cloud --scope user \
   -e WATERCOOLER_AGENT="Claude@Code" \
-  -e WATERCOOLER_THREADS_PATTERN="git@github.com:{org}/{repo}-threads.git" \
+  -e WATERCOOLER_THREADS_PATTERN="https://github.com/{org}/{repo}-threads.git" \
   -e WATERCOOLER_AUTO_BRANCH=1 \
   -- python3 -m watercooler_mcp
 ```
@@ -30,7 +30,7 @@ Alternate (guarantee latest code from this repo file):
 ```bash
 claude mcp add --transport stdio watercooler-cloud --scope user \
   -e WATERCOOLER_AGENT="Claude@Code" \
-  -e WATERCOOLER_THREADS_PATTERN="git@github.com:{org}/{repo}-threads.git" \
+  -e WATERCOOLER_THREADS_PATTERN="https://github.com/{org}/{repo}-threads.git" \
   -e WATERCOOLER_AUTO_BRANCH=1 \
   -- python3 /path/to/watercooler-cloud/src/watercooler_mcp/server.py
 ```

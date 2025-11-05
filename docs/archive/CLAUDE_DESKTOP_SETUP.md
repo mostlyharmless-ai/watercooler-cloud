@@ -29,7 +29,7 @@ Using `fastmcp`:
 fastmcp install claude-desktop src/watercooler_mcp/server.py \
   --server-name "Watercooler" \
   --env WATERCOOLER_AGENT="Claude@Desktop" \
-  --env WATERCOOLER_THREADS_PATTERN="git@github.com:{org}/{repo}-threads.git" \
+  --env WATERCOOLER_THREADS_PATTERN="https://github.com/{org}/{repo}-threads.git" \
   --env WATERCOOLER_AUTO_BRANCH=1
 ```
 
@@ -44,7 +44,7 @@ Or edit the Desktop config manually (
       "args": ["-m", "watercooler_mcp"],
       "env": {
         "WATERCOOLER_AGENT": "Claude@Desktop",
-        "WATERCOOLER_THREADS_PATTERN": "git@github.com:{org}/{repo}-threads.git",
+        "WATERCOOLER_THREADS_PATTERN": "https://github.com/{org}/{repo}-threads.git",
         "WATERCOOLER_AUTO_BRANCH": "1"
       }
     }
@@ -68,7 +68,7 @@ Claude Desktop lets you specify environment variables in the MCP registration. M
       "args": ["-m", "watercooler_mcp"],
       "env": {
         "WATERCOOLER_AGENT": "Claude@Desktop",
-        "WATERCOOLER_THREADS_PATTERN": "git@github.com:{org}/{repo}-threads.git",
+        "WATERCOOLER_THREADS_PATTERN": "https://github.com/{org}/{repo}-threads.git",
         "WATERCOOLER_AUTO_BRANCH": "1"
       }
     }
@@ -231,7 +231,7 @@ If you have multiple Python environments, specify the full path:
       "args": ["-m", "watercooler_mcp"],
       "env": {
         "WATERCOOLER_AGENT": "Claude@Desktop",
-        "WATERCOOLER_THREADS_PATTERN": "git@github.com:{org}/{repo}-threads.git",
+        "WATERCOOLER_THREADS_PATTERN": "https://github.com/{org}/{repo}-threads.git",
         "WATERCOOLER_AUTO_BRANCH": "1"
       }
     }
@@ -257,7 +257,7 @@ If you use `uv` for package management:
           ],
           "env": {
             "WATERCOOLER_AGENT": "Claude@Desktop",
-            "WATERCOOLER_THREADS_PATTERN": "git@github.com:{org}/{repo}-threads.git",
+            "WATERCOOLER_THREADS_PATTERN": "https://github.com/{org}/{repo}-threads.git",
             "WATERCOOLER_AUTO_BRANCH": "1"
           }
         }
@@ -276,7 +276,7 @@ If your server needs to run in a specific project context:
       "command": "/path/to/watercooler-mcp",
       "env": {
         "WATERCOOLER_AGENT": "Claude@Desktop",
-        "WATERCOOLER_THREADS_PATTERN": "git@github.com:{org}/{repo}-threads.git",
+        "WATERCOOLER_THREADS_PATTERN": "https://github.com/{org}/{repo}-threads.git",
         "WATERCOOLER_AUTO_BRANCH": "1"
       },
       "cwd": "/path/to/project"
@@ -294,7 +294,7 @@ If your server needs to run in a specific project context:
 fastmcp install claude-desktop src/watercooler_mcp/server.py \
   --server-name "Watercooler" \
   --env WATERCOOLER_AGENT="Claude@Desktop" \
-  --env WATERCOOLER_THREADS_PATTERN="git@github.com:{org}/{repo}-threads.git" \
+  --env WATERCOOLER_THREADS_PATTERN="https://github.com/{org}/{repo}-threads.git" \
   --env WATERCOOLER_AUTO_BRANCH=1
 
 # Find command path
@@ -320,7 +320,7 @@ pip list | grep watercooler
       "args": ["-m", "watercooler_mcp"],
       "env": {
         "WATERCOOLER_AGENT": "Claude@Desktop",
-        "WATERCOOLER_THREADS_PATTERN": "git@github.com:{org}/{repo}-threads.git",
+        "WATERCOOLER_THREADS_PATTERN": "https://github.com/{org}/{repo}-threads.git",
         "WATERCOOLER_AUTO_BRANCH": "1"
       }
     }
