@@ -6,109 +6,97 @@ File-based collaboration protocol for agentic coding projects. Licensed under [A
 >
 > **New contributors:** Start with [CONTRIBUTING.md](./CONTRIBUTING.md) for setup and the Developer Certificate of Origin requirements.
 
-## How to get started? 
-### Two key steps: 
+## How to get started?
+### Two key steps
 
 <details>
-
-<summary> 1. Clone, install and start the server:</summary>
+<summary>1. Clone, install, and start the local server</summary>
 
 ```bash
 git clone https://github.com/mostlyharmless-ai/watercooler-cloud.git
 cd watercooler-cloud
 pip install -e .
+python -m watercooler_dashboard.local_app
 ```
-> **Note:** On Windows shells that expose `py` instead of `python3`, substitute `py -3 -m pip install -e .` (or `python -m pip ...`).
+
+Keep this terminal open while you use Watercooler; the dashboard serves at [http://127.0.0.1:8080](http://127.0.0.1:8080).  
+> **Windows tip:** if your shell exposes `py`, use `py -3 -m pip install -e .` (or `python -m pip …`).
 </details>
 
 <details>
+<summary>2. Configure MCP clients (Claude, Codex, …)</summary>
 
-<summary> 2. Install client configurations for Claude and Codex (or any MCP supported client):</summary>
-
-```bash
-# 1. Install with MCP extras
-python -m pip install -e ".[mcp]"
-
-# 2. Register the server with Claude Code (swap python/python3/py as needed)
-claude mcp add watercooler-cloud \
-  -e WATERCOOLER_AGENT="Claude@Code" \
-  -- python -m watercooler_mcp
-```
-For Windows use the helper script below: 
->  `./scripts/install-mcp.sh` (bash) or `./scripts/install-mcp.ps1` (PowerShell) for the same commands with argument prompts.
-
-Detailed documentation can be found here: `docs/SETUP_AND_QUICKSTART.md`
-
-
-### MCP Server (AI Agent Integration)
-
-Enable AI agents (Claude, Codex) to discover and use watercooler tools automatically:
+The editable install above already contains the MCP server. If you prefer the convenience bundle for scripts/tests, install the optional extra:
 
 ```bash
-# Install with MCP support
-python -m pip install -e ".[mcp]"
+python -m pip install -e ".[mcp]"  # optional convenience extra
 ```
 
-> If your system exposes `python3` or the Windows launcher `py`, replace the leading `python` with whichever command prints the correct Python 3 version (e.g., `python3 -m pip ...` or `py -m pip ...`).
+Set `WATERCOOLER_THREADS_PATTERN` to an HTTPS URL if you rely on Git Credential Manager / PAT auth:
 
-### Quick registration commands
+```bash
+export WATERCOOLER_THREADS_PATTERN="https://github.com/{org}/{repo}-threads.git"
+```
 
-- **macOS / Linux / Git Bash** – use the helper script (requires Bash):
+Choose one of the options below to register the MCP server with your client:
 
+<details>
+<summary>Helper scripts (prompt-driven)</summary>
+
+- macOS/Linux/Git Bash:
   ```bash
   ./scripts/install-mcp.sh
   ```
-
-- **Windows PowerShell** – run the PowerShell helper (handles quoting automatically):
-
+- Windows PowerShell:
   ```powershell
   ./scripts/install-mcp.ps1 -Python python -Agent "Claude@Code"
   ```
+  Override `-Python` with `py`/`python3` as needed; additional flags are documented at the top of the script.
+</details>
 
-  Override `-Python` with `py` or `python3` if needed. Additional flags are documented at the top of the script.
-  If the MCP server already exists, the script will emit a warning and continue.
-  Set `WATERCOOLER_THREADS_PATTERN` to an HTTPS URL if you prefer token/Git Credential Manager auth:
+<details>
+<summary>Claude CLI</summary>
 
-  ```powershell
-  setx WATERCOOLER_THREADS_PATTERN "https://github.com/{namespace}/{repo}-threads.git"
-  ```
+```bash
+claude mcp add --transport stdio watercooler-cloud --scope user \
+  -e WATERCOOLER_AGENT="Claude@Code" \
+  -e WATERCOOLER_THREADS_PATTERN="https://github.com/{org}/{repo}-threads.git" \
+  -e WATERCOOLER_AUTO_BRANCH=1 \
+  -- python -m watercooler_mcp
+```
 
-- **Claude CLI command** – run directly from the repo root (swap `python` for `python3`/`py` if needed):
+_If you previously registered `watercooler-universal`, remove it first with `claude mcp remove watercooler-universal`._
+</details>
 
-  ```bash
-  claude mcp add --transport stdio watercooler-cloud --scope user \
-    -e WATERCOOLER_AGENT="Claude@Code" \
-    -e WATERCOOLER_THREADS_PATTERN="https://github.com/{org}/{repo}-threads.git" \
-    -e WATERCOOLER_AUTO_BRANCH=1 \
-    -- python -m watercooler_mcp
-  ```
+<details>
+<summary>Codex CLI</summary>
 
-  _If you previously registered `watercooler-universal`, remove it first with `claude mcp remove watercooler-universal`._
+```bash
+codex mcp add watercooler-cloud \
+  -e WATERCOOLER_AGENT="Codex" \
+  -e WATERCOOLER_THREADS_PATTERN="https://github.com/{org}/{repo}-threads.git" \
+  -e WATERCOOLER_AUTO_BRANCH=1 \
+  -- python -m watercooler_mcp
+```
+</details>
 
-- **Codex CLI command** – same environment flags for Codex:
+<details>
+<summary>Any shell via <code>fastmcp</code></summary>
 
-  ```bash
-  codex mcp add watercooler-cloud \
-    -e WATERCOOLER_AGENT="Codex" \
-    -e WATERCOOLER_THREADS_PATTERN="https://github.com/{org}/{repo}-threads.git" \
-    -e WATERCOOLER_AUTO_BRANCH=1 \
-    -- python -m watercooler_mcp
-  ```
+```bash
+fastmcp install claude-code src/watercooler_mcp/server.py \
+  --server-name watercooler-cloud \
+  --env WATERCOOLER_AGENT="Claude@Code" \
+  --env WATERCOOLER_THREADS_PATTERN="https://github.com/{org}/{repo}-threads.git" \
+  --env WATERCOOLER_AUTO_BRANCH=1
+```
+</details>
 
-- **Any shell** – prefer an installer-style workflow? Use `fastmcp` (ensures identical behavior across platforms):
-
-  ```bash
-  fastmcp install claude-code src/watercooler_mcp/server.py \
-    --server-name watercooler-cloud \
-    --env WATERCOOLER_AGENT="Claude@Code" \
-    --env WATERCOOLER_THREADS_PATTERN="https://github.com/{org}/{repo}-threads.git" \
-    --env WATERCOOLER_AUTO_BRANCH=1
-  ```
-
-See setup guides:
-- **[Claude Code Setup](docs/archive/CLAUDE_CODE_SETUP.md)** - For Claude Code CLI
-- **[Claude Desktop Setup](docs/archive/CLAUDE_DESKTOP_SETUP.md)** - For Claude Desktop app
-- **[MCP Server Guide](docs/mcp-server.md)** - Complete tool reference
+More detail:
+- **[SETUP_AND_QUICKSTART](docs/SETUP_AND_QUICKSTART.md)**
+- **[Claude Code Setup](docs/archive/CLAUDE_CODE_SETUP.md)**
+- **[Claude Desktop Setup](docs/archive/CLAUDE_DESKTOP_SETUP.md)**
+- **[MCP Server Guide](docs/mcp-server.md)**
 
 </details>
 
