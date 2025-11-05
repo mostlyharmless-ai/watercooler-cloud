@@ -32,6 +32,16 @@ For HTTPS environments, ensure the variable points at your remote before startin
 
 ```bash
 export WATERCOOLER_THREADS_PATTERN="https://github.com/{org}/{repo}-threads.git"
+# Windows PowerShell:
+# setx WATERCOOLER_THREADS_PATTERN "https://github.com/{org}/{repo}-threads.git"
+```
+
+If you switch to SSH instead:
+
+```bash
+export WATERCOOLER_THREADS_PATTERN="git@github.com:{org}/{repo}-threads.git"
+# Windows PowerShell:
+# setx WATERCOOLER_THREADS_PATTERN "git@github.com:{org}/{repo}-threads.git"
 ```
 
 Choose one of the options below to register the MCP server with your client:
