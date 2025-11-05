@@ -6,14 +6,24 @@ File-based collaboration protocol for agentic coding projects. Licensed under [A
 >
 > **New contributors:** Start with [CONTRIBUTING.md](./CONTRIBUTING.md) for setup and the Developer Certificate of Origin requirements.
 
-## Local MCP Quickstart (Recommended)
+## How to get started? 
+### Two key steps: 
 
-Run the MCP server locally and sync threads to a dedicated GitHub repo. This is the default workflow for small teams.
+<details>
 
-- Canonical guide: `docs/SETUP_AND_QUICKSTART.md`
-- Remote (Cloudflare/Render) deployment is mothballed; see `.mothballed/docs/DEPLOYMENT_QUICK_START.md` for the archival instructions.
+<summary> 1. Clone, install and start the server:</summary>
 
-### 2‑Step Install & Register (Claude example)
+```bash
+git clone https://github.com/mostlyharmless-ai/watercooler-cloud.git
+cd watercooler-cloud
+pip install -e .
+```
+> **Note:** On Windows shells that expose `py` instead of `python3`, substitute `py -3 -m pip install -e .` (or `python -m pip ...`).
+</details>
+
+<details>
+
+<summary> 2. Install client configurations for Claude and Codex (or any MCP supported client):</summary>
 
 ```bash
 # 1. Install with MCP extras
@@ -24,76 +34,11 @@ claude mcp add watercooler-cloud \
   -e WATERCOOLER_AGENT="Claude@Code" \
   -- python -m watercooler_mcp
 ```
+For Windows use the helper script below: 
+>  `./scripts/install-mcp.sh` (bash) or `./scripts/install-mcp.ps1` (PowerShell) for the same commands with argument prompts.
 
-> Prefer the helper scripts? See `./scripts/install-mcp.sh` (bash) or `./scripts/install-mcp.ps1` (PowerShell) for the same commands with argument prompts.
+Detailed documentation can be found here: `docs/SETUP_AND_QUICKSTART.md`
 
-### Branch Pairing
-Keep code and threads tightly linked:
-- Pair each code repo with `<repo>-threads`
-- Mirror branches 1:1 between code and threads
-- Use commit footers to record `Code-Repo`, `Code-Branch`, and `Code-Commit`
-- See `docs/BRANCH_PAIRING.md` for details
-
-### Tester Setup
-For a minimal validation loop (Claude + universal dev server) see:
-- `docs/archive/TESTER_SETUP.md`
-
-### Archived Remote Stack
-The Cloudflare/Render remote deployment has been mothballed. All related code and docs are being
-gathered under `.mothballed/` for later deletion. Prefer the local stdio MCP universal dev mode.
-
-## Status
-
-✅ **Full feature parity with acpmonkey achieved** - All phases (L1-L3) complete with 56 passing tests covering all features including structured entries, agent registry, and template system.
-
-📋 Prerelease checklist lives in `docs/PRE_RELEASE_TODO.md` — keep it current as we finalize polish.
-
-## Design Principles
-
-- **Stdlib-only**: No external runtime dependencies
-- **File-based**: Git-friendly markdown threads with explicit Status/Ball tracking
-- **Zero-config**: Works out-of-box for standard project layouts
-- **CLI parity**: Drop-in replacement for existing watercooler.py workflows
-
-## Architecture
-
-Thread-based collaboration with:
-- **Status tracking**: OPEN, IN_REVIEW, CLOSED, and custom statuses
-- **Ball ownership**: Explicit tracking of who has the next action
-- **Structured entries**: Agent, Role, Type, Title metadata for each entry
-- **Agent registry**: Canonical names, counterpart mappings, multi-agent chains
-- **Template system**: Customizable thread and entry templates with placeholder support
-- **Advisory file locking**: PID-aware locks with TTL for concurrent safety
-- **Automatic backups**: Rolling backups per thread in `.bak/<topic>/`
-- **Index generation**: Actionable/Open/In Review summaries with NEW markers
-
-## Features
-
-- **12 CLI Commands**: init-thread, append-entry, say, ack, handoff, set-status, set-ball, list, reindex, search, web-export, unlock
-- **6 Agent Roles**: planner, critic, implementer, tester, pm, scribe
-- **5 Entry Types**: Note, Plan, Decision, PR, Closure
-- **Agent Format**: `Agent (user)` with user tagging (e.g., "Claude (agent)")
-- **Ball Auto-Flip**: say() flips to counterpart, ack() preserves current ball
-- **Template Discovery**: CLI > env var > project-local > bundled
-- **NEW Markers**: Flags when last entry author ≠ ball owner
-- **CLOSED Filtering**: Exclude closed/done/merged/resolved threads
-- **Test Coverage**: 56 passing tests (comprehensive coverage of all CLI commands and modules)
-
-## Installation
-
-Not yet published. For development:
-
-```bash
-git clone https://github.com/mostlyharmless-ai/watercooler-cloud.git
-cd watercooler-cloud
-pip install -e .
-```
-
-> **Note:** On Windows shells that expose `py` instead of `python3`, substitute `py -3 -m pip install -e .` (or `python -m pip ...`).
-
-## Remote MCP Deployment — Archived
-
-The hosted Cloudflare/Render deployment has been mothballed in favor of local universal dev mode. Historical notes and reactivation steps live under `.mothballed/` if you need to resurrect the stack.
 
 ### MCP Server (AI Agent Integration)
 
@@ -164,6 +109,40 @@ See setup guides:
 - **[Claude Code Setup](docs/archive/CLAUDE_CODE_SETUP.md)** - For Claude Code CLI
 - **[Claude Desktop Setup](docs/archive/CLAUDE_DESKTOP_SETUP.md)** - For Claude Desktop app
 - **[MCP Server Guide](docs/mcp-server.md)** - Complete tool reference
+
+</details>
+
+
+## Design Principles
+
+- **Stdlib-only**: No external runtime dependencies
+- **File-based**: Git-friendly markdown threads with explicit Status/Ball tracking
+- **Zero-config**: Works out-of-box for standard project layouts
+- **CLI parity**: Drop-in replacement for existing watercooler.py workflows
+
+## Architecture
+
+Thread-based collaboration with:
+- **Status tracking**: OPEN, IN_REVIEW, CLOSED, and custom statuses
+- **Ball ownership**: Explicit tracking of who has the next action
+- **Structured entries**: Agent, Role, Type, Title metadata for each entry
+- **Agent registry**: Canonical names, counterpart mappings, multi-agent chains
+- **Template system**: Customizable thread and entry templates with placeholder support
+- **Advisory file locking**: PID-aware locks with TTL for concurrent safety
+- **Automatic backups**: Rolling backups per thread in `.bak/<topic>/`
+- **Index generation**: Actionable/Open/In Review summaries with NEW markers
+
+## Features
+
+- **12 CLI Commands**: init-thread, append-entry, say, ack, handoff, set-status, set-ball, list, reindex, search, web-export, unlock
+- **6 Agent Roles**: planner, critic, implementer, tester, pm, scribe
+- **5 Entry Types**: Note, Plan, Decision, PR, Closure
+- **Agent Format**: `Agent (user)` with user tagging (e.g., "Claude (agent)")
+- **Ball Auto-Flip**: say() flips to counterpart, ack() preserves current ball
+- **Template Discovery**: CLI > env var > project-local > bundled
+- **NEW Markers**: Flags when last entry author ≠ ball owner
+- **CLOSED Filtering**: Exclude closed/done/merged/resolved threads
+
 
 ### Git Configuration (Multi-User Collaboration)
 
@@ -358,7 +337,7 @@ After cleanup, restart Claude Code (or your MCP client) to reconnect with fresh 
 
 ## License
 
-Apache 2.0 License — see [LICENSE](./LICENSE)
+Apache-2.0 License - see [LICENSE](./LICENSE)
 
 ## Links
 
