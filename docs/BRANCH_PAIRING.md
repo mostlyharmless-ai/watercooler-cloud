@@ -55,3 +55,108 @@ Watercooler-Topic: <topic>
   `WATERCOOLER_THREADS_CREATE_CMD` so the MCP server can run your approved
   provisioning command when the initial clone fails. Otherwise, create the
   `<repo>-threads` repository manually before writing.
+
+## Real-World Example: v0.1.0 Launch (November 2025)
+
+This section documents the actual execution of the branch pairing protocol during the watercooler-cloud v0.1.0 open source launch.
+
+### Context
+- **Code Repo**: `mostlyharmless-ai/watercooler-cloud`
+- **Threads Repo**: `mostlyharmless-ai/watercooler-cloud-threads`
+- **Branch Pair**: `open-source-prep` (both repos)
+- **Goal**: Merge both branches to `main` following branch pairing protocol
+
+### Execution Timeline
+
+**Phase 1: Code Repo Merge**
+1. PR #7 created: `open-source-prep` → `main` in watercooler-cloud
+2. All CI tests passing (81 tests across Python 3.10-3.12)
+3. PR merged via GitHub UI
+4. Tagged v0.1.0 on merged main (commit 383d50b)
+5. Repository made public
+
+**Phase 2: Threads Repo Merge**
+- **Initial assumption**: threads already merged ❌
+- **Reality**: `threads:main` had 1 file, `threads:open-source-prep` had 21 files
+- **Critical learning**: Merging code branch does NOT automatically merge threads branch
+- **Action required**: Explicit manual merge of threads branch
+
+### Technical Details
+
+**Command that worked:**
+```bash
+cd /path/to/watercooler-cloud-threads && \
+  git checkout main && \
+  git pull origin main && \
+  git merge open-source-prep --no-ff -m "Merge open-source-prep threads to main following branch pairing protocol" && \
+  git push origin main
+```
+
+**Why this approach:**
+- **Absolute path with chained commands**: Working directory can reset between separate commands in some tool contexts
+- **`--no-ff` flag**: Preserve branch history even when fast-forward possible
+- **Explicit message**: Document protocol adherence in commit message
+
+**Merge Result:**
+- Commit: 104eab8
+- Files merged: 21 threads
+- Insertions: 8,696 lines
+- Auto-merged: `open-source-launch.md` (updated on both branches)
+- Merge strategy: `ort` (default, worked well)
+
+### Key Learnings
+
+1. **Branch pairing is not automatic** - Merging code branch does NOT trigger threads branch merge. Must explicitly merge threads branch separately.
+
+2. **Timing matters** - Merge threads branch immediately after code branch to keep repos synchronized and prevent confusion.
+
+3. **Working directory gotchas** - Individual `cd` commands may not persist across tool invocations. Solution: Use absolute paths + chained commands with `&&`.
+
+4. **Merge message is documentation** - Explicit mention of "branch pairing protocol" helps future maintainers understand the why.
+
+### Best Practices from This Execution
+
+**When merging code branch → main:**
+1. ✅ Merge code PR
+2. ✅ Tag release on code repo (if applicable)
+3. ✅ **Immediately** merge corresponding threads branch
+4. ✅ Verify both repos show merged state
+
+**Merge command template:**
+```bash
+# In threads repo
+git checkout main
+git pull origin main
+git merge <branch-name> --no-ff -m "Merge <branch-name> threads to main following branch pairing protocol"
+git push origin main
+```
+
+**Verification checklist:**
+- [ ] Code branch merged to main
+- [ ] Threads branch merged to main
+- [ ] Both repos pushed to remote
+- [ ] File counts match expectations
+- [ ] Git log shows merge commits on both repos
+
+### Future Automation Opportunities
+
+**GitHub Actions workflow** (possible enhancement):
+- Trigger on: code repo branch merge to main
+- Action: Automatically merge corresponding threads branch or open PR
+- Benefits: Enforces protocol, prevents human error
+- Risks: Could merge threads with conflicts or outdated state
+
+**Git hook approach**:
+- Pre-push hook in code repo
+- Check if corresponding threads branch exists and is ahead of main
+- Warn if threads branch not merged
+
+**MCP Server enhancement**:
+- Watch for code branch state changes
+- Prompt user to merge corresponding threads branch
+- Verify both repos are synchronized
+
+### Related Documentation
+- Thread: `github-threads-integration` - Contains detailed case study of this execution
+- Thread: `branch-lifecycle-mapping` - Comprehensive branch operations planning
+- Thread: `open-source-launch` - The actual launch planning and execution
