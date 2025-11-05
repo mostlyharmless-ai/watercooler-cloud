@@ -1,0 +1,32 @@
+name: Feature request
+description: Suggest an idea or enhancement for watercooler-cloud.
+labels: ["enhancement"]
+body:
+  - type: markdown
+    attributes:
+      value: |
+        We love thoughtful ideas! Help us understand the problem you’re trying to solve and why it matters.
+  - type: textarea
+    id: motivation
+    attributes:
+      label: Problem statement
+      description: What workflow or use case is currently blocked or painful?
+      placeholder: When my team rotates branches, we lose track of...
+    validations:
+      required: true
+  - type: textarea
+    id: proposal
+    attributes:
+      label: Proposed solution
+      description: Describe what you’d like to see. Screenshots or sketches welcome.
+  - type: textarea
+    id: alternatives
+    attributes:
+      label: Alternatives considered
+      description: What other approaches did you try, even if they weren’t ideal?
+  - type: textarea
+    id: additional
+    attributes:
+      label: Additional context
+      description: Links, related issues, or discussion threads that provide more background.
+*** End Patch

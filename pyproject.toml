@@ -8,7 +8,7 @@ version = "0.0.1"
 description = "File-based collaboration protocol for agentic coding projects"
 readme = "README.md"
 requires-python = ">=3.10"
-license = {text = "MIT"}
+license = {text = "Apache-2.0"}
 authors = [
     {name = "Mostly Harmless AI", email = "hello@mostlyharmless.ai"}
 ]
@@ -20,7 +20,7 @@ dependencies = [
 classifiers = [
     "Development Status :: 2 - Pre-Alpha",
     "Intended Audience :: Developers",
-    "License :: OSI Approved :: MIT License",
+    "License :: OSI Approved :: Apache Software License",
     "Programming Language :: Python :: 3",
     # Dropping 3.9; project requires 3.10+ due to PEP 604 usage
     "Programming Language :: Python :: 3.10",

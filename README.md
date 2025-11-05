@@ -1,8 +1,10 @@
 # watercooler-cloud
 
-File-based collaboration protocol for agentic coding projects.
+File-based collaboration protocol for agentic coding projects. Licensed under [Apache 2.0](./LICENSE).
 
 > **Landing Page:** The official website is maintained in a separate repository at [watercooler-site](https://github.com/mostlyharmless-ai/watercooler-site)
+>
+> **New contributors:** Start with [CONTRIBUTING.md](./CONTRIBUTING.md) for setup and the Developer Certificate of Origin requirements.
 
 ## Local MCP Quickstart (Recommended)
 
