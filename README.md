@@ -26,13 +26,9 @@ Keep this terminal open while you use Watercooler; the dashboard serves at [http
 <details>
 <summary>2. Configure MCP clients (Claude, Codex, …)</summary>
 
-The editable install above already contains the MCP server. If you prefer the convenience bundle for scripts/tests, install the optional extra:
+Watercooler defaults to SSH remotes (e.g., `git@github.com:org/repo-threads.git`). If your environment already has SSH keys loaded, nothing else is required.
 
-```bash
-python -m pip install -e ".[mcp]"  # optional convenience extra
-```
-
-The MCP server will use SSH remotes unless you point it at HTTPS. If your Git credential helper manages PATs/GCM tokens, set `WATERCOOLER_THREADS_PATTERN` accordingly:
+Use HTTPS instead when your credential helper manages tokens (Git Credential Manager, PATs). Set `WATERCOOLER_THREADS_PATTERN` to the HTTPS URL before starting clients:
 
 ```bash
 export WATERCOOLER_THREADS_PATTERN="https://github.com/{org}/{repo}-threads.git"
