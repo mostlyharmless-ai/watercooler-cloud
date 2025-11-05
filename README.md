@@ -32,6 +32,8 @@ The editable install above already contains the MCP server. If you prefer the co
 python -m pip install -e ".[mcp]"  # optional convenience extra
 ```
 
+By default the MCP server uses SSH remotes; switch to HTTPS if your Git credential helper manages PATs:
+
 Set `WATERCOOLER_THREADS_PATTERN` to an HTTPS URL if you rely on Git Credential Manager / PAT auth:
 
 ```bash
