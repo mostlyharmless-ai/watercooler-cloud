@@ -330,7 +330,7 @@ Watercooler supports multiple environment variables for configuration. For compl
 **Core Configuration:**
 - `WATERCOOLER_AGENT` - Agent identity (required for MCP, optional for CLI)
 - `WATERCOOLER_THREADS_BASE` - Optional root for local thread clones (otherwise the sibling `<repo>-threads` directory is used)
-- `WATERCOOLER_THREADS_PATTERN` - Remote repo pattern (`git@github.com:{org}/{repo}-threads.git` default)
+- `WATERCOOLER_THREADS_PATTERN` - Remote repo pattern (`https://github.com/{org}/{repo}-threads.git` default)
 - `WATERCOOLER_AUTO_BRANCH` - Enable/disable automatic branch creation (`1` by default)
 - `WATERCOOLER_TEMPLATES` - Custom templates directory
 - `WATERCOOLER_DIR` - Manual override for a fixed threads directory (disables universal discovery)
@@ -355,11 +355,11 @@ Watercooler supports multiple environment variables for configuration. For compl
 WATERCOOLER_AGENT="Claude@Code"
 # Optional central cache for threads repos
 # WATERCOOLER_THREADS_BASE="/srv/watercooler-threads"
-WATERCOOLER_THREADS_PATTERN="git@github.com:{org}/{repo}-threads.git"
+WATERCOOLER_THREADS_PATTERN="https://github.com/{org}/{repo}-threads.git"
 WATERCOOLER_AUTO_BRANCH=1
 
 # Optional: Cloud sync
-WATERCOOLER_GIT_REPO=git@github.com:org/watercooler-threads.git
+WATERCOOLER_GIT_REPO=https://github.com/org/watercooler-threads.git
 WATERCOOLER_GIT_SSH_KEY=/path/to/deploy/key
 WATERCOOLER_GIT_AUTHOR="Agent Name"
 WATERCOOLER_GIT_EMAIL=agent@example.com
@@ -538,7 +538,7 @@ Watercooler supports **git-based cloud sync** for distributed team collaboration
    # Option A: Dedicated repo (recommended)
    git init watercooler-threads
    cd watercooler-threads
-   git remote add origin git@github.com:org/watercooler-threads.git
+   git remote add origin https://github.com/org/watercooler-threads.git
 
    # Option B: Use existing project repo
    # (place threads under a dedicated subdirectory such as threads/)
@@ -546,7 +546,7 @@ Watercooler supports **git-based cloud sync** for distributed team collaboration
 
 2. **Configure environment variables:**
    ```bash
-   export WATERCOOLER_GIT_REPO=git@github.com:org/watercooler-threads.git
+   export WATERCOOLER_GIT_REPO=https://github.com/org/watercooler-threads.git
    export WATERCOOLER_GIT_SSH_KEY=/path/to/deploy/key
    export WATERCOOLER_GIT_AUTHOR="Agent Name"
    export WATERCOOLER_GIT_EMAIL=agent@example.com

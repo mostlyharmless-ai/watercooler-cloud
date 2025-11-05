@@ -83,7 +83,7 @@ Only set `WATERCOOLER_DIR` when you require a fixed threads directory (for examp
 | Variable | Purpose | Default |
 |----------|---------|---------|
 | `WATERCOOLER_THREADS_BASE` | Optional root for local thread clones | _Sibling of the code repo_ |
-| `WATERCOOLER_THREADS_PATTERN` | Remote URL pattern for auto-clone | `git@github.com:{org}/{repo}-threads.git` |
+| `WATERCOOLER_THREADS_PATTERN` | Remote URL pattern for auto-clone | `https://github.com/{org}/{repo}-threads.git` |
 | `WATERCOOLER_THREADS_AUTO_PROVISION` | Opt-in creation of missing threads repos | `0` |
 | `WATERCOOLER_THREADS_CREATE_CMD` | Command template for provisioning | _Unset_ |
 | `WATERCOOLER_AUTO_BRANCH` | Auto create / checkout matching branch | `1` |
@@ -98,7 +98,7 @@ Example (Claude Desktop, macOS):
       "args": ["-m", "watercooler_mcp"],
       "env": {
         "WATERCOOLER_AGENT": "Claude@Desktop",
-        "WATERCOOLER_THREADS_PATTERN": "git@github.com:{org}/{repo}-threads.git",
+        "WATERCOOLER_THREADS_PATTERN": "https://github.com/{org}/{repo}-threads.git",
         "WATERCOOLER_AUTO_BRANCH": "1"
       }
     }
@@ -260,7 +260,7 @@ Generate index summary of all threads.
 
 - **Universal overrides (optional):**
   - `WATERCOOLER_THREADS_BASE` — optional override when you want all threads repos under a fixed root (otherwise the sibling `<code>-threads` directory is used)
-  - `WATERCOOLER_THREADS_PATTERN` — pattern for building the remote URL (`git@github.com:{org}/{repo}-threads.git` by default)
+- `WATERCOOLER_THREADS_PATTERN` — pattern for building the remote URL (`https://github.com/{org}/{repo}-threads.git` by default)
   - `WATERCOOLER_AUTO_BRANCH` — set to `0` to skip auto-creating the matching branch
   - `WATERCOOLER_GIT_AUTHOR` / `WATERCOOLER_GIT_EMAIL` — override commit metadata in the threads repo
 

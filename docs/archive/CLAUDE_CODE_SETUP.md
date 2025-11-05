@@ -33,7 +33,7 @@ Run this once; it applies to every repo you open in Claude Code:
 ```bash
 claude mcp add --transport stdio watercooler-cloud --scope user \
   -e WATERCOOLER_AGENT="Claude@Code" \
-  -e WATERCOOLER_THREADS_PATTERN="git@github.com:{org}/{repo}-threads.git" \
+  -e WATERCOOLER_THREADS_PATTERN="https://github.com/{org}/{repo}-threads.git" \
   -e WATERCOOLER_AUTO_BRANCH=1 \
   -- python3 -m watercooler_mcp
 ```
@@ -44,7 +44,7 @@ Use `fastmcp install` if you prefer an installer-style workflow:
 fastmcp install claude-code src/watercooler_mcp/server.py \
   --server-name watercooler-cloud \
   --env WATERCOOLER_AGENT="Claude@Code" \
-  --env WATERCOOLER_THREADS_PATTERN="git@github.com:{org}/{repo}-threads.git" \
+  --env WATERCOOLER_THREADS_PATTERN="https://github.com/{org}/{repo}-threads.git" \
   --env WATERCOOLER_AUTO_BRANCH=1
 ```
 
@@ -68,7 +68,7 @@ Common values: `Claude`, `Codex`, `Assistant`. Include the specialization suffix
 #### Universal-mode overrides (Optional)
 
 - `WATERCOOLER_THREADS_BASE` — optional central cache for threads (defaults to the sibling `<repo>-threads` directory beside your code repo)
-- `WATERCOOLER_THREADS_PATTERN` — pattern for resolving the remote threads repo (defaults to `git@github.com:{org}/{repo}-threads.git`)
+- `WATERCOOLER_THREADS_PATTERN` — pattern for resolving the remote threads repo (defaults to `https://github.com/{org}/{repo}-threads.git`)
 - `WATERCOOLER_AUTO_BRANCH` — set to `0` to disable branch auto-creation
 - `WATERCOOLER_THREADS_AUTO_PROVISION` — set to `0` to disable auto-provisioning (enabled by default)
 - `WATERCOOLER_THREADS_CREATE_CMD` — override the provisioning command (defaults to `gh repo create {slug} --private --disable-wiki --disable-issues`)
@@ -91,7 +91,7 @@ Example with scope:
 ```bash
 claude mcp add --transport stdio watercooler-cloud --scope user \
   -e WATERCOOLER_AGENT="Claude@Code" \
-  -e WATERCOOLER_THREADS_PATTERN="git@github.com:{org}/{repo}-threads.git" \
+  -e WATERCOOLER_THREADS_PATTERN="https://github.com/{org}/{repo}-threads.git" \
   -e WATERCOOLER_AUTO_BRANCH=1 \
   -- python3 -m watercooler_mcp
 ```
@@ -177,7 +177,7 @@ claude mcp list
 # Re-register with the universal command
 claude mcp add --transport stdio watercooler-cloud --scope user \
   -e WATERCOOLER_AGENT="Claude@Code" \
-  -e WATERCOOLER_THREADS_PATTERN="git@github.com:{org}/{repo}-threads.git" \
+  -e WATERCOOLER_THREADS_PATTERN="https://github.com/{org}/{repo}-threads.git" \
   -e WATERCOOLER_AUTO_BRANCH=1 \
   -- python3 -m watercooler_mcp
 ```
@@ -197,7 +197,7 @@ claude mcp remove watercooler-cloud
 # Re-add with the correct agent base/spec suffix
 claude mcp add --transport stdio watercooler-cloud --scope user \
   -e WATERCOOLER_AGENT="Claude@Code" \
-  -e WATERCOOLER_THREADS_PATTERN="git@github.com:{org}/{repo}-threads.git" \
+  -e WATERCOOLER_THREADS_PATTERN="https://github.com/{org}/{repo}-threads.git" \
   -e WATERCOOLER_AUTO_BRANCH=1 \
   -- python3 -m watercooler_mcp
 ```
@@ -231,7 +231,7 @@ which python
 # Use full path in registration
 claude mcp add --transport stdio watercooler-cloud --scope user \
   -e WATERCOOLER_AGENT="Claude@Code" \
-  -e WATERCOOLER_THREADS_PATTERN="git@github.com:{org}/{repo}-threads.git" \
+  -e WATERCOOLER_THREADS_PATTERN="https://github.com/{org}/{repo}-threads.git" \
   -e WATERCOOLER_AUTO_BRANCH=1 \
   -- /opt/anaconda3/envs/watercooler/bin/python -m watercooler_mcp
 ```
@@ -278,7 +278,7 @@ claude mcp remove watercooler-cloud
 # Add new configuration (example: change agent identity)
 claude mcp add --transport stdio watercooler-cloud --scope user \
   -e WATERCOOLER_AGENT="Claude@Code" \
-  -e WATERCOOLER_THREADS_PATTERN="git@github.com:{org}/{repo}-threads.git" \
+  -e WATERCOOLER_THREADS_PATTERN="https://github.com/{org}/{repo}-threads.git" \
   -e WATERCOOLER_AUTO_BRANCH=1 \
   -- python3 -m watercooler_mcp
 ```
@@ -303,7 +303,7 @@ Prefer storing overrides in a file? Create `.env` with only the variables you ne
 
 ```bash
 WATERCOOLER_AGENT="Claude@Code"
-WATERCOOLER_THREADS_PATTERN="git@github.com:{org}/{repo}-threads.git"
+WATERCOOLER_THREADS_PATTERN="https://github.com/{org}/{repo}-threads.git"
 WATERCOOLER_AUTO_BRANCH=1
 ```
 
@@ -326,7 +326,7 @@ which watercooler-mcp
 # Register with Claude Code
 claude mcp add --transport stdio watercooler-cloud --scope user \
   -e WATERCOOLER_AGENT="Claude@Code" \
-  -e WATERCOOLER_THREADS_PATTERN="git@github.com:{org}/{repo}-threads.git" \
+  -e WATERCOOLER_THREADS_PATTERN="https://github.com/{org}/{repo}-threads.git" \
   -e WATERCOOLER_AUTO_BRANCH=1 \
   -- /full/path/to/watercooler-mcp
 ```
@@ -339,7 +339,7 @@ claude mcp add --transport stdio watercooler-cloud --scope user \
 # One-and-done universal registration
 claude mcp add --transport stdio watercooler-cloud --scope user \
   -e WATERCOOLER_AGENT="Claude@Code" \
-  -e WATERCOOLER_THREADS_PATTERN="git@github.com:{org}/{repo}-threads.git" \
+  -e WATERCOOLER_THREADS_PATTERN="https://github.com/{org}/{repo}-threads.git" \
   -e WATERCOOLER_AUTO_BRANCH=1 \
   -- python3 -m watercooler_mcp
 
@@ -354,7 +354,7 @@ claude mcp remove watercooler-cloud
 
 ```bash
 WATERCOOLER_AGENT="Claude@Code"               # Required agent identity
-WATERCOOLER_THREADS_PATTERN="git@github.com:{org}/{repo}-threads.git"  # Optional override
+WATERCOOLER_THREADS_PATTERN="https://github.com/{org}/{repo}-threads.git"  # Optional override
 WATERCOOLER_AUTO_BRANCH=1                     # Ensure branch mirroring
 ```
 
