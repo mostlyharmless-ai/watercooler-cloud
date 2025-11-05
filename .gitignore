@@ -237,3 +237,6 @@ cloudflare-worker/.cache/
 
 # Secrets and sensitive data
 .secrets/
+
+# Scratch/notes file
+.scratch.txt
