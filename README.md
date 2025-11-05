@@ -275,6 +275,12 @@ pytest tests/test_structured_entries.py -v
 
 ## Troubleshooting
 
+### Git authentication errors
+
+- **HTTPS (default):** ensure \`git push https://github.com/<org>/<repo>-threads.git\` works with your credential helper.
+- **SSH optional:** set \`WATERCOOLER_THREADS_PATTERN="git@github.com:{org}/{repo}-threads.git"\` and load your SSH key (`ssh-add`).
+- Restart your MCP client after changing the pattern so the new value takes effect.
+
 ### Stale MCP Server Processes
 
 If you interrupt the MCP server with CTRL-C, background processes may linger as orphaned daemons. This can cause issues with code updates not taking effect.

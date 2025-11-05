@@ -689,6 +689,15 @@ If you still maintain repo-local threads directories, you can set `WATERCOOLER_D
 ---
 
 ## Troubleshooting
+### Git authentication errors
+
+If Watercooler cannot push/pull threads, double-check the remote pattern:
+
+- **HTTPS (default)** – requires Git Credential Manager / PAT access to `https://github.com/{org}/{repo}-threads.git`.
+- **SSH** – requires your SSH key/agent and uses `git@github.com:{org}/{repo}-threads.git`.
+
+Switch by exporting `WATERCOOLER_THREADS_PATTERN` before launching the MCP server, then retry the command.
+
 
 ### Wrong Agent Name
 

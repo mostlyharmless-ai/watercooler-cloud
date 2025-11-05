@@ -330,6 +330,12 @@ watercooler_v1_handoff(
 ```
 
 ## Troubleshooting
+### Git authentication issues
+
+- HTTPS is the default and uses your credential helper; ensure a manual `git push https://…` succeeds.
+- For SSH, set `WATERCOOLER_THREADS_PATTERN` to `git@github.com:{org}/{repo}-threads.git` and load your SSH key.
+- After changing the pattern, restart the MCP server/client so the env var is picked up.
+
 
 ### Server Not Found
 
