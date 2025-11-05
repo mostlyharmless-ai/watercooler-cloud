@@ -358,7 +358,7 @@ After cleanup, restart Claude Code (or your MCP client) to reconnect with fresh 
 
 ## License
 
-MIT License - see LICENSE file
+see LICENSE file
 
 ## Links
 
