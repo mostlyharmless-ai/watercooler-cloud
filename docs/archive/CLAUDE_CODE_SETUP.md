@@ -68,7 +68,7 @@ Common values: `Claude`, `Codex`, `Assistant`. Include the specialization suffix
 #### Universal-mode overrides (Optional)
 
 - `WATERCOOLER_THREADS_BASE` — optional central cache for threads (defaults to the sibling `<repo>-threads` directory beside your code repo)
-- `WATERCOOLER_THREADS_PATTERN` — pattern for resolving the remote threads repo (defaults to `git@github.com:{org}/{repo}-threads.git`)
+- `WATERCOOLER_THREADS_PATTERN` — pattern for resolving the remote threads repo (defaults to `https://github.com/{org}/{repo}-threads.git`)
 - `WATERCOOLER_AUTO_BRANCH` — set to `0` to disable branch auto-creation
 - `WATERCOOLER_THREADS_AUTO_PROVISION` — set to `0` to disable auto-provisioning (enabled by default)
 - `WATERCOOLER_THREADS_CREATE_CMD` — override the provisioning command (defaults to `gh repo create {slug} --private --disable-wiki --disable-issues`)

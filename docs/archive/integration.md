@@ -330,7 +330,7 @@ Watercooler supports multiple environment variables for configuration. For compl
 **Core Configuration:**
 - `WATERCOOLER_AGENT` - Agent identity (required for MCP, optional for CLI)
 - `WATERCOOLER_THREADS_BASE` - Optional root for local thread clones (otherwise the sibling `<repo>-threads` directory is used)
-- `WATERCOOLER_THREADS_PATTERN` - Remote repo pattern (`git@github.com:{org}/{repo}-threads.git` default)
+- `WATERCOOLER_THREADS_PATTERN` - Remote repo pattern (`https://github.com/{org}/{repo}-threads.git` default)
 - `WATERCOOLER_AUTO_BRANCH` - Enable/disable automatic branch creation (`1` by default)
 - `WATERCOOLER_TEMPLATES` - Custom templates directory
 - `WATERCOOLER_DIR` - Manual override for a fixed threads directory (disables universal discovery)

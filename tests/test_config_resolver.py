@@ -45,7 +45,7 @@ def test_resolve_thread_context_git_pattern(tmp_path, monkeypatch):
         capture_output=True,
     )
     subprocess.run(
-        ["git", "remote", "add", "origin", "git@github.com:mostly/test.git"],
+        ["git", "remote", "add", "origin", "https://github.com/mostly/test.git"],
         cwd=repo_dir,
         check=True,
         capture_output=True,
@@ -70,7 +70,7 @@ def test_resolve_thread_context_git_pattern(tmp_path, monkeypatch):
 
     expected_dir = (threads_base / "mostly" / "test-threads").resolve()
     assert context.threads_dir == expected_dir
-    assert context.threads_repo_url == "git@github.com:mostly/test-threads.git"
+    assert context.threads_repo_url == "https://github.com/mostly/test-threads.git"
     assert context.code_repo == "mostly/test"
     assert context.code_branch in {"master", "main"}
 

@@ -10,7 +10,7 @@ Complete reference for all watercooler-cloud environment variables.
 |----------|----------|---------|---------|---------|
 | [`WATERCOOLER_AGENT`](#watercooler_agent) | MCP: Yes<br>CLI: No | `"Agent"` | MCP Server | Agent identity for entries |
 | [`WATERCOOLER_THREADS_BASE`](#watercooler_threads_base) | No | _Sibling `<repo>-threads`_ | MCP Server | Optional central root for threads repos |
-| [`WATERCOOLER_THREADS_PATTERN`](#watercooler_threads_pattern) | No | `git@github.com:{org}/{repo}-threads.git` | MCP Server | Remote threads repo URL template |
+| [`WATERCOOLER_THREADS_PATTERN`](#watercooler_threads_pattern) | No | `https://github.com/{org}/{repo}-threads.git` | MCP Server | Remote threads repo URL template |
 | [`WATERCOOLER_THREADS_AUTO_PROVISION`](#watercooler_threads_auto_provision) | No | `"0"` | MCP Server | Opt-in creation of missing threads repos |
 | [`WATERCOOLER_THREADS_CREATE_CMD`](#watercooler_threads_create_cmd) | No | _Unset_ | MCP Server | Command template for auto-provisioning |
 | [`WATERCOOLER_AUTO_BRANCH`](#watercooler_auto_branch) | No | `"1"` | MCP Server | Auto-create/check out matching branch |
@@ -131,7 +131,7 @@ export WATERCOOLER_THREADS_BASE="/srv/watercooler-threads"
 
 **Required:** No
 
-**Default:** `git@github.com:{org}/{repo}-threads.git`
+**Default:** `https://github.com/{org}/{repo}-threads.git`
 
 **Used by:** MCP Server
 
@@ -184,7 +184,7 @@ when auto-provisioning is enabled.
 placeholders are available:
 
 - `{slug}` – Resolved threads repo slug (e.g. `mostlyharmless-ai/watercooler-dashboard-threads`)
-- `{repo_url}` – Full git URL (e.g. `git@github.com:mostlyharmless-ai/watercooler-dashboard-threads.git`)
+- `{repo_url}` – Full git URL (e.g. `https://github.com/mostlyharmless-ai/watercooler-dashboard-threads.git`)
 - `{code_repo}` – Paired code repo (e.g. `mostlyharmless-ai/watercooler-dashboard`)
 - `{namespace}` – Namespace/organisation portion of the slug (`mostlyharmless-ai`)
 - `{repo}` – Repository name portion of the slug (`watercooler-dashboard-threads`)

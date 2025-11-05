@@ -308,10 +308,10 @@ def resolve_thread_context(code_root: Optional[Path] = None) -> ThreadContext:
         namespace, repo = _split_namespace_repo(code_repo)
         pattern = os.getenv("WATERCOOLER_THREADS_PATTERN")
         if not pattern:
-            default_pattern = "git@github.com:{org}/{repo}-threads.git"
+            default_pattern = "https://github.com/{org}/{repo}-threads.git"
             remote = code_remote or ""
-            if remote.startswith("https://") or remote.startswith("http://"):
-                default_pattern = "https://github.com/{org}/{repo}-threads.git"
+            if remote.startswith("git@") or remote.startswith("ssh://"):
+                default_pattern = "git@github.com:{org}/{repo}-threads.git"
             pattern = default_pattern
         format_kwargs = {
             "repo": repo,

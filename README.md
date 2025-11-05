@@ -26,9 +26,9 @@ Keep this terminal open while you use Watercooler; the dashboard serves at [http
 <details>
 <summary>2. Configure MCP clients (Claude, Codex, …)</summary>
 
-Watercooler defaults to SSH remotes (e.g., `git@github.com:org/repo-threads.git`). If your environment already has SSH keys loaded, nothing else is required.
+Watercooler now defaults to HTTPS remotes (e.g., `https://github.com/org/repo-threads.git`) so Git Credential Manager / PAT workflows work without extra setup. If you prefer SSH, set `WATERCOOLER_THREADS_PATTERN` to `git@github.com:{org}/{repo}-threads.git`.
 
-Use HTTPS instead when your credential helper manages tokens (Git Credential Manager, PATs). Set `WATERCOOLER_THREADS_PATTERN` to the HTTPS URL before starting clients:
+For HTTPS environments, ensure the variable points at your remote before starting clients:
 
 ```bash
 export WATERCOOLER_THREADS_PATTERN="https://github.com/{org}/{repo}-threads.git"
