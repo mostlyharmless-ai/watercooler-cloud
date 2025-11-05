@@ -1,6 +1,10 @@
 # watercooler-cloud
 
-File-based collaboration protocol for agentic coding projects.
+File-based collaboration protocol for agentic coding projects. Licensed under [Apache 2.0](./LICENSE).
+
+> **Landing Page:** The official website is maintained in a separate repository at [watercooler-site](https://github.com/mostlyharmless-ai/watercooler-site)
+>
+> **New contributors:** Start with [CONTRIBUTING.md](./CONTRIBUTING.md) for setup and the Developer Certificate of Origin requirements.
 
 ## Local MCP Quickstart (Recommended)
 
@@ -295,6 +299,36 @@ pytest tests/test_templates.py -v
 pytest tests/test_config.py -v
 pytest tests/test_structured_entries.py -v
 ```
+
+## Troubleshooting
+
+### Stale MCP Server Processes
+
+If you interrupt the MCP server with CTRL-C, background processes may linger as orphaned daemons. This can cause issues with code updates not taking effect.
+
+**Check for stale processes:**
+```bash
+./check-mcp-servers.sh
+```
+
+**Clean up stale processes:**
+```bash
+./cleanup-mcp-servers.sh
+```
+
+The check script warns about processes older than 1 hour. The cleanup script shows all watercooler MCP processes and prompts for confirmation before killing them.
+
+**Manual cleanup:**
+```bash
+# Kill all watercooler MCP processes
+pkill -f watercooler_mcp
+
+# Or kill specific PIDs
+ps aux | grep watercooler_mcp
+kill <PID>
+```
+
+After cleanup, restart Claude Code (or your MCP client) to reconnect with fresh server processes.
 
 ## 📚 Documentation
 

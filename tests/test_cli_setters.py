@@ -25,6 +25,15 @@ def test_set_status_and_ball(tmp_path: Path):
     assert "Ball: claude" in s
 
 
+def test_set_status_nonexistent_thread(tmp_path: Path):
+    # Attempting to set status on nonexistent thread should fail
+    cp = run_cli("set-status", "does-not-exist", "CLOSED", "--threads-dir", str(tmp_path))
+    assert cp.returncode != 0
+    assert "not found" in cp.stderr.lower() or "not found" in cp.stdout.lower()
+    # Thread file should not be created
+    assert not (tmp_path / "does-not-exist.md").exists()
+
+
 def test_append_entry(tmp_path: Path):
     # init thread
     cp = run_cli("init-thread", "topic2", "--threads-dir", str(tmp_path))

@@ -184,9 +184,11 @@ def append_entry(
 
 def set_status(topic: str, *, threads_dir: Path, status: str) -> Path:
     tp = thread_path(topic, threads_dir)
+    if not tp.exists():
+        raise FileNotFoundError(f"Thread '{topic}' not found")
     lp = lock_path_for_topic(topic, threads_dir)
     with AdvisoryLock(lp, timeout=2, ttl=10, force_break=False):
-        s = tp.read_text(encoding="utf-8") if tp.exists() else ""
+        s = tp.read_text(encoding="utf-8")
         # Normalize status to uppercase for consistency
         s = bump_header(s, status=status.upper())
         write(tp, s)

@@ -1,0 +1,52 @@
+name: Bug report
+description: Create a report to help us improve.
+labels: ["bug"]
+body:
+  - type: markdown
+    attributes:
+      value: |
+        Thanks for taking the time to fill out a bug report! Please include as much detail as you can so we can reproduce the issue quickly.
+  - type: input
+    id: summary
+    attributes:
+      label: Summary
+      description: What went wrong?
+      placeholder: The CLI crash when running `watercooler threads say`
+    validations:
+      required: true
+  - type: textarea
+    id: repro
+    attributes:
+      label: Steps to reproduce
+      description: Provide a minimal set of steps or commands.
+      placeholder: |
+        1. Run ...
+        2. Execute ...
+        3. Observe ...
+    validations:
+      required: true
+  - type: textarea
+    id: expected
+    attributes:
+      label: Expected behavior
+      placeholder: It should have ...
+    validations:
+      required: true
+  - type: textarea
+    id: logs
+    attributes:
+      label: Logs / terminal output
+      description: Paste relevant output (sanitize secrets before sharing).
+      render: shell
+  - type: input
+    id: version
+    attributes:
+      label: watercooler-cloud version
+      placeholder: 0.0.x (run `watercooler --version`)
+  - type: textarea
+    id: environment
+    attributes:
+      label: Environment
+      description: OS, Python version, and any notable agent tooling.
+      placeholder: macOS 14.5, Python 3.12, Claude Desktop 1.x
+*** End Patch***
