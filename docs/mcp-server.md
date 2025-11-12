@@ -27,43 +27,80 @@ This installs `fastmcp>=2.0` and creates the `watercooler-mcp` command.
 
 **Codex (`~/.codex/config.toml`):**
 ```toml
-[mcp_servers.wc_universal]
-command = "python3"
-args = ["-m", "watercooler_mcp"]
+[mcp_servers.watercooler_cloud]
+command = "uvx"
+args = ["--from", "git+https://github.com/mostlyharmless-ai/watercooler-cloud", "watercooler-mcp"]
 
-[mcp_servers.wc_universal.env]
+[mcp_servers.watercooler_cloud.env]
 WATERCOOLER_AGENT = "Codex"
+WATERCOOLER_THREADS_PATTERN = "https://github.com/{org}/{repo}-threads.git"
+WATERCOOLER_AUTO_BRANCH = "1"
 ```
 
-**Claude Desktop:**
+**Claude Desktop (`~/.config/Claude/claude_desktop_config.json` on Linux, `~/Library/Application Support/Claude/claude_desktop_config.json` on macOS, `%APPDATA%\Claude\claude_desktop_config.json` on Windows):**
 ```json
 {
   "mcpServers": {
     "watercooler-cloud": {
-      "command": "python3",
-      "args": ["-m", "watercooler_mcp"],
+      "command": "uvx",
+      "args": [
+        "--from",
+        "git+https://github.com/mostlyharmless-ai/watercooler-cloud",
+        "watercooler-mcp"
+      ],
       "env": {
-        "WATERCOOLER_AGENT": "Claude"
+        "WATERCOOLER_AGENT": "Claude@Desktop",
+        "WATERCOOLER_THREADS_PATTERN": "https://github.com/{org}/{repo}-threads.git",
+        "WATERCOOLER_AUTO_BRANCH": "1"
       }
     }
   }
 }
 ```
 
-**Claude Code (`.mcp.json`):**
+**Claude Code (`~/.claude.json`):**
 ```json
 {
   "mcpServers": {
     "watercooler-cloud": {
-      "command": "python3",
-      "args": ["-m", "watercooler_mcp"],
+      "command": "uvx",
+      "args": [
+        "--from",
+        "git+https://github.com/mostlyharmless-ai/watercooler-cloud",
+        "watercooler-mcp"
+      ],
       "env": {
-        "WATERCOOLER_AGENT": "Claude"
+        "WATERCOOLER_AGENT": "Claude@Code",
+        "WATERCOOLER_THREADS_PATTERN": "https://github.com/{org}/{repo}-threads.git",
+        "WATERCOOLER_AUTO_BRANCH": "1"
       }
     }
   }
 }
 ```
+
+**Cursor (`~/.cursor/mcp.json`):**
+```json
+{
+  "mcpServers": {
+    "watercooler-cloud": {
+      "command": "uvx",
+      "args": [
+        "--from",
+        "git+https://github.com/mostlyharmless-ai/watercooler-cloud",
+        "watercooler-mcp"
+      ],
+      "env": {
+        "WATERCOOLER_AGENT": "Cursor",
+        "WATERCOOLER_THREADS_PATTERN": "https://github.com/{org}/{repo}-threads.git",
+        "WATERCOOLER_AUTO_BRANCH": "1"
+      }
+    }
+  }
+}
+```
+
+**Note:** `uvx` must be in your PATH. If it's not found, use the full path (e.g., `~/.local/bin/uvx` on Linux/macOS). The `uvx` command ensures you always get the latest code from the repository and runs in an isolated environment.
 
 ## Environment Variables
 
@@ -94,8 +131,12 @@ Example (Claude Desktop, macOS):
 {
   "mcpServers": {
     "watercooler-cloud": {
-      "command": "python3",
-      "args": ["-m", "watercooler_mcp"],
+      "command": "uvx",
+      "args": [
+        "--from",
+        "git+https://github.com/mostlyharmless-ai/watercooler-cloud",
+        "watercooler-mcp"
+      ],
       "env": {
         "WATERCOOLER_AGENT": "Claude@Desktop",
         "WATERCOOLER_THREADS_PATTERN": "https://github.com/{org}/{repo}-threads.git",
@@ -330,6 +371,12 @@ watercooler_v1_handoff(
 ```
 
 ## Troubleshooting
+### Git authentication issues
+
+- HTTPS is the default and uses your credential helper; ensure a manual `git push https://…` succeeds.
+- For SSH, set `WATERCOOLER_THREADS_PATTERN` to `git@github.com:{org}/{repo}-threads.git` and load your SSH key.
+- After changing the pattern, restart the MCP server/client so the env var is picked up.
+
 
 ### Server Not Found
 

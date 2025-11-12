@@ -53,25 +53,49 @@ index.md merge=ours
 
 Run **one** command per client. It registers a user-scope server that adapts to whatever repo you open.
 
+**Claude CLI:**
 ```bash
 claude mcp add --transport stdio watercooler-cloud --scope user \
   -e WATERCOOLER_AGENT="Claude@Code" \
   -e WATERCOOLER_THREADS_PATTERN="https://github.com/{org}/{repo}-threads.git" \
   -e WATERCOOLER_AUTO_BRANCH=1 \
-  -- python3 -m watercooler_mcp
+  -- uvx --from git+https://github.com/mostlyharmless-ai/watercooler-cloud watercooler-mcp
 ```
 
-Codex CLI variant:
-
+**Codex CLI:**
 ```bash
 codex mcp add watercooler-cloud \
   -e WATERCOOLER_AGENT=Codex \
   -e WATERCOOLER_THREADS_PATTERN=https://github.com/{org}/{repo}-threads.git \
   -e WATERCOOLER_AUTO_BRANCH=1 \
-  -- python3 -m watercooler_mcp
+  -- uvx --from git+https://github.com/mostlyharmless-ai/watercooler-cloud watercooler-mcp
 ```
 
-Claude Desktop registrations follow the same pattern; see the client appendices referenced from the main [README](README.md).
+**Cursor:**
+Edit `~/.cursor/mcp.json`:
+```json
+{
+  "mcpServers": {
+    "watercooler-cloud": {
+      "command": "uvx",
+      "args": [
+        "--from",
+        "git+https://github.com/mostlyharmless-ai/watercooler-cloud",
+        "watercooler-mcp"
+      ],
+      "env": {
+        "WATERCOOLER_AGENT": "Cursor",
+        "WATERCOOLER_THREADS_PATTERN": "https://github.com/{org}/{repo}-threads.git",
+        "WATERCOOLER_AUTO_BRANCH": "1"
+      }
+    }
+  }
+}
+```
+
+**Note:** `uvx` must be in your PATH. If it's not found, use the full path (e.g., `~/.local/bin/uvx` on Linux/macOS). The `uvx` command ensures you always get the latest code from the repository and runs in an isolated environment.
+
+For Claude Desktop, see the client appendices referenced from the main [README](README.md).
 
 ## 5. Identity pre-flight
 

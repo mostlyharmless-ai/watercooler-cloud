@@ -320,6 +320,48 @@ FileNotFoundError: git command not found
    If git is not available:
    - Upward search stops at HOME directory
 
+## Git Authentication
+
+### Symptom
+Git pushes/pulls fail, or you see `Permission denied (publickey)` / `fatal: Authentication failed` errors.
+
+### Solutions
+
+1. **Decide on HTTPS vs SSH**
+   - *HTTPS (default):* relies on Git Credential Manager or stored Personal Access Tokens. No extra setup if `git clone https://…` already works in your shell.
+   - *SSH:* uses your SSH agent/keys. Choose this when your environment is already configured for `git@github.com:…`.
+
+2. **Switch the remote pattern if needed**
+   - HTTPS example:
+     ```bash
+     export WATERCOOLER_THREADS_PATTERN="https://github.com/{org}/{repo}-threads.git"
+     # Windows PowerShell:
+     # setx WATERCOOLER_THREADS_PATTERN "https://github.com/{org}/{repo}-threads.git"
+     ```
+   - SSH example:
+     ```bash
+     export WATERCOOLER_THREADS_PATTERN="git@github.com:{org}/{repo}-threads.git"
+     # Windows PowerShell:
+     # setx WATERCOOLER_THREADS_PATTERN "git@github.com:{org}/{repo}-threads.git"
+     ```
+
+3. **HTTPS troubleshooting**
+   - Ensure `git push https://github.com/<org>/<repo>-threads.git` succeeds manually.
+   - If prompted for credentials, create a PAT with `repo` scope and let Git Credential Manager store it once.
+   - On CI, set `GIT_ASKPASS` to a helper that echoes the PAT, or export `GITHUB_TOKEN` (GitHub Actions).
+
+4. **SSH troubleshooting**
+   - Add your key to the agent: `ssh-add ~/.ssh/id_ed25519`.
+   - Verify GitHub trust: `ssh -T git@github.com`.
+   - Ensure the key has repo access (deploy key or personal key).
+   - When running Watercooler non-interactively, point `WATERCOOLER_GIT_SSH_KEY` to the private key.
+
+5. **Re-run the command**
+   - After updating the env var, restart your MCP client so the new value applies.
+   - Confirm using `watercooler_v1_health`: the `Threads Repo URL` should show the expected scheme.
+
+---
+
 ## Git Sync Issues (Cloud Mode)
 
 If you enabled cloud sync via `WATERCOOLER_GIT_REPO`, here are common problems and fixes:
