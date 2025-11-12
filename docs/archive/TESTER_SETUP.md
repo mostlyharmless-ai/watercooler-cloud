@@ -31,7 +31,7 @@ claude mcp add --transport stdio watercooler-cloud --scope user \
 ## Required Call Parameters
 To avoid ambiguity across repos/branches, every call must provide:
 - `code_path`: the code repo root (e.g., `"."` when Claude runs in the repo, or an absolute path)
-- `agent_func` (writes only): identity as `"<AgentBase>:<spec>"` (e.g., `"Claude:pm"`)
+- `agent_func` (writes only): identity as `"<platform>:<model>:<role>"` (e.g., `"Claude Code:sonnet-4:pm"`)
 
 Examples:
 ```text
@@ -46,10 +46,10 @@ watercooler_v1_list_threads(code_path=".")
 watercooler_v1_read_thread(topic="trial-run", code_path=".")
 
 # Write (explicit identity)
-watercooler_v1_say(topic="trial-run", title="Dev server OK", body="Spec: pm — universal mode", role="pm", code_path=".", agent_func="Claude:pm")
-watercooler_v1_ack(topic="trial-run", title="Ack", code_path=".", agent_func="Claude:pm")
-watercooler_v1_handoff(topic="trial-run", note="Your turn", target_agent="Codex", code_path=".", agent_func="Claude:pm")
-watercooler_v1_set_status(topic="trial-run", status="IN_REVIEW", code_path=".", agent_func="Claude:pm")
+watercooler_v1_say(topic="trial-run", title="Dev server OK", body="Spec: pm — universal mode", role="pm", code_path=".", agent_func="Claude Code:sonnet-4:pm")
+watercooler_v1_ack(topic="trial-run", title="Ack", code_path=".", agent_func="Claude Code:sonnet-4:pm")
+watercooler_v1_handoff(topic="trial-run", note="Your turn", target_agent="Codex", code_path=".", agent_func="Claude Code:sonnet-4:pm")
+watercooler_v1_set_status(topic="trial-run", status="IN_REVIEW", code_path=".", agent_func="Claude Code:sonnet-4:pm")
 ```
 
 ## Expected Behavior
@@ -69,5 +69,5 @@ watercooler_v1_set_status(topic="trial-run", status="IN_REVIEW", code_path=".", 
 1) `watercooler_v1_whoami`
 2) `watercooler_v1_health(code_path=".")` → Threads Dir reports the sibling path (e.g., `/projects/repo-threads`)
 3) `watercooler_v1_list_threads(code_path=".")`
-4) `watercooler_v1_say(..., code_path=".", agent_func="Claude:pm")`
+4) `watercooler_v1_say(..., code_path=".", agent_func="Claude Code:sonnet-4:pm")`
 5) Terminal: `cd ../repo-threads && git log -1 --pretty=raw` → footers present

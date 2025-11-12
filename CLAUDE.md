@@ -252,7 +252,8 @@ Standardize how Claude (this assistant) uses Watercooler tools so entries remain
 
 ### Setting Identity
 
-- **Preferred (cloud context)**: Call `watercooler_v1_set_agent` with `base="Claude"` and an appropriate `spec` (e.g., `pm`, `planner-architecture`, `implementer-code`, `tester`, `security-audit`, `docs`, `ops`, or `general-purpose`).
+- **Preferred (cloud context)**: Call `watercooler_v1_set_agent` with `base="Claude Code"` and an appropriate `spec` (e.g., `pm`, `planner-architecture`, `implementer-code`, `tester`, `security-audit`, `docs`, `ops`, or `general-purpose`).
+- **Alternative (per-call)**: Supply `agent_func` parameter in format `<platform>:<model>:<role>` (e.g., `"Claude Code:sonnet-4:implementer"`) where platform is the actual IDE/platform name, model is the exact model identifier, and role is the agent role.
 - **Local context (no explicit setter)**: Still enforce the rule by selecting the matching entry Role and adding a visible `Spec: <value>` line at the top of the entry body.
 
 ### Role Alignment
@@ -484,7 +485,7 @@ Do not silently fail or attempt workarounds that bypass the watercooler tools.
 
 When Claude uses Watercooler MCP tools:
 
-1. **Set identity first**: Call `watercooler_v1_set_agent` with `base="Claude"` and appropriate `spec`
+1. **Set identity first**: Call `watercooler_v1_set_agent` with `base="Claude Code"` and appropriate `spec`, or supply `agent_func="<platform>:<model>:<role>"` (e.g., `"Claude Code:sonnet-4:implementer"`) on each write call
 2. **Use appropriate roles**: Match the role to the activity (planner, critic, implementer, tester, pm, scribe)
 3. **Include Spec marker**: Always include `Spec: <spec>` as the first line of entry body
 4. **Meaningful titles**: Use descriptive titles, not generic ones like "Update" or "Done"

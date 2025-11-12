@@ -673,17 +673,26 @@ def say(
     Args:
         topic: Thread topic identifier (e.g., "feature-auth")
         title: Entry title - brief summary of your contribution
-        body: Full entry content (markdown supported)
+        body: Full entry content (markdown supported). In general, threads follow an arc:
+            - Start: Persist the state of the project at the start, describe why the thread exists,
+              and lay out the desired state change for the code/project
+            - Middle: Reason towards the appropriate solution
+            - End: Describe the effective solution reached
+            - Often: Recap that arc in a closing message to the thread
+            Thread entries should explicitly reference any files changed, using file paths
+            (e.g., `src/watercooler_mcp/server.py`, `docs/README.md`) to maintain clear
+            traceability of what was modified.
         role: Your role - planner, critic, implementer, tester, pm, or scribe (default: implementer)
         entry_type: Entry type - Note, Plan, Decision, PR, or Closure (default: Note)
         create_if_missing: Whether to create the thread if it doesn't exist (default: False, but threads are auto-created by commands.say)
         code_path: Path to the code repository directory containing the files most immediately 
             under discussion in this thread. This establishes the code context for branch pairing 
             and commit footers. Should point to the root of your working repository.
-        agent_func: Agent identity in format '<framework>:<spec>' where:
-            - framework: The agent framework (e.g., Claude, Cursor, Codex)
-            - spec: Detailed specification, ideally '<model>-<role>' (e.g., 'sonnet-4-implementer', 'gpt-4-planner')
-            Full examples: 'Claude:sonnet-4-implementer', 'Cursor:gpt-4-tester'
+        agent_func: Agent identity in format '<platform>:<model>:<role>' where:
+            - platform: The actual IDE/platform name (e.g., 'Cursor', 'Claude Code', 'Codex')
+            - model: The exact model identifier as it identifies itself (e.g., 'Composer 1', 'sonnet-4', 'gpt-4')
+            - role: The agent role (e.g., 'implementer', 'reviewer', 'planner')
+            Full examples: 'Cursor:Composer 1:implementer', 'Claude Code:sonnet-4:reviewer', 'Codex:gpt-4:planner'
             This information is recorded in commit footers for full traceability.
 
     Returns:
@@ -692,7 +701,7 @@ def say(
     Example:
         say("feature-auth", "Implementation complete", "All tests passing. Ready for review.", 
             role="implementer", entry_type="Note", code_path="/path/to/repo", 
-            agent_func="Claude:sonnet-4-implementer")
+            agent_func="Cursor:Composer 1:implementer")
     """
     try:
         error, context = _require_context(code_path)
@@ -702,10 +711,10 @@ def say(
             return "Error: Unable to resolve code context for the provided code_path."
 
         if not agent_func or ":" not in agent_func:
-            return "identity required: pass agent_func as '<AgentBase>:<spec>' (e.g., 'Claude:pm')"
+            return "identity required: pass agent_func as '<platform>:<model>:<role>' (e.g., 'Cursor:Composer 1:implementer')"
         agent_base, agent_spec = [p.strip() for p in agent_func.split(":", 1)]
         if not agent_base or not agent_spec:
-            return "identity invalid: agent_func must be '<AgentBase>:<spec>'"
+            return "identity invalid: agent_func must be '<platform>:<model>:<role>' (e.g., 'Cursor:Composer 1:implementer')"
 
         threads_dir = context.threads_dir
         agent = agent_base or get_agent_name(ctx.client_id)
@@ -774,10 +783,11 @@ def ack(
         code_path: Path to the code repository directory containing the files most immediately 
             under discussion in this thread. This establishes the code context for branch pairing 
             and commit footers. Should point to the root of your working repository.
-        agent_func: Agent identity in format '<framework>:<spec>' where:
-            - framework: The agent framework (e.g., Claude, Cursor, Codex)
-            - spec: Detailed specification, ideally '<model>-<role>' (e.g., 'sonnet-4-implementer', 'gpt-4-planner')
-            Full examples: 'Claude:sonnet-4-implementer', 'Cursor:gpt-4-tester'
+        agent_func: Agent identity in format '<platform>:<model>:<role>' where:
+            - platform: The actual IDE/platform name (e.g., 'Cursor', 'Claude Code', 'Codex')
+            - model: The exact model identifier as it identifies itself (e.g., 'Composer 1', 'sonnet-4', 'gpt-4')
+            - role: The agent role (e.g., 'implementer', 'reviewer', 'planner')
+            Full examples: 'Cursor:Composer 1:implementer', 'Claude Code:sonnet-4:reviewer', 'Codex:gpt-4:planner'
             This information is recorded in commit footers for full traceability.
 
     Returns:
@@ -785,7 +795,7 @@ def ack(
 
     Example:
         ack("feature-auth", "Noted", "Thanks for the update, looks good!", 
-            code_path="/path/to/repo", agent_func="Claude:sonnet-4-reviewer")
+            code_path="/path/to/repo", agent_func="Claude Code:sonnet-4:reviewer")
     """
     try:
         error, context = _require_context(code_path)
@@ -800,10 +810,10 @@ def ack(
             )
 
         if not agent_func or ":" not in agent_func:
-            return "identity required: pass agent_func as '<AgentBase>:<spec>'"
+            return "identity required: pass agent_func as '<platform>:<model>:<role>' (e.g., 'Cursor:Composer 1:implementer')"
         agent_base, agent_spec = [p.strip() for p in agent_func.split(":", 1)]
         if not agent_base or not agent_spec:
-            return "identity invalid: agent_func must be '<AgentBase>:<spec>'"
+            return "identity invalid: agent_func must be '<platform>:<model>:<role>' (e.g., 'Cursor:Composer 1:implementer')"
         threads_dir = context.threads_dir
         agent = agent_base or get_agent_name(ctx.client_id)
 
@@ -862,10 +872,11 @@ def handoff(
         code_path: Path to the code repository directory containing the files most immediately 
             under discussion in this thread. This establishes the code context for branch pairing 
             and commit footers. Should point to the root of your working repository.
-        agent_func: Agent identity in format '<framework>:<spec>' where:
-            - framework: The agent framework (e.g., Claude, Cursor, Codex)
-            - spec: Detailed specification, ideally '<model>-<role>' (e.g., 'sonnet-4-implementer', 'gpt-4-planner')
-            Full examples: 'Claude:sonnet-4-implementer', 'Cursor:gpt-4-tester'
+        agent_func: Agent identity in format '<platform>:<model>:<role>' where:
+            - platform: The actual IDE/platform name (e.g., 'Cursor', 'Claude Code', 'Codex')
+            - model: The exact model identifier as it identifies itself (e.g., 'Composer 1', 'sonnet-4', 'gpt-4')
+            - role: The agent role (e.g., 'implementer', 'reviewer', 'planner')
+            Full examples: 'Cursor:Composer 1:implementer', 'Claude Code:sonnet-4:reviewer', 'Codex:gpt-4:planner'
             This information is recorded in commit footers for full traceability.
 
     Returns:
@@ -873,7 +884,7 @@ def handoff(
 
     Example:
         handoff("feature-auth", "Ready for your review", target_agent="Claude", 
-                code_path="/path/to/repo", agent_func="Cursor:gpt-4-implementer")
+                code_path="/path/to/repo", agent_func="Cursor:Composer 1:implementer")
     """
     try:
         error, context = _require_context(code_path)
@@ -888,10 +899,10 @@ def handoff(
             )
 
         if not agent_func or ":" not in agent_func:
-            return "identity required: pass agent_func as '<AgentBase>:<spec>'"
+            return "identity required: pass agent_func as '<platform>:<model>:<role>' (e.g., 'Cursor:Composer 1:implementer')"
         agent_base, agent_spec = [p.strip() for p in agent_func.split(":", 1)]
         if not agent_base or not agent_spec:
-            return "identity invalid: agent_func must be '<AgentBase>:<spec>'"
+            return "identity invalid: agent_func must be '<platform>:<model>:<role>' (e.g., 'Cursor:Composer 1:implementer')"
         threads_dir = context.threads_dir
         agent = agent_base or get_agent_name(ctx.client_id)
 
@@ -975,10 +986,11 @@ def set_status(
         code_path: Path to the code repository directory containing the files most immediately 
             under discussion in this thread. This establishes the code context for branch pairing 
             and commit footers. Should point to the root of your working repository.
-        agent_func: Agent identity in format '<framework>:<spec>' where:
-            - framework: The agent framework (e.g., Claude, Cursor, Codex)
-            - spec: Detailed specification, ideally '<model>-<role>' (e.g., 'sonnet-4-implementer', 'gpt-4-planner')
-            Full examples: 'Claude:sonnet-4-implementer', 'Cursor:gpt-4-tester'
+        agent_func: Agent identity in format '<platform>:<model>:<role>' where:
+            - platform: The actual IDE/platform name (e.g., 'Cursor', 'Claude Code', 'Codex')
+            - model: The exact model identifier as it identifies itself (e.g., 'Composer 1', 'sonnet-4', 'gpt-4')
+            - role: The agent role (e.g., 'implementer', 'reviewer', 'planner')
+            Full examples: 'Cursor:Composer 1:implementer', 'Claude Code:sonnet-4:reviewer', 'Codex:gpt-4:planner'
             This information is recorded in commit footers for full traceability.
 
     Returns:
@@ -986,7 +998,7 @@ def set_status(
 
     Example:
         set_status("feature-auth", "IN_REVIEW", code_path="/path/to/repo", 
-                   agent_func="Claude:sonnet-4-pm")
+                   agent_func="Claude Code:sonnet-4:pm")
     """
     try:
         error, context = _require_context(code_path)
@@ -1001,10 +1013,10 @@ def set_status(
             )
 
         if not agent_func or ":" not in agent_func:
-            return "identity required: pass agent_func as '<AgentBase>:<spec>'"
+            return "identity required: pass agent_func as '<platform>:<model>:<role>' (e.g., 'Cursor:Composer 1:implementer')"
         agent_base, agent_spec = [p.strip() for p in agent_func.split(":", 1)]
         if not agent_base or not agent_spec:
-            return "identity invalid: agent_func must be '<AgentBase>:<spec>'"
+            return "identity invalid: agent_func must be '<platform>:<model>:<role>' (e.g., 'Cursor:Composer 1:implementer')"
         threads_dir = context.threads_dir
 
         def op():

@@ -101,7 +101,7 @@ For Claude Desktop, see the client appendices referenced from the main [README](
 
 Before any write (`say`, `ack`, `handoff`, `set_status`), your session must declare identity:
 
-1. Call `watercooler_v1_set_agent(base="Claude", spec="implementer-code")` **or** supply `agent_func="Claude:implementer-code"` on each write
+1. Call `watercooler_v1_set_agent(base="Claude Code", spec="implementer-code")` **or** supply `agent_func="Claude Code:sonnet-4:implementer"` on each write (format: `<platform>:<model>:<role>`)
 2. Include a visible `Spec: <value>` line in your entry body (Watercooler protocol requirement)
 3. Keep `spec` aligned with the entry role (`planner`, `critic`, `implementer`, `tester`, `pm`, `scribe`)
 
@@ -114,10 +114,10 @@ See [STRUCTURED_ENTRIES.md](STRUCTURED_ENTRIES.md#identity-pre-flight) for deepe
 ```text
 watercooler_v1_list_threads(code_path=".")
 watercooler_v1_read_thread(topic="trial-run", code_path=".")
-watercooler_v1_say(topic="trial-run", title="Dev server OK", body="Spec: implementer-code — universal mode", role="implementer", code_path=".", agent_func="Claude:implementer-code")
-watercooler_v1_ack(topic="trial-run", title="Ack", code_path=".", agent_func="Claude:pm")
-watercooler_v1_handoff(topic="trial-run", note="Your turn", target_agent="Codex", code_path=".", agent_func="Claude:pm")
-watercooler_v1_set_status(topic="trial-run", status="IN_REVIEW", code_path=".", agent_func="Claude:pm")
+watercooler_v1_say(topic="trial-run", title="Dev server OK", body="Spec: implementer-code — universal mode", role="implementer", code_path=".", agent_func="Claude Code:sonnet-4:implementer")
+watercooler_v1_ack(topic="trial-run", title="Ack", code_path=".", agent_func="Claude Code:sonnet-4:pm")
+watercooler_v1_handoff(topic="trial-run", note="Your turn", target_agent="Codex", code_path=".", agent_func="Claude Code:sonnet-4:pm")
+watercooler_v1_set_status(topic="trial-run", status="IN_REVIEW", code_path=".", agent_func="Claude Code:sonnet-4:pm")
 ```
 
 If `code_path` or `agent_func` is omitted, the server fails fast with an actionable error. This protects you from writing into the wrong threads branch.

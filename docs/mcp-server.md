@@ -227,7 +227,12 @@ Add your response to a thread and flip the ball to your counterpart.
 **Parameters:**
 - `topic` (str): Thread topic identifier
 - `title` (str): Entry title - brief summary
-- `body` (str): Full entry content (markdown supported)
+- `body` (str): Full entry content (markdown supported). In general, threads follow an arc:
+  - **Start**: Persist the state of the project at the start, describe why the thread exists, and lay out the desired state change for the code/project
+  - **Middle**: Reason towards the appropriate solution
+  - **End**: Describe the effective solution reached
+  - **Often**: Recap that arc in a closing message to the thread
+  Thread entries should explicitly reference any files changed, using file paths (e.g., `src/watercooler_mcp/server.py`, `docs/README.md`) to maintain clear traceability of what was modified.
 - `role` (str): Your role - planner, critic, implementer, tester, pm, scribe (default: implementer)
 - `entry_type` (str): Entry type - Note, Plan, Decision, PR, Closure (default: Note)
 
@@ -278,7 +283,7 @@ Synchronize the local threads repository with its remote using the same flow as 
 
 **Parameters:**
 - `code_path` (str): Code repo root, same as other tools
-- `agent_func` (str): Optional specialization for provenance
+- `agent_func` (str): Optional agent identity in format `<platform>:<model>:<role>` for provenance
 
 **Returns:** Confirmation once sync completes (errors if remote unreachable).
 
@@ -312,7 +317,7 @@ Generate index summary of all threads.
 Every tool call must include:
 
 - `code_path` — points to the code repository root (e.g., `"."`). The server resolves repo/branch/commit from this path.
-- `agent_func` — required on write operations; format `<AgentBase>:<spec>` (e.g., `"Claude:pm"`). Supplies the specialization recorded in thread entries.
+- `agent_func` — required on write operations; format `<platform>:<model>:<role>` (e.g., `"Cursor:Composer 1:implementer"`). The platform should be the actual IDE/platform name (e.g., `Cursor`, `Claude Code`, `Codex`), model should be the exact model identifier, and role should be the agent role. This information is recorded in commit footers for traceability.
 
 ### Deferred Features
 
@@ -354,7 +359,7 @@ watercooler_v1_say(
     role="implementer",
     entry_type="Note",
     code_path=".",
-    agent_func="Claude:implementer-code"
+    agent_func="Cursor:Composer 1:implementer"
 )
 ```
 
@@ -366,7 +371,7 @@ watercooler_v1_handoff(
     note="Security review needed for OAuth implementation",
     target_agent="SecurityBot",
     code_path=".",
-    agent_func="Claude:pm"
+    agent_func="Claude Code:sonnet-4:pm"
 )
 ```
 

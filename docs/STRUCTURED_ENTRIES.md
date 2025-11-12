@@ -40,7 +40,7 @@ Each entry in a watercooler thread includes:
 
 Before issuing write operations (`say`, `ack`, `handoff`, `set_status`), agents must declare identity:
 
-- Call `watercooler_v1_set_agent(base="Claude", spec="implementer-code")` once per session **or** supply `agent_func="Claude:implementer-code"` on each write.
+- Call `watercooler_v1_set_agent(base="Claude Code", spec="implementer-code")` once per session **or** supply `agent_func="Claude Code:sonnet-4:implementer"` on each write (format: `<platform>:<model>:<role>`).
 - Align `spec` with the role recorded in the entry (`planner`, `critic`, `implementer`, `tester`, `pm`, `scribe`).
 - Include a visible `Spec: <value>` line in the entry body. This keeps the Watercooler audit trail self-describing when rendered outside MCP tools.
 - Enable strict enforcement by setting `WATERCOOLER_REQUIRE_IDENTITY=1`. When active, writes using the default `Agent` identity are rejected with guidance.
@@ -420,6 +420,22 @@ watercooler say topic \
 - Fix timeout issues
 - Add retry logic"
 ```
+
+### 6. Thread Content Arc
+In general, threads follow a natural progression that helps maintain context and document the journey:
+
+- **Start**: Persist the state of the project at the start of the thread. Describe why the thread exists and lay out the desired state change for the code/project. This establishes the baseline and goal.
+
+- **Middle**: Reason towards the appropriate solution. Document the exploration, trade-offs considered, and decision-making process.
+
+- **End**: Describe the effective solution reached. Summarize what was implemented, tested, or decided.
+
+- **Often**: Recap that arc in a closing message to the thread. This helps future readers quickly understand the thread's purpose, journey, and outcome.
+
+This arc ensures threads remain self-documenting and provide valuable context for future reference.
+
+### 7. File References
+Thread entries should **explicitly reference any files changed** in the entry body. Use file paths (e.g., `src/watercooler_mcp/server.py`, `docs/README.md`) to maintain clear traceability of what was modified. This helps readers quickly understand the scope of changes and locate relevant code or documentation.
 
 ## Examples
 
