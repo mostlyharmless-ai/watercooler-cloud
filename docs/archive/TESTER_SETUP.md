@@ -23,17 +23,10 @@ claude mcp add --transport stdio watercooler-cloud --scope user \
   -e WATERCOOLER_AGENT="Claude@Code" \
   -e WATERCOOLER_THREADS_PATTERN="https://github.com/{org}/{repo}-threads.git" \
   -e WATERCOOLER_AUTO_BRANCH=1 \
-  -- python3 -m watercooler_mcp
+  -- uvx --from git+https://github.com/mostlyharmless-ai/watercooler-cloud watercooler-mcp
 ```
 
-Alternate (guarantee latest code from this repo file):
-```bash
-claude mcp add --transport stdio watercooler-cloud --scope user \
-  -e WATERCOOLER_AGENT="Claude@Code" \
-  -e WATERCOOLER_THREADS_PATTERN="https://github.com/{org}/{repo}-threads.git" \
-  -e WATERCOOLER_AUTO_BRANCH=1 \
-  -- python3 /path/to/watercooler-cloud/src/watercooler_mcp/server.py
-```
+**Note:** The `uvx` command ensures you always get the latest code from the repository and runs in an isolated environment. This is the recommended approach.
 
 ## Required Call Parameters
 To avoid ambiguity across repos/branches, every call must provide:

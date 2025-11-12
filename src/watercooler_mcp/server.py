@@ -425,6 +425,9 @@ def list_threads(
         limit: Maximum threads to return (Phase 1A: ignored, returns all)
         cursor: Pagination cursor (Phase 1A: ignored, no pagination)
         format: Output format - "markdown" or "json" (Phase 1A: only "markdown" supported)
+        code_path: Path to the code repository directory containing the files most immediately 
+            under discussion. This establishes the code context for branch pairing. 
+            Should point to the root of your working repository.
 
     Returns:
         Formatted thread list with:
@@ -600,6 +603,9 @@ def read_thread(
         from_entry: Starting entry index for pagination (Phase 1A: ignored)
         limit: Maximum entries to include (Phase 1A: ignored, returns all)
         format: Output format - "markdown" or "json" (Phase 1A: only "markdown" supported)
+        code_path: Path to the code repository directory containing the files most immediately 
+            under discussion. This establishes the code context for branch pairing. 
+            Should point to the root of your working repository.
 
     Returns:
         Full thread content including:
@@ -671,12 +677,22 @@ def say(
         role: Your role - planner, critic, implementer, tester, pm, or scribe (default: implementer)
         entry_type: Entry type - Note, Plan, Decision, PR, or Closure (default: Note)
         create_if_missing: Whether to create the thread if it doesn't exist (default: False, but threads are auto-created by commands.say)
+        code_path: Path to the code repository directory containing the files most immediately 
+            under discussion in this thread. This establishes the code context for branch pairing 
+            and commit footers. Should point to the root of your working repository.
+        agent_func: Agent identity in format '<framework>:<spec>' where:
+            - framework: The agent framework (e.g., Claude, Cursor, Codex)
+            - spec: Detailed specification, ideally '<model>-<role>' (e.g., 'sonnet-4-implementer', 'gpt-4-planner')
+            Full examples: 'Claude:sonnet-4-implementer', 'Cursor:gpt-4-tester'
+            This information is recorded in commit footers for full traceability.
 
     Returns:
         Confirmation message with updated ball status
 
     Example:
-        say("feature-auth", "Implementation complete", "All tests passing. Ready for review.", role="implementer", entry_type="Note")
+        say("feature-auth", "Implementation complete", "All tests passing. Ready for review.", 
+            role="implementer", entry_type="Note", code_path="/path/to/repo", 
+            agent_func="Claude:sonnet-4-implementer")
     """
     try:
         error, context = _require_context(code_path)
@@ -755,12 +771,21 @@ def ack(
         topic: Thread topic identifier
         title: Optional acknowledgment title (default: "Ack")
         body: Optional acknowledgment message (default: "ack")
+        code_path: Path to the code repository directory containing the files most immediately 
+            under discussion in this thread. This establishes the code context for branch pairing 
+            and commit footers. Should point to the root of your working repository.
+        agent_func: Agent identity in format '<framework>:<spec>' where:
+            - framework: The agent framework (e.g., Claude, Cursor, Codex)
+            - spec: Detailed specification, ideally '<model>-<role>' (e.g., 'sonnet-4-implementer', 'gpt-4-planner')
+            Full examples: 'Claude:sonnet-4-implementer', 'Cursor:gpt-4-tester'
+            This information is recorded in commit footers for full traceability.
 
     Returns:
         Confirmation message
 
     Example:
-        ack("feature-auth", "Noted", "Thanks for the update, looks good!")
+        ack("feature-auth", "Noted", "Thanks for the update, looks good!", 
+            code_path="/path/to/repo", agent_func="Claude:sonnet-4-reviewer")
     """
     try:
         error, context = _require_context(code_path)
@@ -834,12 +859,21 @@ def handoff(
         topic: Thread topic identifier
         note: Optional handoff message explaining context
         target_agent: Agent name to receive the ball (optional, uses counterpart if None)
+        code_path: Path to the code repository directory containing the files most immediately 
+            under discussion in this thread. This establishes the code context for branch pairing 
+            and commit footers. Should point to the root of your working repository.
+        agent_func: Agent identity in format '<framework>:<spec>' where:
+            - framework: The agent framework (e.g., Claude, Cursor, Codex)
+            - spec: Detailed specification, ideally '<model>-<role>' (e.g., 'sonnet-4-implementer', 'gpt-4-planner')
+            Full examples: 'Claude:sonnet-4-implementer', 'Cursor:gpt-4-tester'
+            This information is recorded in commit footers for full traceability.
 
     Returns:
         Confirmation with new ball owner
 
     Example:
-        handoff("feature-auth", "Ready for your review", target_agent="Claude")
+        handoff("feature-auth", "Ready for your review", target_agent="Claude", 
+                code_path="/path/to/repo", agent_func="Cursor:gpt-4-implementer")
     """
     try:
         error, context = _require_context(code_path)
@@ -938,12 +972,21 @@ def set_status(
     Args:
         topic: Thread topic identifier
         status: New status value (e.g., "IN_REVIEW", "CLOSED")
+        code_path: Path to the code repository directory containing the files most immediately 
+            under discussion in this thread. This establishes the code context for branch pairing 
+            and commit footers. Should point to the root of your working repository.
+        agent_func: Agent identity in format '<framework>:<spec>' where:
+            - framework: The agent framework (e.g., Claude, Cursor, Codex)
+            - spec: Detailed specification, ideally '<model>-<role>' (e.g., 'sonnet-4-implementer', 'gpt-4-planner')
+            Full examples: 'Claude:sonnet-4-implementer', 'Cursor:gpt-4-tester'
+            This information is recorded in commit footers for full traceability.
 
     Returns:
         Confirmation message
 
     Example:
-        set_status("feature-auth", "IN_REVIEW")
+        set_status("feature-auth", "IN_REVIEW", code_path="/path/to/repo", 
+                   agent_func="Claude:sonnet-4-pm")
     """
     try:
         error, context = _require_context(code_path)
@@ -993,7 +1036,16 @@ def force_sync(
     code_path: str = "",
     action: str = "now",
 ) -> str:
-    """Inspect or flush the async git sync worker."""
+    """Inspect or flush the async git sync worker.
+
+    Args:
+        action: Action to perform - "status"/"inspect" to view sync state, or "now"/"flush" to force immediate sync (default: "now")
+        code_path: Path to the code repository directory. This establishes the code context for 
+            determining which threads repository to sync. Should point to the root of your working repository.
+
+    Returns:
+        Status information or confirmation of sync operation
+    """
     _diag(f"TOOL_ENTRY: watercooler_v1_sync(code_path={code_path!r}, action={action!r})")
     try:
         _diag("TOOL_STEP: calling _require_context")

@@ -5,6 +5,7 @@ This guide shows you how to configure Claude Desktop to automatically launch and
 **Looking for other clients?**
 - [Claude Code Setup](./CLAUDE_CODE_SETUP.md) - Configuration for Claude Code CLI
 - [Codex Setup](./QUICKSTART.md#for-codex) - Configuration for Codex
+- [Cursor Setup](../mcp-server.md#configuration-examples) - Configuration for Cursor IDE
 - [CLI Workflows](./claude-collab.md) - Manual CLI usage (for scripts and automation)
 
 ## Prerequisites
@@ -40,8 +41,12 @@ Or edit the Desktop config manually (
 {
   "mcpServers": {
     "watercooler-cloud": {
-      "command": "python3",
-      "args": ["-m", "watercooler_mcp"],
+      "command": "uvx",
+      "args": [
+        "--from",
+        "git+https://github.com/mostlyharmless-ai/watercooler-cloud",
+        "watercooler-mcp"
+      ],
       "env": {
         "WATERCOOLER_AGENT": "Claude@Desktop",
         "WATERCOOLER_THREADS_PATTERN": "https://github.com/{org}/{repo}-threads.git",
@@ -51,6 +56,8 @@ Or edit the Desktop config manually (
   }
 }
 ```
+
+**Note:** `uvx` must be in your PATH. If it's not found, use the full path (e.g., `~/.local/bin/uvx` on Linux/macOS). The `uvx` command ensures you always get the latest code from the repository and runs in an isolated environment.
 
 Restart Claude Desktop and the tools appear automatically. No project-specific `WATERCOOLER_DIR` is necessary when you pass `code_path` on tool calls.
 
@@ -64,8 +71,12 @@ Claude Desktop lets you specify environment variables in the MCP registration. M
 {
   "mcpServers": {
     "watercooler-cloud": {
-      "command": "python3",
-      "args": ["-m", "watercooler_mcp"],
+      "command": "uvx",
+      "args": [
+        "--from",
+        "git+https://github.com/mostlyharmless-ai/watercooler-cloud",
+        "watercooler-mcp"
+      ],
       "env": {
         "WATERCOOLER_AGENT": "Claude@Desktop",
         "WATERCOOLER_THREADS_PATTERN": "https://github.com/{org}/{repo}-threads.git",
@@ -75,6 +86,8 @@ Claude Desktop lets you specify environment variables in the MCP registration. M
   }
 }
 ```
+
+**Note:** `uvx` must be in your PATH. If it's not found, use the full path (e.g., `~/.local/bin/uvx` on Linux/macOS). The `uvx` command ensures you always get the latest code from the repository and runs in an isolated environment.
 
 #### `WATERCOOLER_AGENT` (Required)
 Identifies the assistant in thread entries. Add a suffix (`@Desktop`, `@Code`, etc.) if you use multiple clients.
@@ -227,8 +240,12 @@ If you have multiple Python environments, specify the full path:
 {
   "mcpServers": {
     "watercooler-cloud": {
-      "command": "/opt/anaconda3/envs/watercooler/bin/python",
-      "args": ["-m", "watercooler_mcp"],
+      "command": "uvx",
+      "args": [
+        "--from",
+        "git+https://github.com/mostlyharmless-ai/watercooler-cloud",
+        "watercooler-mcp"
+      ],
       "env": {
         "WATERCOOLER_AGENT": "Claude@Desktop",
         "WATERCOOLER_THREADS_PATTERN": "https://github.com/{org}/{repo}-threads.git",
@@ -238,6 +255,8 @@ If you have multiple Python environments, specify the full path:
   }
 }
 ```
+
+**Note:** If you need to use a specific Python environment, you can still use `uvx` as it manages its own isolated environment. The `uvx` command ensures you always get the latest code from the repository.
 
 ### Using uv for Dependency Management
 
@@ -316,8 +335,12 @@ pip list | grep watercooler
 {
   "mcpServers": {
     "watercooler-cloud": {
-      "command": "python3",
-      "args": ["-m", "watercooler_mcp"],
+      "command": "uvx",
+      "args": [
+        "--from",
+        "git+https://github.com/mostlyharmless-ai/watercooler-cloud",
+        "watercooler-mcp"
+      ],
       "env": {
         "WATERCOOLER_AGENT": "Claude@Desktop",
         "WATERCOOLER_THREADS_PATTERN": "https://github.com/{org}/{repo}-threads.git",
@@ -327,6 +350,8 @@ pip list | grep watercooler
   }
 }
 ```
+
+**Note:** `uvx` must be in your PATH. If it's not found, use the full path (e.g., `~/.local/bin/uvx` on Linux/macOS). The `uvx` command ensures you always get the latest code from the repository and runs in an isolated environment.
 
 ## Next Steps
 

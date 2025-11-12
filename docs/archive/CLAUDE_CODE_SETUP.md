@@ -5,6 +5,7 @@ This guide shows you how to configure **Claude Code** (the CLI tool you're using
 **Looking for other clients?**
 - [Claude Desktop Setup](./CLAUDE_DESKTOP_SETUP.md) - Configuration for Claude Desktop app
 - [Codex Setup](./QUICKSTART.md#for-codex) - Configuration for Codex
+- [Cursor Setup](../mcp-server.md#configuration-examples) - Configuration for Cursor IDE
 - [CLI Workflows](./claude-collab.md) - Manual CLI usage (for scripts and automation)
 
 ## Prerequisites
@@ -35,8 +36,10 @@ claude mcp add --transport stdio watercooler-cloud --scope user \
   -e WATERCOOLER_AGENT="Claude@Code" \
   -e WATERCOOLER_THREADS_PATTERN="https://github.com/{org}/{repo}-threads.git" \
   -e WATERCOOLER_AUTO_BRANCH=1 \
-  -- python3 -m watercooler_mcp
+  -- uvx --from git+https://github.com/mostlyharmless-ai/watercooler-cloud watercooler-mcp
 ```
+
+**Note:** `uvx` must be in your PATH. If it's not found, use the full path (e.g., `~/.local/bin/uvx` on Linux/macOS). The `uvx` command ensures you always get the latest code from the repository and runs in an isolated environment.
 
 Use `fastmcp install` if you prefer an installer-style workflow:
 
@@ -93,8 +96,10 @@ claude mcp add --transport stdio watercooler-cloud --scope user \
   -e WATERCOOLER_AGENT="Claude@Code" \
   -e WATERCOOLER_THREADS_PATTERN="https://github.com/{org}/{repo}-threads.git" \
   -e WATERCOOLER_AUTO_BRANCH=1 \
-  -- python3 -m watercooler_mcp
+  -- uvx --from git+https://github.com/mostlyharmless-ai/watercooler-cloud watercooler-mcp
 ```
+
+**Note:** `uvx` must be in your PATH. If it's not found, use the full path (e.g., `~/.local/bin/uvx` on Linux/macOS). The `uvx` command ensures you always get the latest code from the repository and runs in an isolated environment.
 
 ## Managing Multiple Projects
 
@@ -179,7 +184,7 @@ claude mcp add --transport stdio watercooler-cloud --scope user \
   -e WATERCOOLER_AGENT="Claude@Code" \
   -e WATERCOOLER_THREADS_PATTERN="https://github.com/{org}/{repo}-threads.git" \
   -e WATERCOOLER_AUTO_BRANCH=1 \
-  -- python3 -m watercooler_mcp
+  -- uvx --from git+https://github.com/mostlyharmless-ai/watercooler-cloud watercooler-mcp
 ```
 
 ### Wrong Agent Identity
@@ -199,7 +204,7 @@ claude mcp add --transport stdio watercooler-cloud --scope user \
   -e WATERCOOLER_AGENT="Claude@Code" \
   -e WATERCOOLER_THREADS_PATTERN="https://github.com/{org}/{repo}-threads.git" \
   -e WATERCOOLER_AUTO_BRANCH=1 \
-  -- python3 -m watercooler_mcp
+  -- uvx --from git+https://github.com/mostlyharmless-ai/watercooler-cloud watercooler-mcp
 ```
 
 ### Threads Not Found
@@ -218,22 +223,19 @@ Check the "Threads Dir" in the output. It should point to the sibling directory 
 
 ### Python Environment Issues
 
-**Use explicit Python path:**
+**Note:** With `uvx`, you don't need to worry about Python environment issues as it manages its own isolated environment. However, if `uvx` is not in your PATH:
 
 ```bash
-# Find your Python path
-which python
-
-# Or for conda environment:
-which python
-# Output: /opt/anaconda3/envs/watercooler/bin/python
+# Find uvx path
+which uvx
+# Output: /home/user/.local/bin/uvx
 
 # Use full path in registration
 claude mcp add --transport stdio watercooler-cloud --scope user \
   -e WATERCOOLER_AGENT="Claude@Code" \
   -e WATERCOOLER_THREADS_PATTERN="https://github.com/{org}/{repo}-threads.git" \
   -e WATERCOOLER_AUTO_BRANCH=1 \
-  -- /opt/anaconda3/envs/watercooler/bin/python -m watercooler_mcp
+  -- /home/user/.local/bin/uvx --from git+https://github.com/mostlyharmless-ai/watercooler-cloud watercooler-mcp
 ```
 
 ### Tools Not Appearing
@@ -280,7 +282,7 @@ claude mcp add --transport stdio watercooler-cloud --scope user \
   -e WATERCOOLER_AGENT="Claude@Code" \
   -e WATERCOOLER_THREADS_PATTERN="https://github.com/{org}/{repo}-threads.git" \
   -e WATERCOOLER_AUTO_BRANCH=1 \
-  -- python3 -m watercooler_mcp
+  -- uvx --from git+https://github.com/mostlyharmless-ai/watercooler-cloud watercooler-mcp
 ```
 
 ## Advanced Configuration
@@ -341,7 +343,7 @@ claude mcp add --transport stdio watercooler-cloud --scope user \
   -e WATERCOOLER_AGENT="Claude@Code" \
   -e WATERCOOLER_THREADS_PATTERN="https://github.com/{org}/{repo}-threads.git" \
   -e WATERCOOLER_AUTO_BRANCH=1 \
-  -- python3 -m watercooler_mcp
+  -- uvx --from git+https://github.com/mostlyharmless-ai/watercooler-cloud watercooler-mcp
 
 # Check registration
 claude mcp list

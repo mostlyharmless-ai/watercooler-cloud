@@ -68,10 +68,12 @@ claude mcp add --transport stdio watercooler-cloud --scope user \
   -e WATERCOOLER_AGENT="Claude@Code" \
   -e WATERCOOLER_THREADS_PATTERN="https://github.com/{org}/{repo}-threads.git" \
   -e WATERCOOLER_AUTO_BRANCH=1 \
-  -- python -m watercooler_mcp
+  -- uvx --from git+https://github.com/mostlyharmless-ai/watercooler-cloud watercooler-mcp
 ```
 
 _If you previously registered `watercooler-universal`, remove it first with `claude mcp remove watercooler-universal`._
+
+**Note:** `uvx` must be in your PATH. If it's not found, use the full path (e.g., `~/.local/bin/uvx` on Linux/macOS).
 </details>
 
 <details>
@@ -82,8 +84,38 @@ codex mcp add watercooler-cloud \
   -e WATERCOOLER_AGENT="Codex" \
   -e WATERCOOLER_THREADS_PATTERN="https://github.com/{org}/{repo}-threads.git" \
   -e WATERCOOLER_AUTO_BRANCH=1 \
-  -- python -m watercooler_mcp
+  -- uvx --from git+https://github.com/mostlyharmless-ai/watercooler-cloud watercooler-mcp
 ```
+
+**Note:** `uvx` must be in your PATH. If it's not found, use the full path (e.g., `~/.local/bin/uvx` on Linux/macOS).
+</details>
+
+<details>
+<summary>Cursor</summary>
+
+Edit `~/.cursor/mcp.json`:
+
+```json
+{
+  "mcpServers": {
+    "watercooler-cloud": {
+      "command": "uvx",
+      "args": [
+        "--from",
+        "git+https://github.com/mostlyharmless-ai/watercooler-cloud",
+        "watercooler-mcp"
+      ],
+      "env": {
+        "WATERCOOLER_AGENT": "Cursor",
+        "WATERCOOLER_THREADS_PATTERN": "https://github.com/{org}/{repo}-threads.git",
+        "WATERCOOLER_AUTO_BRANCH": "1"
+      }
+    }
+  }
+}
+```
+
+**Note:** `uvx` must be in your PATH. If it's not found, use the full path (e.g., `~/.local/bin/uvx` on Linux/macOS). The `uvx` command ensures you always get the latest code from the repository and runs in an isolated environment.
 </details>
 
 <details>

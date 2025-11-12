@@ -238,21 +238,21 @@ def test_feature_name():
 6. Isolate tests (no dependencies between tests)
 7. Keep tests fast (use mocks for expensive operations)
 
-## Codex Watercooler Protocol (Session Rules)
+## Claude Watercooler Protocol (Session Rules)
 
 ### Purpose
 
-Standardize how Codex (this assistant) uses Watercooler tools so entries remain attributable and contextually accurate.
+Standardize how Claude (this assistant) uses Watercooler tools so entries remain attributable and contextually accurate.
 
 ### Pre-flight (Required Before Any Write: say/ack/handoff/set_status)
 
-- Ensure Agent base is set to `Codex`.
+- Ensure Agent base is set to `Claude`.
 - Ensure a clear specialization `spec` is set to match the current task (examples below).
 - If either is missing/unclear, do not post; set/confirm first.
 
 ### Setting Identity
 
-- **Preferred (cloud context)**: Call `watercooler_v1_set_agent` with `base="Codex"` and an appropriate `spec` (e.g., `pm`, `planner-architecture`, `implementer-code`, `tester`, `security-audit`, `docs`, `ops`, or `general-purpose`).
+- **Preferred (cloud context)**: Call `watercooler_v1_set_agent` with `base="Claude"` and an appropriate `spec` (e.g., `pm`, `planner-architecture`, `implementer-code`, `tester`, `security-audit`, `docs`, `ops`, or `general-purpose`).
 - **Local context (no explicit setter)**: Still enforce the rule by selecting the matching entry Role and adding a visible `Spec: <value>` line at the top of the entry body.
 
 ### Role Alignment
@@ -285,12 +285,12 @@ Standardize how Codex (this assistant) uses Watercooler tools so entries remain 
 
 ### Failure Policy
 
-- If `base` and suitable `spec` are not set, Codex will block the write and prompt to set them before proceeding.
+- If `base` and suitable `spec` are not set, Claude will block the write and prompt to set them before proceeding.
 
 ### Structured Entry Format
 
 Each Watercooler entry includes:
-- **Agent**: Who created the entry (with user tag), e.g., `Codex (user)`
+- **Agent**: Who created the entry (with user tag), e.g., `Claude (user)`
 - **Role**: The agent's role (`planner`, `critic`, `implementer`, `tester`, `pm`, `scribe`)
 - **Type**: The kind of entry (`Note`, `Plan`, `Decision`, `PR`, `Closure`)
 - **Title**: Brief summary
@@ -482,11 +482,12 @@ Do not silently fail or attempt workarounds that bypass the watercooler tools.
 
 ## When Using Watercooler Tools
 
-When Codex uses Watercooler MCP tools:
+When Claude uses Watercooler MCP tools:
 
-1. **Set identity first**: Call `watercooler_v1_set_agent` with `base="Codex"` and appropriate `spec`
+1. **Set identity first**: Call `watercooler_v1_set_agent` with `base="Claude"` and appropriate `spec`
 2. **Use appropriate roles**: Match the role to the activity (planner, critic, implementer, tester, pm, scribe)
 3. **Include Spec marker**: Always include `Spec: <spec>` as the first line of entry body
 4. **Meaningful titles**: Use descriptive titles, not generic ones like "Update" or "Done"
 5. **Choose correct types**: Use `Decision` for decisions, `Plan` for plans, `PR` for PRs, `Closure` for closures
 6. **Manage ball appropriately**: Use `say` for normal back-and-forth, `ack` to keep ball, `handoff` for explicit coordination
+

@@ -1,4 +1,4 @@
-# Repository Guidelines for watercooler-cloud
+# Cursor Rules for watercooler-cloud
 
 ## Project Overview
 
@@ -238,22 +238,22 @@ def test_feature_name():
 6. Isolate tests (no dependencies between tests)
 7. Keep tests fast (use mocks for expensive operations)
 
-## Codex Watercooler Protocol (Session Rules)
+## Watercooler Protocol (Auto/Cursor Session Rules)
 
 ### Purpose
 
-Standardize how Codex (this assistant) uses Watercooler tools so entries remain attributable and contextually accurate.
+Standardize how Auto/Cursor uses Watercooler tools so entries remain attributable and contextually accurate.
 
 ### Pre-flight (Required Before Any Write: say/ack/handoff/set_status)
 
-- Ensure Agent base is set to `Codex`.
-- Ensure a clear specialization `spec` is set to match the current task (examples below).
-- If either is missing/unclear, do not post; set/confirm first.
+- Ensure Agent base is set to `Auto` or `Cursor` (as appropriate)
+- Ensure a clear specialization `spec` is set to match the current task
+- If either is missing/unclear, do not post; set/confirm first
 
 ### Setting Identity
 
-- **Preferred (cloud context)**: Call `watercooler_v1_set_agent` with `base="Codex"` and an appropriate `spec` (e.g., `pm`, `planner-architecture`, `implementer-code`, `tester`, `security-audit`, `docs`, `ops`, or `general-purpose`).
-- **Local context (no explicit setter)**: Still enforce the rule by selecting the matching entry Role and adding a visible `Spec: <value>` line at the top of the entry body.
+- **Preferred (cloud context)**: Call `watercooler_v1_set_agent` with `base="Auto"` (or `base="Cursor"`) and an appropriate `spec` (e.g., `pm`, `planner-architecture`, `implementer-code`, `tester`, `security-audit`, `docs`, `ops`, or `general-purpose`)
+- **Local context (no explicit setter)**: Still enforce the rule by selecting the matching entry Role and adding a visible `Spec: <value>` line at the top of the entry body
 
 ### Role Alignment
 
@@ -280,17 +280,17 @@ Standardize how Codex (this assistant) uses Watercooler tools so entries remain 
 
 ### Entry Formatting Requirement
 
-- Include a first-line marker in the entry body: `Spec: <spec>` to make specialization explicit in the thread record.
-- This keeps the Watercooler audit trail self-describing when rendered outside MCP tools.
+- Include a first-line marker in the entry body: `Spec: <spec>` to make specialization explicit in the thread record
+- This keeps the Watercooler audit trail self-describing when rendered outside MCP tools
 
 ### Failure Policy
 
-- If `base` and suitable `spec` are not set, Codex will block the write and prompt to set them before proceeding.
+- If `base` and suitable `spec` are not set, Auto/Cursor should block the write and prompt to set them before proceeding
 
 ### Structured Entry Format
 
 Each Watercooler entry includes:
-- **Agent**: Who created the entry (with user tag), e.g., `Codex (user)`
+- **Agent**: Who created the entry (with user tag), e.g., `Auto (user)` or `Cursor (user)`
 - **Role**: The agent's role (`planner`, `critic`, `implementer`, `tester`, `pm`, `scribe`)
 - **Type**: The kind of entry (`Note`, `Plan`, `Decision`, `PR`, `Closure`)
 - **Title**: Brief summary
@@ -316,17 +316,17 @@ Each Watercooler entry includes:
 
 ## Branch Pairing Contract (Team Invariant)
 
-- **Repositories**: Pair each code repo with a dedicated threads repo named `<repo>-threads`.
-- **Branches**: Mirror code branches in the threads repo (same branch name).
-- **Write behavior**: Before a write, ensure the threads repo is on the same-named branch; push with rebase+retry.
+- **Repositories**: Pair each code repo with a dedicated threads repo named `<repo>-threads`
+- **Branches**: Mirror code branches in the threads repo (same branch name)
+- **Write behavior**: Before a write, ensure the threads repo is on the same-named branch; push with rebase+retry
 - **Commit footer convention** (in threads repo):
   - `Code-Repo: <org>/<repo>`
   - `Code-Branch: <branch>`
   - `Code-Commit: <short-sha>`
   - `Watercooler-Entry-ID: <ULID>`
   - `Watercooler-Topic: <topic>`
-- **Authoring**: Include a visible `Spec: <value>` in the entry body and align the Role to the specialization (pm/planner/implementer/tester/docs/ops/etc.).
-- **Closure**: On merge, post a Closure entry referencing the PR; optionally consolidate to `threads:main` with a brief summary.
+- **Authoring**: Include a visible `Spec: <value>` in the entry body and align the Role to the specialization
+- **Closure**: On merge, post a Closure entry referencing the PR; optionally consolidate to `threads:main` with a brief summary
 
 ## Security & Configuration
 
@@ -335,7 +335,7 @@ Each Watercooler entry includes:
 - **Never commit secrets**: Use environment files like `.env.local` (gitignored)
 - **Document required vars**: List all required environment variables in `README.md` or `docs/ENVIRONMENT_VARS.md`
 - **Validate external input**: Sanitize user-rendered content
-- **Dependency review**: Run `pip-audit` regularly
+- **Dependency review**: Run `npm audit` (if applicable) or `pip-audit` regularly
 
 ### Input Validation
 
@@ -482,11 +482,12 @@ Do not silently fail or attempt workarounds that bypass the watercooler tools.
 
 ## When Using Watercooler Tools
 
-When Codex uses Watercooler MCP tools:
+When Auto/Cursor uses Watercooler MCP tools:
 
-1. **Set identity first**: Call `watercooler_v1_set_agent` with `base="Codex"` and appropriate `spec`
+1. **Set identity first**: Call `watercooler_v1_set_agent` with appropriate `base` and `spec`
 2. **Use appropriate roles**: Match the role to the activity (planner, critic, implementer, tester, pm, scribe)
 3. **Include Spec marker**: Always include `Spec: <spec>` as the first line of entry body
 4. **Meaningful titles**: Use descriptive titles, not generic ones like "Update" or "Done"
 5. **Choose correct types**: Use `Decision` for decisions, `Plan` for plans, `PR` for PRs, `Closure` for closures
 6. **Manage ball appropriately**: Use `say` for normal back-and-forth, `ack` to keep ball, `handoff` for explicit coordination
+
