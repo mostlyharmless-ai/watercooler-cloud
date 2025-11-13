@@ -758,6 +758,36 @@ class GitSyncManager:
             return True
         except GitCommandError as e:
             error_text = str(e).lower()
+            # Fallback: explicitly specify remote/branch when git cannot infer upstream
+            if "cannot rebase onto multiple branches" in error_text:
+                self._log("Pull failed due to ambiguous upstream; retrying with explicit remote/branch")
+                try:
+                    tracking = None
+                    try:
+                        tracking = repo.active_branch.tracking_branch()
+                    except TypeError:
+                        tracking = None
+                    remote_name = "origin"
+                    remote_branch = repo.active_branch.name
+                    if tracking is not None:
+                        remote_name = tracking.remote_name or remote_name
+                        remote_branch = tracking.remote_head or remote_branch
+                    _diag(
+                        f"GIT_OP_RETRY: pull --rebase --autostash {remote_name} {remote_branch}"
+                    )
+                    with git.Git().custom_environment(**self._env):
+                        repo.git.pull(
+                            remote_name,
+                            remote_branch,
+                            '--rebase',
+                            '--autostash',
+                            env=self._env,
+                        )
+                    self._log("Fallback pull completed successfully")
+                    return True
+                except GitCommandError as retry_error:
+                    error_text = str(retry_error).lower()
+                    e = retry_error
             # Handle various non-error conditions
             if "couldn't find remote ref" in error_text or "could not find remote ref" in error_text:
                 return True

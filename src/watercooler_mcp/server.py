@@ -1349,6 +1349,7 @@ def sync_branch_state(
     branch: Optional[str] = None,
     operation: str = "checkout",
     force: bool = False,
+    **unexpected_kwargs: Any,
 ) -> ToolResult:
     """Synchronize branch state between code and threads repos.
 
@@ -1358,15 +1359,35 @@ def sync_branch_state(
     - merge: Merge threads branch to main if code branch merged
     - checkout: Ensure both repos on same branch
 
+    Note:
+        This operational tool does **not** require ``agent_func`` or other
+        provenance parameters. Unlike write operations (``watercooler_v1_say``,
+        ``watercooler_v1_ack``, etc.), it only performs git lifecycle
+        management, so pass just ``code_path``, ``branch``, ``operation``, and
+        ``force``.
+
     Args:
-        code_path: Path to code repository directory
+        code_path: Path to code repository directory (default: current directory)
         branch: Specific branch to sync (default: current branch)
-        operation: One of "create", "delete", "merge", "checkout"
-        force: Skip safety checks (use with caution)
+        operation: One of "create", "delete", "merge", "checkout" (default: "checkout")
+        force: Skip safety checks (use with caution, default: False)
 
     Returns:
         Operation result with success/failure and any warnings.
+
+    Example:
+        >>> sync_branch_state(ctx, code_path=".", branch="feature-auth", operation="checkout")
     """
+    if unexpected_kwargs:
+        unexpected = ", ".join(sorted(unexpected_kwargs.keys()))
+        allowed = "code_path, branch, operation, force"
+        message = (
+            f"Error: unexpected parameter(s): {unexpected}. "
+            f"This operational tool only accepts {allowed}. "
+            "Identity parameters such as agent_func are not required because no "
+            "thread entries are written."
+        )
+        return ToolResult(content=[TextContent(type="text", text=message)])
     try:
         error, context = _require_context(code_path)
         if error:

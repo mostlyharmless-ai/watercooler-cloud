@@ -327,6 +327,10 @@ Synchronize branch state between code and threads repos.
 - `operation` (str): One of "create", "delete", "merge", "checkout" (default: "checkout")
 - `force` (bool): Skip safety checks (default: False)
 
+> **Note:** This operational tool does **not** accept `agent_func`. Unlike write
+> operations that create thread entries, it only performs git lifecycle work, so
+> pass just `code_path`, `branch`, `operation`, and `force`.
+
 **Operations:**
 - **checkout**: Ensure both repos are on the same branch (creates threads branch if missing)
 - **create**: Create threads branch if code branch exists
