@@ -298,6 +298,88 @@ Generate index summary of all threads.
 - In Review threads
 - Closed threads (limited to 10 most recent)
 
+### Branch Sync Enforcement Tools
+
+These tools ensure that code and threads repos maintain 1:1 branch correspondence, preventing drift and enforcing the branch pairing protocol.
+
+#### `watercooler_v1_validate_branch_pairing`
+Validate branch pairing between code and threads repos.
+
+**Parameters:**
+- `code_path` (str): Path to code repository directory (default: current directory)
+- `strict` (bool): If True, return valid=False on any mismatch (default: True)
+
+**Returns:** JSON result with:
+- `valid` (bool): Whether branches are properly paired
+- `code_branch` (str | None): Current code repo branch
+- `threads_branch` (str | None): Current threads repo branch
+- `mismatches` (list): List of detected mismatches with recovery steps
+- `warnings` (list): Non-critical warnings
+
+**Note:** This validation is automatically performed before all write operations (`say`, `ack`, `handoff`, `set_status`). Use this tool for explicit checking.
+
+#### `watercooler_v1_sync_branch_state`
+Synchronize branch state between code and threads repos.
+
+**Parameters:**
+- `code_path` (str): Path to code repository directory
+- `branch` (str | None): Specific branch to sync (default: current branch)
+- `operation` (str): One of "create", "delete", "merge", "checkout" (default: "checkout")
+- `force` (bool): Skip safety checks (default: False)
+
+**Operations:**
+- **checkout**: Ensure both repos are on the same branch (creates threads branch if missing)
+- **create**: Create threads branch if code branch exists
+- **delete**: Delete threads branch (blocks if OPEN threads exist, unless `force=True`)
+- **merge**: Merge threads branch to threads:main (for when code branch was merged)
+
+**Returns:** JSON result with operation status and any warnings
+
+#### `watercooler_v1_audit_branch_pairing`
+Comprehensive audit of branch pairing across entire repo pair.
+
+**Parameters:**
+- `code_path` (str): Path to code repository directory
+- `include_merged` (bool): Include fully merged branches in report (default: False)
+
+**Returns:** JSON report with:
+- `synced_branches`: Branches that exist in both repos with same name
+- `code_only_branches`: Branches that exist only in code repo
+- `threads_only_branches`: Branches that exist only in threads repo (orphaned)
+- `mismatched_branches`: Future: detect name mismatches
+- `recommendations`: Suggested actions for each drift case
+
+**Use Cases:**
+- Identify orphaned branches (e.g., `health-badge` deleted from code but remains in threads)
+- Find branches that need threads counterparts
+- Get recommendations for cleanup
+
+#### `watercooler_v1_recover_branch_state`
+Recover from branch state inconsistencies.
+
+**Parameters:**
+- `code_path` (str): Path to code repository directory
+- `auto_fix` (bool): Automatically apply safe fixes (default: False)
+- `diagnose_only` (bool): Only report issues, don't fix (default: False)
+
+**Detects:**
+- Branch name mismatches
+- Orphaned threads branches (code branch deleted)
+- Missing threads branches (code branch exists)
+- Git state issues (rebase conflicts, detached HEAD, etc.)
+
+**Returns:** JSON diagnostic report with:
+- `issues_found`: Number of issues detected
+- `issues`: List of issues with severity and recovery steps
+- `fixes_applied`: List of fixes that were automatically applied (if `auto_fix=True`)
+- `warnings`: Non-critical warnings
+
+**Example Workflow:**
+1. Run `watercooler_v1_recover_branch_state` with `diagnose_only=True` to see issues
+2. Review the diagnostic report
+3. Run again with `auto_fix=True` to apply safe fixes automatically
+4. Use `watercooler_v1_sync_branch_state` for manual fixes if needed
+
 ## Configuration
 
 ### Environment Variables
@@ -474,6 +556,7 @@ asyncio.run(show_tools())
 - **Phase 1A (v0.1.0)**: MVP MCP server with 9 tools + 1 resource
 - **Phase 1B (v0.2.0)**: Upward directory search, comprehensive documentation, Python 3.10+
 - **Phase 2A**: Git-based cloud sync with Entry-ID idempotency and retry logic
+- **Branch Sync Enforcement**: Automatic validation and tools for maintaining 1:1 branch correspondence
 
 ### Deferred Features (Evaluate Based on Usage)
 - **JSON format support**: Structured output for programmatic clients

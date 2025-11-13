@@ -93,6 +93,30 @@ def main(argv: list[str] | None = None) -> None:
     p_unlock.add_argument("--threads-dir")
     p_unlock.add_argument("--force", action="store_true", help="Remove lock even if active")
 
+    p_check_branches = sub.add_parser("check-branches", help="Comprehensive audit of branch pairing")
+    p_check_branches.add_argument("--code-root", help="Path to code repository (default: current directory)")
+    p_check_branches.add_argument("--include-merged", action="store_true", help="Include fully merged branches")
+
+    p_check_branch = sub.add_parser("check-branch", help="Validate branch pairing for specific branch")
+    p_check_branch.add_argument("branch", help="Branch name to check")
+    p_check_branch.add_argument("--code-root", help="Path to code repository (default: current directory)")
+
+    p_merge_branch = sub.add_parser("merge-branch", help="Merge threads branch to main")
+    p_merge_branch.add_argument("branch", help="Branch name to merge")
+    p_merge_branch.add_argument("--code-root", help="Path to code repository (default: current directory)")
+    p_merge_branch.add_argument("--force", action="store_true", help="Skip safety checks")
+
+    p_archive_branch = sub.add_parser("archive-branch", help="Close OPEN threads, merge to main, then delete branch")
+    p_archive_branch.add_argument("branch", help="Branch name to archive")
+    p_archive_branch.add_argument("--code-root", help="Path to code repository (default: current directory)")
+    p_archive_branch.add_argument("--abandon", action="store_true", help="Set OPEN threads to ABANDONED status")
+    p_archive_branch.add_argument("--force", action="store_true", help="Skip confirmation prompts")
+
+    p_install_hooks = sub.add_parser("install-hooks", help="Install git hooks for branch pairing validation")
+    p_install_hooks.add_argument("--code-root", help="Path to code repository (default: current directory)")
+    p_install_hooks.add_argument("--hooks-dir", help="Git hooks directory (default: .git/hooks)")
+    p_install_hooks.add_argument("--force", action="store_true", help="Overwrite existing hooks")
+
     p_append = sub.add_parser("append-entry", help="Append a structured entry")
     p_append.add_argument("topic")
     p_append.add_argument("--threads-dir")
@@ -406,6 +430,52 @@ def main(argv: list[str] | None = None) -> None:
             templates_dir=resolve_templates_dir(args.templates_dir) if args.templates_dir else None,
         )
         print(str(out))
+        sys.exit(0)
+
+    if args.cmd == "check-branches":
+        from pathlib import Path
+        from .commands import check_branches
+
+        code_root = Path(args.code_root).resolve() if args.code_root else None
+        result = check_branches(code_root=code_root, include_merged=args.include_merged)
+        print(result)
+        sys.exit(0)
+
+    if args.cmd == "check-branch":
+        from pathlib import Path
+        from .commands import check_branch
+
+        code_root = Path(args.code_root).resolve() if args.code_root else None
+        result = check_branch(args.branch, code_root=code_root)
+        print(result)
+        sys.exit(0)
+
+    if args.cmd == "merge-branch":
+        from pathlib import Path
+        from .commands import merge_branch
+
+        code_root = Path(args.code_root).resolve() if args.code_root else None
+        result = merge_branch(args.branch, code_root=code_root, force=args.force)
+        print(result)
+        sys.exit(0)
+
+    if args.cmd == "archive-branch":
+        from pathlib import Path
+        from .commands import archive_branch
+
+        code_root = Path(args.code_root).resolve() if args.code_root else None
+        result = archive_branch(args.branch, code_root=code_root, abandon=args.abandon, force=args.force)
+        print(result)
+        sys.exit(0)
+
+    if args.cmd == "install-hooks":
+        from pathlib import Path
+        from .commands import install_hooks
+
+        code_root = Path(args.code_root).resolve() if args.code_root else None
+        hooks_dir = Path(args.hooks_dir).resolve() if args.hooks_dir else None
+        result = install_hooks(code_root=code_root, hooks_dir=hooks_dir, force=args.force)
+        print(result)
         sys.exit(0)
 
     # default: other commands not yet implemented in L1

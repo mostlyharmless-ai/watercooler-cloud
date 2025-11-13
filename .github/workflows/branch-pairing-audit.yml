@@ -1,0 +1,103 @@
+name: Branch Pairing Audit
+
+on:
+  schedule:
+    # Run weekly on Sunday at 00:00 UTC
+    - cron: '0 0 * * 0'
+  workflow_dispatch:
+    # Allow manual triggering
+
+jobs:
+  audit:
+    runs-on: ubuntu-latest
+    permissions:
+      issues: write
+      contents: read
+    
+    steps:
+      - name: Checkout code repository
+        uses: actions/checkout@v4
+        with:
+          fetch-depth: 0
+      
+      - name: Setup Python
+        uses: actions/setup-python@v5
+        with:
+          python-version: '3.12'
+      
+      - name: Install watercooler
+        run: |
+          pip install -e ".[dev]"
+      
+      - name: Checkout threads repository
+        run: |
+          if [ -z "${{ secrets.THREADS_REPO_URL }}" ]; then
+            echo "THREADS_REPO_URL secret not set, skipping audit"
+            exit 0
+          fi
+          git clone "${{ secrets.THREADS_REPO_URL }}" threads-repo || true
+        continue-on-error: true
+      
+      - name: Run branch pairing audit
+        id: audit
+        run: |
+          if [ ! -d "threads-repo" ]; then
+            echo "Threads repo not available, skipping audit"
+            exit 0
+          fi
+          
+          # Set threads directory
+          export WATERCOOLER_THREADS_DIR="$(pwd)/threads-repo"
+          
+          # Run audit
+          audit_output=$(watercooler check-branches --code-root . --include-merged 2>&1 || true)
+          echo "audit_output<<EOF" >> $GITHUB_OUTPUT
+          echo "$audit_output" >> $GITHUB_OUTPUT
+          echo "EOF" >> $GITHUB_OUTPUT
+          
+          # Check for drift
+          if echo "$audit_output" | grep -q "code-only\|threads-only\|Drift Detected"; then
+            echo "drift_detected=true" >> $GITHUB_OUTPUT
+          else
+            echo "drift_detected=false" >> $GITHUB_OUTPUT
+          fi
+        continue-on-error: true
+      
+      - name: Create issue if drift detected
+        if: steps.audit.outputs.drift_detected == 'true'
+        uses: actions/github-script@v7
+        with:
+          script: |
+            const output = `${{ steps.audit.outputs.audit_output }}`;
+            
+            // Check if issue already exists
+            const { data: issues } = await github.rest.issues.listForRepo({
+              owner: context.repo.owner,
+              repo: context.repo.repo,
+              state: 'open',
+              labels: 'branch-pairing-audit'
+            });
+            
+            if (issues.length > 0) {
+              console.log('Issue already exists, updating...');
+              await github.rest.issues.createComment({
+                owner: context.repo.owner,
+                repo: context.repo.repo,
+                issue_number: issues[0].number,
+                body: `## Weekly Branch Pairing Audit - ${new Date().toISOString().split('T')[0]}\n\n\`\`\`\n${output}\n\`\`\`\n\n**Action Required:** Review branch drift and sync branches using \`watercooler sync-branch-state\` or \`watercooler archive-branch\` commands.`
+              });
+            } else {
+              await github.rest.issues.create({
+                owner: context.repo.owner,
+                repo: context.repo.repo,
+                title: 'Branch Pairing Drift Detected',
+                body: `## Branch Pairing Audit Results\n\nBranch drift detected between code and threads repositories.\n\n\`\`\`\n${output}\n\`\`\`\n\n**Action Required:**\n1. Review the drift report above\n2. Sync branches using \`watercooler sync-branch-state\` or \`watercooler archive-branch\`\n3. Close this issue once drift is resolved\n\n**Commands:**\n- \`watercooler check-branches\` - View detailed audit\n- \`watercooler sync-branch-state <branch> --operation checkout\` - Sync branch state\n- \`watercooler archive-branch <branch>\` - Archive orphaned branch`,
+                labels: ['branch-pairing-audit', 'automated']
+              });
+            }
+      
+      - name: Report success
+        if: steps.audit.outputs.drift_detected == 'false'
+        run: |
+          echo "✅ Branch pairing audit passed - no drift detected"
+
