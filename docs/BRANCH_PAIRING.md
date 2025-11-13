@@ -181,6 +181,31 @@ git push origin main
 - **Orphaned threads branch**: Use `watercooler_v1_audit_branch_pairing` to identify, then `sync_branch_state` with `operation="delete"` to clean up
 - **Git state issues**: Use `watercooler_v1_recover_branch_state` to diagnose and fix rebase conflicts, detached HEAD, etc.
 
+## CLI Commands
+
+**Branch Management Commands:**
+
+- `watercooler check-branches` - Comprehensive audit of all branches across repo pair
+- `watercooler check-branch <branch>` - Validate pairing for specific branch
+- `watercooler merge-branch <branch>` - Merge threads branch to main (with OPEN thread warnings)
+- `watercooler archive-branch <branch>` - Close OPEN threads, merge to main, then delete branch
+
+**Examples:**
+
+```bash
+# Audit all branches
+watercooler check-branches
+
+# Check specific branch
+watercooler check-branch feature-auth
+
+# Merge threads branch after code PR merged
+watercooler merge-branch feature-auth
+
+# Archive abandoned branch
+watercooler archive-branch feature-experimental --abandon --force
+```
+
 ### Related Documentation
 - Thread: `github-threads-integration` - Contains detailed case study of this execution
 - Thread: `branch-lifecycle-mapping` - Comprehensive branch operations planning

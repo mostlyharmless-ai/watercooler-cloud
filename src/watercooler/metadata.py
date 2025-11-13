@@ -12,7 +12,7 @@ UPD_BY_RE = re.compile(r"^-\s*Updated:\s*(?P<ts>[^\n]+?)(?:\s+by\s+(?P<who>[^\n]
 # Match new Entry format: "Entry: Agent (user) 2025-10-07T19:42:21Z"
 ENTRY_RE = re.compile(r"^Entry:\s*(?P<who>[^\d]+?)\s+(?P<ts>\d{4}-\d{2}-\d{2}T\d{2}:\d{2}:\d{2}Z)\s*$", re.MULTILINE)
 TITLE_RE = re.compile(r"^#\s*(?P<val>.+)$", re.MULTILINE)
-CLOSED_STATES = {"done", "closed", "merged", "resolved"}
+CLOSED_STATES = {"done", "closed", "merged", "resolved", "abandoned", "obsolete"}
 
 
 def _last_entry_iso(s: str) -> str | None:

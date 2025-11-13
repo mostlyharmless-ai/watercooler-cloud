@@ -1486,14 +1486,77 @@ def sync_branch_state(
                     text="Error: 'main' branch does not exist in threads repo."
                 )])
 
+            # Check for OPEN threads before merge
+            if not force:
+                threads_repo.git.checkout(target_branch)
+                from watercooler.metadata import thread_meta, is_closed
+                open_threads = []
+                for thread_file in context.threads_dir.glob("*.md"):
+                    try:
+                        title, status, ball, updated = thread_meta(thread_file)
+                        if not is_closed(status):
+                            open_threads.append(thread_file.stem)
+                    except Exception:
+                        pass
+
+                if open_threads:
+                    warnings.append(f"Warning: {len(open_threads)} OPEN threads found on {target_branch}: {', '.join(open_threads)}")
+                    warnings.append("Consider closing threads before merge or use force=True to proceed")
+
+            # Detect squash merge in code repo
+            squash_info = None
+            if context.code_root:
+                try:
+                    from watercooler_mcp.git_sync import _detect_squash_merge
+                    code_repo_obj = Repo(context.code_root, search_parent_directories=True)
+                    is_squash, squash_sha = _detect_squash_merge(code_repo_obj, target_branch)
+                    if is_squash:
+                        squash_info = f"Detected squash merge in code repo"
+                        if squash_sha:
+                            squash_info += f" (squash commit: {squash_sha})"
+                        warnings.append(squash_info)
+                        warnings.append("Note: Original commits preserved in threads branch history")
+                except Exception:
+                    pass  # Ignore squash detection errors
+
             threads_repo.git.checkout("main")
             try:
                 threads_repo.git.merge(target_branch, '--no-ff', '-m', f"Merge {target_branch} into main")
                 result_msg = f"✅ Merged '{target_branch}' into 'main' in threads repo."
+                if warnings:
+                    result_msg += "\n" + "\n".join(warnings)
             except GitCommandError as e:
+                error_str = str(e)
+                # Check if this is a merge conflict
+                if "CONFLICT" in error_str or threads_repo.is_dirty():
+                    # Detect conflicts in thread files
+                    conflicted_files = []
+                    for item in threads_repo.index.unmerged_blobs():
+                        conflicted_files.append(item.path)
+                    
+                    if conflicted_files:
+                        conflict_msg = (
+                            f"Merge conflict detected in {len(conflicted_files)} file(s):\n"
+                            f"  {', '.join(conflicted_files)}\n\n"
+                            f"Append-only conflict resolution:\n"
+                            f"  - Both entries will be preserved in chronological order\n"
+                            f"  - Status/Ball conflicts: Higher severity status wins, last entry author gets ball\n"
+                            f"  - Manual resolution may be required for complex conflicts\n\n"
+                            f"To resolve:\n"
+                            f"  1. Review conflicted files\n"
+                            f"  2. Keep both entries in chronological order\n"
+                            f"  3. Resolve header conflicts (status/ball) manually\n"
+                            f"  4. Run: git add <files> && git commit"
+                        )
+                        warnings.append(conflict_msg)
+                        return ToolResult(content=[TextContent(
+                            type="text",
+                            text=f"Merge conflict: {error_str}\n\n{conflict_msg}"
+                        )])
+                
                 return ToolResult(content=[TextContent(
                     type="text",
-                    text=f"Error merging branch: {str(e)}"
+                    text=f"Error merging branch: {error_str}"
                 )])
 
         else:

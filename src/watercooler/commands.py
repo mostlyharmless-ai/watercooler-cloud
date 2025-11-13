@@ -1,7 +1,7 @@
 from __future__ import annotations
 
 from pathlib import Path
-from typing import Optional
+from typing import Optional, List, Tuple, Dict, Any
 
 from .fs import write, thread_path, lock_path_for_topic, utcnow_iso, read_body
 from .lock import AdvisoryLock
@@ -10,6 +10,13 @@ from .metadata import thread_meta, is_closed, last_entry_by
 from .agents import _counterpart_of, _canonical_agent, _default_agent_and_role
 from .config import load_template, resolve_templates_dir
 from .templates import _fill_template
+
+try:
+    from git import Repo, InvalidGitRepositoryError, GitCommandError
+except ImportError:
+    Repo = None  # type: ignore
+    InvalidGitRepositoryError = Exception  # type: ignore
+    GitCommandError = Exception  # type: ignore
 
 
 def init_thread(
@@ -522,3 +529,475 @@ def unlock(topic: str, *, threads_dir: Path, force: bool = False) -> None:
             sys.exit(f"Failed to remove lock: {e}")
     else:
         sys.exit("Lock appears active; re-run with --force to remove anyway.")
+
+
+def check_branches(*, code_root: Path | None = None, include_merged: bool = False) -> str:
+    """Comprehensive audit of branch pairing across entire repo pair.
+
+    Args:
+        code_root: Path to code repository directory (default: current directory)
+        include_merged: Include fully merged branches in report
+
+    Returns:
+        Human-readable report with synced, code-only, threads-only branches
+    """
+    if Repo is None:
+        return "Error: GitPython not available. Install with: pip install GitPython"
+
+    try:
+        from watercooler_mcp.config import resolve_thread_context
+        from watercooler_mcp.git_sync import validate_branch_pairing
+
+        code_path = code_root or Path.cwd()
+        context = resolve_thread_context(code_path)
+
+        if not context.code_root or not context.threads_dir:
+            return "Error: Unable to resolve code and threads repo paths."
+
+        code_repo = Repo(context.code_root, search_parent_directories=True)
+        threads_repo = Repo(context.threads_dir, search_parent_directories=True)
+
+        # Get all branches
+        code_branches = {b.name for b in code_repo.heads}
+        threads_branches = {b.name for b in threads_repo.heads}
+
+        # Categorize branches
+        synced = []
+        code_only = []
+        threads_only = []
+        recommendations = []
+
+        # Find synced branches
+        for branch in code_branches & threads_branches:
+            try:
+                code_sha = code_repo.heads[branch].commit.hexsha[:7]
+                threads_sha = threads_repo.heads[branch].commit.hexsha[:7]
+                synced.append((branch, code_sha, threads_sha))
+            except Exception:
+                synced.append((branch, "unknown", "unknown"))
+
+        # Find code-only branches
+        for branch in code_branches - threads_branches:
+            try:
+                commits_ahead = len(list(code_repo.iter_commits(f"main..{branch}"))) if "main" in code_branches else 0
+                code_only.append((branch, commits_ahead))
+                if commits_ahead == 0 and not include_merged:
+                    recommendations.append(f"Code branch '{branch}' is fully merged - consider deleting")
+                else:
+                    recommendations.append(f"Create threads branch '{branch}' to match code branch")
+            except Exception:
+                code_only.append((branch, 0))
+
+        # Find threads-only branches
+        for branch in threads_branches - code_branches:
+            try:
+                commits_ahead = len(list(threads_repo.iter_commits(f"main..{branch}"))) if "main" in threads_branches else 0
+                threads_only.append((branch, commits_ahead))
+                if commits_ahead == 0:
+                    recommendations.append(f"Threads branch '{branch}' is fully merged - safe to delete")
+                else:
+                    recommendations.append(f"Code branch '{branch}' was deleted - merge or delete threads branch")
+            except Exception:
+                threads_only.append((branch, 0))
+
+        # Build report
+        lines = []
+        lines.append("Branch Pairing Audit")
+        lines.append("=" * 60)
+        lines.append("")
+
+        if synced:
+            lines.append("✅ Synchronized Branches:")
+            for branch, code_sha, threads_sha in synced:
+                lines.append(f"  - {branch} (code: {code_sha}, threads: {threads_sha})")
+            lines.append("")
+
+        if code_only or threads_only:
+            lines.append("⚠️  Drift Detected:")
+            lines.append("")
+
+            if code_only:
+                lines.append("Code-only branches (no threads counterpart):")
+                for branch, commits_ahead in code_only:
+                    if commits_ahead > 0 or include_merged:
+                        lines.append(f"  - {branch} ({commits_ahead} commits ahead of main)")
+                        lines.append(f"    └─ Action: Create threads branch or delete if merged")
+                lines.append("")
+
+            if threads_only:
+                lines.append("Threads-only branches (no code counterpart):")
+                for branch, commits_ahead in threads_only:
+                    lines.append(f"  - {branch} ({commits_ahead} commits ahead of main)")
+                    if commits_ahead == 0:
+                        lines.append(f"    └─ Action: Safe to delete (fully merged)")
+                    else:
+                        lines.append(f"    └─ Action: Merge to another threads branch or delete")
+                lines.append("")
+
+        if recommendations:
+            lines.append("Recommendations:")
+            for rec in recommendations:
+                lines.append(f"  - {rec}")
+            lines.append("")
+
+        lines.append("=" * 60)
+        lines.append(f"Summary: {len(synced)} synced, {len(code_only)} code-only, {len(threads_only)} threads-only")
+
+        return "\n".join(lines)
+
+    except InvalidGitRepositoryError as e:
+        return f"Error: Not a git repository: {str(e)}"
+    except Exception as e:
+        return f"Error auditing branches: {str(e)}"
+
+
+def check_branch(branch: str, *, code_root: Path | None = None) -> str:
+    """Validate branch pairing for a specific branch.
+
+    Args:
+        branch: Branch name to check
+        code_root: Path to code repository directory (default: current directory)
+
+    Returns:
+        Human-readable validation report
+    """
+    if Repo is None:
+        return "Error: GitPython not available. Install with: pip install GitPython"
+
+    try:
+        from watercooler_mcp.config import resolve_thread_context
+        from watercooler_mcp.git_sync import validate_branch_pairing
+
+        code_path = code_root or Path.cwd()
+        context = resolve_thread_context(code_path)
+
+        if not context.code_root or not context.threads_dir:
+            return "Error: Unable to resolve code and threads repo paths."
+
+        result = validate_branch_pairing(
+            code_repo=context.code_root,
+            threads_repo=context.threads_dir,
+            strict=False,
+        )
+
+        lines = []
+        lines.append(f"Branch Pairing Check: {branch}")
+        lines.append("=" * 60)
+        lines.append("")
+
+        if result.valid:
+            lines.append("✅ Branch pairing is valid")
+            lines.append(f"  Code branch: {result.code_branch or '(detached/unknown)'}")
+            lines.append(f"  Threads branch: {result.threads_branch or '(detached/unknown)'}")
+        else:
+            lines.append("❌ Branch pairing validation failed")
+            lines.append(f"  Code branch: {result.code_branch or '(detached/unknown)'}")
+            lines.append(f"  Threads branch: {result.threads_branch or '(detached/unknown)'}")
+            lines.append("")
+
+            if result.mismatches:
+                lines.append("Mismatches:")
+                for mismatch in result.mismatches:
+                    lines.append(f"  - {mismatch.type}: {mismatch.recovery}")
+
+        if result.warnings:
+            lines.append("")
+            lines.append("Warnings:")
+            for warning in result.warnings:
+                lines.append(f"  - {warning}")
+
+        return "\n".join(lines)
+
+    except InvalidGitRepositoryError as e:
+        return f"Error: Not a git repository: {str(e)}"
+    except Exception as e:
+        return f"Error checking branch: {str(e)}"
+
+
+def merge_branch(branch: str, *, code_root: Path | None = None, force: bool = False) -> str:
+    """Merge threads branch to main with safeguards.
+
+    Args:
+        branch: Branch name to merge
+        code_root: Path to code repository directory (default: current directory)
+        force: Skip safety checks (use with caution)
+
+    Returns:
+        Operation result message
+    """
+    if Repo is None:
+        return "Error: GitPython not available. Install with: pip install GitPython"
+
+    try:
+        from watercooler_mcp.config import resolve_thread_context
+
+        code_path = code_root or Path.cwd()
+        context = resolve_thread_context(code_path)
+
+        if not context.code_root or not context.threads_dir:
+            return "Error: Unable to resolve code and threads repo paths."
+
+        threads_repo = Repo(context.threads_dir, search_parent_directories=True)
+
+        if branch not in [b.name for b in threads_repo.heads]:
+            return f"Error: Branch '{branch}' does not exist in threads repo."
+
+        if "main" not in [b.name for b in threads_repo.heads]:
+            return "Error: 'main' branch does not exist in threads repo."
+
+        # Check for OPEN threads
+        if not force:
+            threads_repo.git.checkout(branch)
+            open_threads = []
+            for thread_file in context.threads_dir.glob("*.md"):
+                try:
+                    title, status, ball, updated = thread_meta(thread_file)
+                    if not is_closed(status):
+                        open_threads.append(thread_file.stem)
+                except Exception:
+                    pass
+
+            if open_threads:
+                lines = []
+                lines.append(f"⚠️  Warning: {len(open_threads)} OPEN threads found on {branch}:")
+                for topic in open_threads:
+                    lines.append(f"  - {topic}")
+                lines.append("")
+                lines.append("Recommended actions:")
+                lines.append("1. Close threads: watercooler set-status <topic> CLOSED")
+                lines.append("2. Move to main: Cherry-pick threads to threads:main")
+                lines.append("3. Force merge: watercooler merge-branch <branch> --force")
+                lines.append("")
+                lines.append("Proceed? [y/N]")
+                return "\n".join(lines)
+
+        # Detect squash merge in code repo
+        warnings = []
+        if context.code_root:
+            try:
+                from watercooler_mcp.git_sync import _detect_squash_merge
+                code_repo_obj = Repo(context.code_root, search_parent_directories=True)
+                is_squash, squash_sha = _detect_squash_merge(code_repo_obj, branch)
+                if is_squash:
+                    squash_info = f"Detected squash merge in code repo"
+                    if squash_sha:
+                        squash_info += f" (squash commit: {squash_sha})"
+                    warnings.append(squash_info)
+                    warnings.append("Note: Original commits preserved in threads branch history")
+            except Exception:
+                pass  # Ignore squash detection errors
+
+        # Perform merge
+        threads_repo.git.checkout("main")
+        try:
+            threads_repo.git.merge(branch, '--no-ff', '-m', f"Merge {branch} into main")
+            result_msg = f"✅ Merged '{branch}' into 'main' in threads repo."
+            if warnings:
+                result_msg += "\n" + "\n".join(warnings)
+            return result_msg
+        except GitCommandError as e:
+            error_str = str(e)
+            # Check if this is a merge conflict
+            if "CONFLICT" in error_str or threads_repo.is_dirty():
+                # Detect conflicts in thread files
+                conflicted_files = []
+                try:
+                    for item in threads_repo.index.unmerged_blobs():
+                        conflicted_files.append(item.path)
+                except Exception:
+                    pass
+                
+                if conflicted_files:
+                    conflict_msg = (
+                        f"⚠️  Merge conflict detected in {len(conflicted_files)} file(s):\n"
+                        f"  {', '.join(conflicted_files)}\n\n"
+                        f"Append-only conflict resolution:\n"
+                        f"  - Both entries will be preserved in chronological order\n"
+                        f"  - Status/Ball conflicts: Higher severity status wins, last entry author gets ball\n"
+                        f"  - Manual resolution may be required for complex conflicts\n\n"
+                        f"To resolve:\n"
+                        f"  1. Review conflicted files\n"
+                        f"  2. Keep both entries in chronological order\n"
+                        f"  3. Resolve header conflicts (status/ball) manually\n"
+                        f"  4. Run: git add <files> && git commit"
+                    )
+                    return f"Merge conflict: {error_str}\n\n{conflict_msg}"
+            
+            return f"Error merging branch: {error_str}"
+
+    except InvalidGitRepositoryError as e:
+        return f"Error: Not a git repository: {str(e)}"
+    except Exception as e:
+        return f"Error merging branch: {str(e)}"
+
+
+def archive_branch(branch: str, *, code_root: Path | None = None, abandon: bool = False, force: bool = False) -> str:
+    """Close OPEN threads, merge to main, then delete branch.
+
+    Args:
+        branch: Branch name to archive
+        code_root: Path to code repository directory (default: current directory)
+        abandon: Set OPEN threads to ABANDONED status instead of CLOSED
+        force: Skip confirmation prompts
+
+    Returns:
+        Operation result message
+    """
+    if Repo is None:
+        return "Error: GitPython not available. Install with: pip install GitPython"
+
+    try:
+        from watercooler_mcp.config import resolve_thread_context
+
+        code_path = code_root or Path.cwd()
+        context = resolve_thread_context(code_path)
+
+        if not context.code_root or not context.threads_dir:
+            return "Error: Unable to resolve code and threads repo paths."
+
+        threads_repo = Repo(context.threads_dir, search_parent_directories=True)
+
+        if branch not in [b.name for b in threads_repo.heads]:
+            return f"Error: Branch '{branch}' does not exist in threads repo."
+
+        # Checkout branch and find OPEN threads
+        threads_repo.git.checkout(branch)
+        open_threads = []
+        for thread_file in context.threads_dir.glob("*.md"):
+            try:
+                title, status, ball, updated = thread_meta(thread_file)
+                if not is_closed(status):
+                    open_threads.append(thread_file.stem)
+            except Exception:
+                pass
+
+        if open_threads:
+            status_to_set = "ABANDONED" if abandon else "CLOSED"
+            if not force:
+                lines = []
+                lines.append(f"Found {len(open_threads)} OPEN threads on {branch}:")
+                for topic in open_threads:
+                    lines.append(f"  - {topic}")
+                lines.append("")
+                lines.append(f"These will be set to {status_to_set} status.")
+                lines.append("Proceed? [y/N]")
+                return "\n".join(lines)
+
+            # Close threads
+            for topic in open_threads:
+                try:
+                    set_status(
+                        topic,
+                        threads_dir=context.threads_dir,
+                        status=status_to_set,
+                    )
+                except Exception as e:
+                    return f"Error closing thread {topic}: {str(e)}"
+
+        # Merge to main
+        if "main" in [b.name for b in threads_repo.heads]:
+            threads_repo.git.checkout("main")
+            try:
+                threads_repo.git.merge(branch, '--no-ff', '-m', f"Archive {branch} to main")
+            except GitCommandError as e:
+                return f"Error merging branch: {str(e)}"
+
+        # Delete branch
+        if threads_repo.active_branch.name == branch:
+            if "main" in [b.name for b in threads_repo.heads]:
+                threads_repo.git.checkout("main")
+            else:
+                threads_repo.git.checkout('-b', 'main')
+
+        threads_repo.git.branch('-D', branch)
+
+        lines = []
+        lines.append(f"✅ Archived branch '{branch}'")
+        if open_threads:
+            lines.append(f"  - Set {len(open_threads)} threads to {status_to_set}")
+        lines.append(f"  - Merged to main")
+        lines.append(f"  - Deleted branch")
+
+        return "\n".join(lines)
+
+    except InvalidGitRepositoryError as e:
+        return f"Error: Not a git repository: {str(e)}"
+    except Exception as e:
+        return f"Error archiving branch: {str(e)}"
+
+
+def install_hooks(*, code_root: Path | None = None, hooks_dir: Path | None = None, force: bool = False) -> str:
+    """Install git hooks for branch pairing validation.
+    
+    Args:
+        code_root: Path to code repository directory (default: current directory)
+        hooks_dir: Git hooks directory (default: .git/hooks)
+        force: Overwrite existing hooks
+        
+    Returns:
+        Installation result message
+    """
+    try:
+        from pathlib import Path
+        import shutil
+        import stat
+        
+        code_path = code_root or Path.cwd()
+        repo_path = code_path / ".git"
+        
+        if not repo_path.exists():
+            return f"Error: Not a git repository: {code_path}"
+        
+        hooks_path = hooks_dir or (repo_path / "hooks")
+        hooks_path.mkdir(parents=True, exist_ok=True)
+        
+        # Get template directory
+        from .config import resolve_templates_dir
+        templates_dir = resolve_templates_dir()
+        
+        installed = []
+        skipped = []
+        
+        # Install pre-push hook
+        pre_push_src = templates_dir / "pre-push"
+        pre_push_dst = hooks_path / "pre-push"
+        
+        if pre_push_src.exists():
+            if pre_push_dst.exists() and not force:
+                skipped.append("pre-push (already exists, use --force to overwrite)")
+            else:
+                shutil.copy2(pre_push_src, pre_push_dst)
+                # Make executable
+                pre_push_dst.chmod(pre_push_dst.stat().st_mode | stat.S_IEXEC)
+                installed.append("pre-push")
+        else:
+            return f"Error: Template not found: {pre_push_src}"
+        
+        # Install pre-merge hook
+        pre_merge_src = templates_dir / "pre-merge"
+        pre_merge_dst = hooks_path / "pre-merge"
+        
+        if pre_merge_src.exists():
+            if pre_merge_dst.exists() and not force:
+                skipped.append("pre-merge (already exists, use --force to overwrite)")
+            else:
+                shutil.copy2(pre_merge_src, pre_merge_dst)
+                # Make executable
+                pre_merge_dst.chmod(pre_merge_dst.stat().st_mode | stat.S_IEXEC)
+                installed.append("pre-merge")
+        
+        lines = []
+        if installed:
+            lines.append(f"✅ Installed {len(installed)} hook(s): {', '.join(installed)}")
+        if skipped:
+            lines.append(f"⏭️  Skipped {len(skipped)} hook(s): {', '.join(skipped)}")
+        
+        if installed:
+            lines.append("")
+            lines.append("Hooks will validate branch pairing before git operations.")
+            lines.append("To disable, remove hooks from .git/hooks/")
+        
+        return "\n".join(lines) if lines else "No hooks installed"
+        
+    except Exception as e:
+        return f"Error installing hooks: {str(e)}"

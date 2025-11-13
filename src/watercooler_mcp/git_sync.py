@@ -1087,6 +1087,162 @@ class GitSyncManager:
         return self._async.status()
 
 
+def _detect_squash_merge(code_repo_obj: Repo, branch: str) -> tuple[bool, str | None]:
+    """Detect if a code branch was squash-merged to main.
+    
+    Args:
+        code_repo_obj: GitPython Repo object for code repository
+        branch: Branch name to check
+        
+    Returns:
+        Tuple of (is_squash_merged, squash_commit_sha)
+        Returns (False, None) if branch doesn't exist or wasn't merged
+    """
+    try:
+        if branch not in [b.name for b in code_repo_obj.heads]:
+            return (False, None)
+        
+        if "main" not in [b.name for b in code_repo_obj.heads]:
+            return (False, None)
+        
+        # Get commits on feature branch that aren't on main
+        feature_commits = list(code_repo_obj.iter_commits(f"main..{branch}"))
+        if not feature_commits:
+            # Branch is fully merged or has no unique commits
+            return (False, None)
+        
+        # Check if any of these commits exist on main (by message or content)
+        # If none exist, it's likely a squash merge
+        main_commits = list(code_repo_obj.iter_commits("main", max_count=50))
+        main_commit_shas = {c.hexsha for c in main_commits}
+        main_commit_messages = {c.message.strip() for c in main_commits}
+        
+        # Check if feature branch commits exist on main
+        feature_commits_on_main = 0
+        for commit in feature_commits[:10]:  # Check first 10 commits
+            if commit.hexsha in main_commit_shas:
+                feature_commits_on_main += 1
+            elif commit.message.strip() in main_commit_messages:
+                # Same message might indicate squash
+                feature_commits_on_main += 1
+        
+        # If no feature commits exist on main, likely squash merge
+        if feature_commits_on_main == 0 and len(feature_commits) > 1:
+            # Find the merge commit on main that might be the squash
+            for commit in main_commits[:20]:
+                if branch.lower() in commit.message.lower() or "squash" in commit.message.lower():
+                    return (True, commit.hexsha[:7])
+            # Return True but no specific commit
+            return (True, None)
+        
+        return (False, None)
+    except Exception:
+        return (False, None)
+
+
+def _fuzzy_match_branches(branch1: str, branch2: str) -> float:
+    """Calculate similarity score between two branch names.
+    
+    Uses simple character-based similarity (ratio of common characters).
+    Returns a score between 0.0 and 1.0, where 1.0 is exact match.
+    
+    Args:
+        branch1: First branch name
+        branch2: Second branch name
+        
+    Returns:
+        Similarity score (0.0 to 1.0)
+    """
+    # Normalize branch names (lowercase, remove common prefixes)
+    def normalize(name: str) -> str:
+        name = name.lower()
+        # Remove common prefixes
+        for prefix in ['feature/', 'feat/', 'fix/', 'bugfix/', 'hotfix/', 'release/']:
+            if name.startswith(prefix):
+                name = name[len(prefix):]
+        return name
+    
+    norm1 = normalize(branch1)
+    norm2 = normalize(branch2)
+    
+    if norm1 == norm2:
+        return 1.0
+    
+    # Simple character overlap calculation
+    set1 = set(norm1)
+    set2 = set(norm2)
+    intersection = len(set1 & set2)
+    union = len(set1 | set2)
+    
+    if union == 0:
+        return 0.0
+    
+    return intersection / union
+
+
+def _detect_branch_rename(
+    code_repo_obj: Repo,
+    threads_repo_obj: Repo,
+    code_branch: str | None,
+    threads_branch: str | None,
+) -> tuple[bool, str | None, float]:
+    """Detect if a branch was renamed by finding similar branch names.
+    
+    Args:
+        code_repo_obj: GitPython Repo object for code repository
+        threads_repo_obj: GitPython Repo object for threads repository
+        code_branch: Current code branch name (or None)
+        threads_branch: Current threads branch name (or None)
+        
+    Returns:
+        Tuple of (is_rename, suggested_branch, similarity_score)
+        Returns (False, None, 0.0) if no rename detected
+    """
+    if not code_branch or not threads_branch:
+        return (False, None, 0.0)
+    
+    try:
+        # Get all branches from both repos
+        code_branches = {b.name for b in code_repo_obj.heads}
+        threads_branches = {b.name for b in threads_repo_obj.heads}
+        
+        # If branches match exactly, no rename
+        if code_branch in threads_branches and threads_branch in code_branches:
+            return (False, None, 0.0)
+        
+        # Check if code branch exists in threads repo with different name
+        if code_branch not in threads_branches:
+            # Find most similar branch in threads repo
+            best_match = None
+            best_score = 0.0
+            for thread_branch in threads_branches:
+                score = _fuzzy_match_branches(code_branch, thread_branch)
+                if score > best_score and score > 0.6:  # Threshold for similarity
+                    best_score = score
+                    best_match = thread_branch
+            
+            if best_match:
+                return (True, best_match, best_score)
+        
+        # Check if threads branch exists in code repo with different name
+        if threads_branch not in code_branches:
+            # Find most similar branch in code repo
+            best_match = None
+            best_score = 0.0
+            for code_branch_candidate in code_branches:
+                score = _fuzzy_match_branches(threads_branch, code_branch_candidate)
+                if score > best_score and score > 0.6:  # Threshold for similarity
+                    best_score = score
+                    best_match = code_branch_candidate
+            
+            if best_match:
+                return (True, best_match, best_score)
+        
+        return (False, None, 0.0)
+    except Exception:
+        return (False, None, 0.0)
+
+
 def validate_branch_pairing(
     code_repo: Path,
     threads_repo: Path,
@@ -1213,12 +1369,32 @@ def validate_branch_pairing(
             recovery=f"Checkout branch '{code_branch}' in threads repo"
         ))
     elif code_branch != threads_branch:
+        # Check for potential branch rename
+        is_rename, suggested_branch, similarity = _detect_branch_rename(
+            code_repo_obj, threads_repo_obj, code_branch, threads_branch
+        )
+        
+        if is_rename and suggested_branch:
+            recovery_msg = (
+                f"Possible branch rename detected (similarity: {similarity:.0%}). "
+                f"Suggested branch: '{suggested_branch}'. "
+                f"Run: watercooler_v1_sync_branch_state with operation='checkout' and branch='{suggested_branch}'"
+            )
+            warnings.append(
+                f"Branch name mismatch may be due to rename: '{code_branch}' vs '{threads_branch}' "
+                f"(suggested: '{suggested_branch}')"
+            )
+        else:
+            recovery_msg = (
+                f"Run: watercooler_v1_sync_branch_state with operation='checkout' to sync branches"
+            )
+        
         mismatches.append(BranchMismatch(
             type="branch_name_mismatch",
             code=code_branch,
             threads=threads_branch,
             severity="error",
-            recovery=f"Run: watercooler_v1_sync_branch_state with operation='checkout' to sync branches"
+            recovery=recovery_msg
         ))
 
     # Determine validity
