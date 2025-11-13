@@ -760,6 +760,13 @@ class GitSyncManager:
             error_text = str(e).lower()
             # Fallback: explicitly specify remote/branch when git cannot infer upstream
             # This occurs when multiple refs match the branch name (e.g., remotes/origin/main and remotes/fork/main)
+            #
+            # Note on nested try-except structure:
+            # This section has three levels of exception handling:
+            # 1. Outer: Catch initial pull failure
+            # 2. Middle: Catch retry pull failure (after explicitly specifying remote/branch)
+            # 3. Inner: Catch tracking_branch() failure (may not be configured)
+            # While complex, each level handles a distinct failure mode in the git pull sequence
             if "cannot rebase onto multiple branches" in error_text:
                 self._log("Pull failed due to ambiguous upstream; retrying with explicit remote/branch")
                 try:
@@ -789,10 +796,14 @@ class GitSyncManager:
                     self._log("Fallback pull completed successfully")
                     return True
                 except GitCommandError as retry_error:
-                    # Retry failed, continue with normal error handling using the retry error
+                    # Retry failed: Intentionally replace original error with retry error
+                    # Rationale: The retry error is more relevant since it represents the
+                    # failure after we tried to work around the ambiguous upstream issue.
+                    # The original error ("cannot rebase onto multiple branches") is less
+                    # actionable than the retry error (e.g., "network failure", "permission denied")
                     self._log(f"Fallback pull also failed: {str(retry_error)}")
                     error_text = str(retry_error).lower()
-                    e = retry_error
+                    e = retry_error  # Replace for downstream error handling
             # Handle various non-error conditions
             if "couldn't find remote ref" in error_text or "could not find remote ref" in error_text:
                 return True
