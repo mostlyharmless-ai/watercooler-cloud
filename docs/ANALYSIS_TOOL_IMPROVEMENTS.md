@@ -105,27 +105,12 @@ Example:
 
 ### 2. Improved Error Handling
 
-Add a custom validation wrapper that provides better error messages:
+FastMCP automatically rejects unexpected parameters with Pydantic validation.
+While custom **kwargs-based validation would be ideal for providing context-specific
+error messages, FastMCP doesn't support **kwargs in tool functions.
 
-```python
-def sync_branch_state(
-    ctx: Context,
-    code_path: str = "",
-    branch: Optional[str] = None,
-    operation: str = "checkout",
-    force: bool = False,
-    **kwargs  # Catch unexpected args
-) -> ToolResult:
-    if kwargs:
-        unexpected = ", ".join(kwargs.keys())
-        return ToolResult(content=[TextContent(
-            type="text",
-            text=f"Error: Unexpected parameter(s): {unexpected}. "
-                 f"This tool only accepts: code_path, branch, operation, force. "
-                 f"Note: agent_func is not needed for operational tools like this one."
-        )])
-    # ... rest of function
-```
+Instead, we rely on FastMCP's built-in validation and clarify in the docstring
+that agent_func is not needed:
 
 ### 3. Tool Parameter Documentation Consistency
 

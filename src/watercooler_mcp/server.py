@@ -22,7 +22,7 @@ import os
 import time
 import json
 from pathlib import Path
-from typing import Callable, TypeVar, Optional, Dict, Any, List
+from typing import Callable, TypeVar, Optional, Dict, List
 from ulid import ULID
 from git import Repo, InvalidGitRepositoryError, GitCommandError
 from watercooler import commands, fs
@@ -1349,7 +1349,6 @@ def sync_branch_state(
     branch: Optional[str] = None,
     operation: str = "checkout",
     force: bool = False,
-    **unexpected_kwargs: Any,
 ) -> ToolResult:
     """Synchronize branch state between code and threads repos.
 
@@ -1364,7 +1363,7 @@ def sync_branch_state(
         provenance parameters. Unlike write operations (``watercooler_v1_say``,
         ``watercooler_v1_ack``, etc.), it only performs git lifecycle
         management, so pass just ``code_path``, ``branch``, ``operation``, and
-        ``force``.
+        ``force``. FastMCP will automatically reject any unexpected parameters.
 
     Args:
         code_path: Path to code repository directory (default: current directory)
@@ -1378,16 +1377,6 @@ def sync_branch_state(
     Example:
         >>> sync_branch_state(ctx, code_path=".", branch="feature-auth", operation="checkout")
     """
-    if unexpected_kwargs:
-        unexpected = ", ".join(sorted(unexpected_kwargs.keys()))
-        allowed = "code_path, branch, operation, force"
-        message = (
-            f"Error: unexpected parameter(s): {unexpected}. "
-            f"This operational tool only accepts {allowed}. "
-            "Identity parameters such as agent_func are not required because no "
-            "thread entries are written."
-        )
-        return ToolResult(content=[TextContent(type="text", text=message)])
     try:
         error, context = _require_context(code_path)
         if error:
