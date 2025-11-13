@@ -25,7 +25,7 @@ import time
 from dataclasses import dataclass
 from datetime import datetime, timezone
 from pathlib import Path
-from typing import Callable, Optional, TypeVar
+from typing import Callable, Optional, TypeVar, List, Dict, Any
 import sys
 import hashlib
 
@@ -170,6 +170,31 @@ class GitPullError(GitSyncError):
 class GitPushError(GitSyncError):
     """Failed to push changes to remote."""
     pass
+
+
+class BranchPairingError(GitSyncError):
+    """Branch pairing validation failed."""
+    pass
+
+
+@dataclass
+class BranchMismatch:
+    """Represents a branch pairing mismatch."""
+    type: str  # "branch_name_mismatch", "code_branch_missing", "threads_branch_missing", etc.
+    code: Optional[str]
+    threads: Optional[str]
+    severity: str  # "error", "warning"
+    recovery: str  # Suggested recovery command or action
+
+
+@dataclass
+class BranchPairingResult:
+    """Result of branch pairing validation."""
+    valid: bool
+    code_branch: Optional[str]
+    threads_branch: Optional[str]
+    mismatches: List[BranchMismatch]
+    warnings: List[str]
 
 
 class GitSyncManager:
@@ -1060,6 +1085,153 @@ class GitSyncManager:
                  "sync_interval": self._async_config.get("sync_interval"),
             }
         return self._async.status()
+
+
+def validate_branch_pairing(
+    code_repo: Path,
+    threads_repo: Path,
+    strict: bool = True,
+) -> BranchPairingResult:
+    """Validate that code and threads repos are on matching branches.
+
+    Args:
+        code_repo: Path to code repository root
+        threads_repo: Path to threads repository root (or .watercooler directory)
+        strict: If True, return valid=False on any mismatch. If False, only return
+                valid=False on critical errors.
+
+    Returns:
+        BranchPairingResult with validation status, branch names, and any mismatches
+    """
+    mismatches: List[BranchMismatch] = []
+    warnings: List[str] = []
+
+    # Get code repo branch
+    code_branch: Optional[str] = None
+    try:
+        code_repo_obj = Repo(code_repo, search_parent_directories=True)
+        if code_repo_obj.head.is_detached:
+            warnings.append("Code repo is in detached HEAD state")
+        else:
+            code_branch = code_repo_obj.active_branch.name
+    except InvalidGitRepositoryError:
+        mismatches.append(BranchMismatch(
+            type="code_repo_not_git",
+            code=None,
+            threads=None,
+            severity="error",
+            recovery=f"Code path {code_repo} is not a git repository"
+        ))
+        return BranchPairingResult(
+            valid=False,
+            code_branch=None,
+            threads_branch=None,
+            mismatches=mismatches,
+            warnings=warnings,
+        )
+    except Exception as e:
+        mismatches.append(BranchMismatch(
+            type="code_repo_error",
+            code=None,
+            threads=None,
+            severity="error",
+            recovery=f"Failed to read code repo: {str(e)}"
+        ))
+        return BranchPairingResult(
+            valid=False,
+            code_branch=None,
+            threads_branch=None,
+            mismatches=mismatches,
+            warnings=warnings,
+        )
+
+    # Get threads repo branch
+    threads_branch: Optional[str] = None
+    try:
+        threads_repo_obj = Repo(threads_repo, search_parent_directories=True)
+        if threads_repo_obj.head.is_detached:
+            warnings.append("Threads repo is in detached HEAD state")
+        else:
+            threads_branch = threads_repo_obj.active_branch.name
+    except InvalidGitRepositoryError:
+        mismatches.append(BranchMismatch(
+            type="threads_repo_not_git",
+            code=code_branch,
+            threads=None,
+            severity="error",
+            recovery=f"Threads path {threads_repo} is not a git repository"
+        ))
+        return BranchPairingResult(
+            valid=False,
+            code_branch=code_branch,
+            threads_branch=None,
+            mismatches=mismatches,
+            warnings=warnings,
+        )
+    except Exception as e:
+        mismatches.append(BranchMismatch(
+            type="threads_repo_error",
+            code=code_branch,
+            threads=None,
+            severity="error",
+            recovery=f"Failed to read threads repo: {str(e)}"
+        ))
+        return BranchPairingResult(
+            valid=False,
+            code_branch=code_branch,
+            threads_branch=None,
+            mismatches=mismatches,
+            warnings=warnings,
+        )
+
+    # Compare branches
+    if code_branch is None and threads_branch is None:
+        # Both in detached HEAD - this is a warning, not an error
+        warnings.append("Both repos in detached HEAD state")
+        return BranchPairingResult(
+            valid=not strict,
+            code_branch=None,
+            threads_branch=None,
+            mismatches=mismatches,
+            warnings=warnings,
+        )
+
+    if code_branch is None:
+        mismatches.append(BranchMismatch(
+            type="code_branch_detached",
+            code=None,
+            threads=threads_branch,
+            severity="error",
+            recovery="Checkout a branch in code repo or create one"
+        ))
+    elif threads_branch is None:
+        mismatches.append(BranchMismatch(
+            type="threads_branch_detached",
+            code=code_branch,
+            threads=None,
+            severity="error",
+            recovery=f"Checkout branch '{code_branch}' in threads repo"
+        ))
+    elif code_branch != threads_branch:
+        mismatches.append(BranchMismatch(
+            type="branch_name_mismatch",
+            code=code_branch,
+            threads=threads_branch,
+            severity="error",
+            recovery=f"Run: watercooler_v1_sync_branch_state with operation='checkout' to sync branches"
+        ))
+
+    # Determine validity
+    has_errors = any(m.severity == "error" for m in mismatches)
+    valid = not has_errors if strict else len(mismatches) == 0
+
+    return BranchPairingResult(
+        valid=valid,
+        code_branch=code_branch,
+        threads_branch=threads_branch,
+        mismatches=mismatches,
+        warnings=warnings,
+    )
 
 
 class _AsyncSyncCoordinator:

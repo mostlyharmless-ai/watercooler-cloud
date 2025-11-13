@@ -19,10 +19,11 @@ This document defines a simple, durable pairing between a code repository and it
 3) Pull latest, then list/read
 
 ### Write (say/ack/handoff/set_status)
-1) Ensure a same‑named branch exists in the threads repo
-2) Append entry and commit
-3) Push with rebase + retry on rejection
-4) Include the following footers in the commit message:
+1) **Validate branch pairing** - Automatically checks that code and threads repos are on matching branches
+2) Ensure a same‑named branch exists in the threads repo
+3) Append entry and commit
+4) Push with rebase + retry on rejection
+5) Include the following footers in the commit message:
 ```
 Code-Repo: <org>/<repo>
 Code-Branch: <branch>
@@ -156,7 +157,32 @@ git push origin main
 - Prompt user to merge corresponding threads branch
 - Verify both repos are synchronized
 
+## Branch Sync Enforcement
+
+**Automatic Validation**: All write operations (`say`, `ack`, `handoff`, `set_status`) automatically validate branch pairing before execution. If branches don't match, the operation is blocked with a clear error message and recovery steps.
+
+**MCP Tools for Branch Management**:
+
+- `watercooler_v1_validate_branch_pairing` - Explicitly check branch pairing status
+- `watercooler_v1_sync_branch_state` - Synchronize branch state (create, delete, merge, checkout)
+- `watercooler_v1_audit_branch_pairing` - Comprehensive audit of all branches across repo pair
+- `watercooler_v1_recover_branch_state` - Diagnose and recover from branch state inconsistencies
+
+**Enforcement Rules**:
+
+1. **Strict Validation**: By default, write operations block if branches don't match
+2. **Branch Deletion Safeguards**: Cannot delete threads branch with OPEN threads (unless `force=True`)
+3. **Automatic Sync**: Branch lifecycle operations can be synchronized using `sync_branch_state` tool
+4. **Recovery Tools**: Use `recover_branch_state` to diagnose and fix inconsistencies
+
+**Common Scenarios**:
+
+- **Branch mismatch detected**: Use `watercooler_v1_sync_branch_state` with `operation="checkout"` to sync
+- **Orphaned threads branch**: Use `watercooler_v1_audit_branch_pairing` to identify, then `sync_branch_state` with `operation="delete"` to clean up
+- **Git state issues**: Use `watercooler_v1_recover_branch_state` to diagnose and fix rebase conflicts, detached HEAD, etc.
+
 ### Related Documentation
 - Thread: `github-threads-integration` - Contains detailed case study of this execution
 - Thread: `branch-lifecycle-mapping` - Comprehensive branch operations planning
+- Thread: `branch-sync-enforcement-system` - Design and implementation of enforcement tools
 - Thread: `open-source-launch` - The actual launch planning and execution

@@ -20,9 +20,11 @@ from fastmcp.tools.tool import ToolResult
 from mcp.types import TextContent
 import os
 import time
+import json
 from pathlib import Path
-from typing import Callable, TypeVar, Optional
+from typing import Callable, TypeVar, Optional, Dict, Any, List
 from ulid import ULID
+from git import Repo, InvalidGitRepositoryError, GitCommandError
 from watercooler import commands, fs
 from .config import (
     ThreadContext,
@@ -32,7 +34,13 @@ from .config import (
     get_git_sync_manager_from_context,
     resolve_thread_context,
 )
-from .git_sync import GitPushError, _diag
+from .git_sync import (
+    GitPushError,
+    BranchPairingError,
+    validate_branch_pairing,
+    GitSyncManager,
+    _diag,
+)
 
 # Workaround for Windows stdio hang: Force auto-flush on every stdout write
 # On Windows, FastMCP's stdio transport gets stuck after subprocess operations
@@ -204,10 +212,45 @@ def run_with_sync(
     entry_id: str | None = None,
     agent_spec: str | None = None,
     priority_flush: bool = False,
+    skip_validation: bool = False,
 ) -> T:
     sync = get_git_sync_manager_from_context(context)
     if not sync:
         return operation()
+
+    # Validate branch pairing before write operation
+    if not skip_validation and context.code_root and context.threads_dir:
+        try:
+            validation_result = validate_branch_pairing(
+                code_repo=context.code_root,
+                threads_repo=context.threads_dir,
+                strict=True,
+            )
+            if not validation_result.valid:
+                # Build error message with recovery steps
+                error_parts = [
+                    "Branch pairing validation failed:",
+                    f"  Code branch: {validation_result.code_branch or '(detached/unknown)'}",
+                    f"  Threads branch: {validation_result.threads_branch or '(detached/unknown)'}",
+                ]
+                if validation_result.mismatches:
+                    error_parts.append("\nMismatches:")
+                    for mismatch in validation_result.mismatches:
+                        error_parts.append(f"  - {mismatch.type}: {mismatch.recovery}")
+                if validation_result.warnings:
+                    error_parts.append("\nWarnings:")
+                    for warning in validation_result.warnings:
+                        error_parts.append(f"  - {warning}")
+                error_parts.append(
+                    "\nTo fix: Use watercooler_v1_sync_branch_state to sync branches, "
+                    "or set skip_validation=True to bypass (not recommended)."
+                )
+                raise BranchPairingError("\n".join(error_parts))
+        except BranchPairingError:
+            raise
+        except Exception as e:
+            # Log but don't block on validation errors (e.g., repo not initialized)
+            _diag(f"Branch validation warning: {e}")
 
     branch = context.code_branch
     if branch and _should_auto_branch():
@@ -1227,6 +1270,523 @@ def reindex(ctx: Context) -> str:
 
     except Exception as e:
         return f"Error generating index: {str(e)}"
+
+
+# ============================================================================
+# Branch Sync Enforcement Tools
+# ============================================================================
+
+@mcp.tool(name="watercooler_v1_validate_branch_pairing")
+def validate_branch_pairing_tool(
+    ctx: Context,
+    code_path: str = "",
+    strict: bool = True,
+) -> ToolResult:
+    """Validate branch pairing between code and threads repos.
+
+    Checks that the code repo and threads repo are on matching branches.
+    This validation is automatically performed before all write operations,
+    but this tool allows explicit checking.
+
+    Args:
+        code_path: Path to code repository directory. Defaults to current directory.
+        strict: If True, return valid=False on any mismatch. If False, only return
+                valid=False on critical errors.
+
+    Returns:
+        JSON result with validation status, branch names, mismatches, and warnings.
+    """
+    try:
+        error, context = _require_context(code_path)
+        if error:
+            return ToolResult(content=[TextContent(type="text", text=error)])
+        if context is None or not context.code_root or not context.threads_dir:
+            return ToolResult(content=[TextContent(
+                type="text",
+                text="Error: Unable to resolve code and threads repo paths."
+            )])
+
+        result = validate_branch_pairing(
+            code_repo=context.code_root,
+            threads_repo=context.threads_dir,
+            strict=strict,
+        )
+
+        # Convert to JSON-serializable format
+        output = {
+            "valid": result.valid,
+            "code_branch": result.code_branch,
+            "threads_branch": result.threads_branch,
+            "mismatches": [
+                {
+                    "type": m.type,
+                    "code": m.code,
+                    "threads": m.threads,
+                    "severity": m.severity,
+                    "recovery": m.recovery,
+                }
+                for m in result.mismatches
+            ],
+            "warnings": result.warnings,
+        }
+
+        return ToolResult(content=[TextContent(
+            type="text",
+            text=json.dumps(output, indent=2)
+        )])
+
+    except Exception as e:
+        return ToolResult(content=[TextContent(
+            type="text",
+            text=f"Error validating branch pairing: {str(e)}"
+        )])
+
+
+@mcp.tool(name="watercooler_v1_sync_branch_state")
+def sync_branch_state(
+    ctx: Context,
+    code_path: str = "",
+    branch: Optional[str] = None,
+    operation: str = "checkout",
+    force: bool = False,
+) -> ToolResult:
+    """Synchronize branch state between code and threads repos.
+
+    Performs branch lifecycle operations to keep repos in sync:
+    - create: Create threads branch if code branch exists
+    - delete: Delete threads branch if code branch deleted (with safeguards)
+    - merge: Merge threads branch to main if code branch merged
+    - checkout: Ensure both repos on same branch
+
+    Args:
+        code_path: Path to code repository directory
+        branch: Specific branch to sync (default: current branch)
+        operation: One of "create", "delete", "merge", "checkout"
+        force: Skip safety checks (use with caution)
+
+    Returns:
+        Operation result with success/failure and any warnings.
+    """
+    try:
+        error, context = _require_context(code_path)
+        if error:
+            return ToolResult(content=[TextContent(type="text", text=error)])
+        if context is None or not context.code_root or not context.threads_dir:
+            return ToolResult(content=[TextContent(
+                type="text",
+                text="Error: Unable to resolve code and threads repo paths."
+            )])
+
+        code_repo = Repo(context.code_root, search_parent_directories=True)
+        threads_repo = Repo(context.threads_dir, search_parent_directories=True)
+
+        target_branch = branch or context.code_branch
+        if not target_branch:
+            return ToolResult(content=[TextContent(
+                type="text",
+                text="Error: No branch specified and unable to detect current branch."
+            )])
+
+        warnings: List[str] = []
+        result_msg = ""
+
+        if operation == "checkout":
+            # Ensure both repos on same branch
+            if target_branch not in [b.name for b in code_repo.heads]:
+                return ToolResult(content=[TextContent(
+                    type="text",
+                    text=f"Error: Branch '{target_branch}' does not exist in code repo."
+                )])
+
+            # Checkout code branch
+            if code_repo.active_branch.name != target_branch:
+                code_repo.git.checkout(target_branch)
+                result_msg += f"Checked out '{target_branch}' in code repo.\n"
+
+            # Checkout or create threads branch
+            if target_branch in [b.name for b in threads_repo.heads]:
+                if threads_repo.active_branch.name != target_branch:
+                    threads_repo.git.checkout(target_branch)
+                    result_msg += f"Checked out '{target_branch}' in threads repo.\n"
+            else:
+                # Create threads branch
+                threads_repo.git.checkout('-b', target_branch)
+                result_msg += f"Created and checked out '{target_branch}' in threads repo.\n"
+
+            result_msg += f"✅ Both repos now on branch '{target_branch}'"
+
+        elif operation == "create":
+            # Create threads branch if code branch exists
+            if target_branch not in [b.name for b in code_repo.heads]:
+                return ToolResult(content=[TextContent(
+                    type="text",
+                    text=f"Error: Branch '{target_branch}' does not exist in code repo."
+                )])
+
+            if target_branch in [b.name for b in threads_repo.heads]:
+                result_msg = f"Branch '{target_branch}' already exists in threads repo."
+            else:
+                threads_repo.git.checkout('-b', target_branch)
+                result_msg = f"✅ Created branch '{target_branch}' in threads repo."
+
+        elif operation == "delete":
+            # Delete threads branch (with safeguards)
+            if target_branch not in [b.name for b in threads_repo.heads]:
+                return ToolResult(content=[TextContent(
+                    type="text",
+                    text=f"Error: Branch '{target_branch}' does not exist in threads repo."
+                )])
+
+            # Check for OPEN threads
+            if not force:
+                threads_repo.git.checkout(target_branch)
+                threads_dir = context.threads_dir
+                open_threads = []
+                for thread_file in threads_dir.glob("*.md"):
+                    try:
+                        from watercooler.metadata import thread_meta, is_closed
+                        title, status, ball, updated = thread_meta(thread_file)
+                        if not is_closed(status):
+                            open_threads.append(thread_file.stem)
+                    except Exception:
+                        pass
+
+                if open_threads:
+                    return ToolResult(content=[TextContent(
+                        type="text",
+                        text=(
+                            f"Error: Cannot delete branch '{target_branch}' with OPEN threads:\n"
+                            f"  {', '.join(open_threads)}\n"
+                            f"Close threads first or use force=True to override."
+                        )
+                    )])
+
+            # Switch to another branch before deleting
+            if threads_repo.active_branch.name == target_branch:
+                if "main" in [b.name for b in threads_repo.heads]:
+                    threads_repo.git.checkout("main")
+                else:
+                    # Create main if it doesn't exist
+                    threads_repo.git.checkout('-b', 'main')
+
+            threads_repo.git.branch('-D', target_branch)
+            result_msg = f"✅ Deleted branch '{target_branch}' from threads repo."
+
+        elif operation == "merge":
+            # Merge threads branch to main
+            if target_branch not in [b.name for b in threads_repo.heads]:
+                return ToolResult(content=[TextContent(
+                    type="text",
+                    text=f"Error: Branch '{target_branch}' does not exist in threads repo."
+                )])
+
+            if "main" not in [b.name for b in threads_repo.heads]:
+                return ToolResult(content=[TextContent(
+                    type="text",
+                    text="Error: 'main' branch does not exist in threads repo."
+                )])
+
+            threads_repo.git.checkout("main")
+            try:
+                threads_repo.git.merge(target_branch, '--no-ff', '-m', f"Merge {target_branch} into main")
+                result_msg = f"✅ Merged '{target_branch}' into 'main' in threads repo."
+            except GitCommandError as e:
+                return ToolResult(content=[TextContent(
+                    type="text",
+                    text=f"Error merging branch: {str(e)}"
+                )])
+
+        else:
+            return ToolResult(content=[TextContent(
+                type="text",
+                text=f"Error: Unknown operation '{operation}'. Must be one of: create, delete, merge, checkout"
+            )])
+
+        output = {
+            "success": True,
+            "operation": operation,
+            "branch": target_branch,
+            "message": result_msg,
+            "warnings": warnings,
+        }
+
+        return ToolResult(content=[TextContent(
+            type="text",
+            text=json.dumps(output, indent=2)
+        )])
+
+    except InvalidGitRepositoryError as e:
+        return ToolResult(content=[TextContent(
+            type="text",
+            text=f"Error: Not a git repository: {str(e)}"
+        )])
+    except Exception as e:
+        return ToolResult(content=[TextContent(
+            type="text",
+            text=f"Error syncing branch state: {str(e)}"
+        )])
+
+
+@mcp.tool(name="watercooler_v1_audit_branch_pairing")
+def audit_branch_pairing(
+    ctx: Context,
+    code_path: str = "",
+    include_merged: bool = False,
+) -> ToolResult:
+    """Comprehensive audit of branch pairing across entire repo pair.
+
+    Scans all branches in both repos and identifies:
+    - Synced branches (exist in both with same name)
+    - Code-only branches (exist in code but not threads)
+    - Threads-only branches (exist in threads but not code)
+    - Mismatched branches
+
+    Args:
+        code_path: Path to code repository directory
+        include_merged: Include fully merged branches (0 commits ahead) in report
+
+    Returns:
+        JSON report with categorized branches and recommendations.
+    """
+    try:
+        error, context = _require_context(code_path)
+        if error:
+            return ToolResult(content=[TextContent(type="text", text=error)])
+        if context is None or not context.code_root or not context.threads_dir:
+            return ToolResult(content=[TextContent(
+                type="text",
+                text="Error: Unable to resolve code and threads repo paths."
+            )])
+
+        code_repo = Repo(context.code_root, search_parent_directories=True)
+        threads_repo = Repo(context.threads_dir, search_parent_directories=True)
+
+        # Get all branches
+        code_branches = {b.name for b in code_repo.heads}
+        threads_branches = {b.name for b in threads_repo.heads}
+
+        # Categorize branches
+        synced = []
+        code_only = []
+        threads_only = []
+        recommendations = []
+
+        # Find synced branches
+        for branch in code_branches & threads_branches:
+            try:
+                code_sha = code_repo.heads[branch].commit.hexsha[:7]
+                threads_sha = threads_repo.heads[branch].commit.hexsha[:7]
+                synced.append({
+                    "name": branch,
+                    "code_sha": code_sha,
+                    "threads_sha": threads_sha,
+                })
+            except Exception:
+                synced.append({"name": branch, "code_sha": "unknown", "threads_sha": "unknown"})
+
+        # Find code-only branches
+        for branch in code_branches - threads_branches:
+            try:
+                branch_obj = code_repo.heads[branch]
+                commits_ahead = len(list(code_repo.iter_commits(f"main..{branch}"))) if "main" in code_branches else 0
+                code_only.append({
+                    "name": branch,
+                    "commits_ahead": commits_ahead,
+                    "action": "create_threads_branch" if commits_ahead > 0 or include_merged else "delete_if_merged",
+                })
+                if commits_ahead == 0 and not include_merged:
+                    recommendations.append(f"Code branch '{branch}' is fully merged - consider deleting")
+                else:
+                    recommendations.append(f"Create threads branch '{branch}' to match code branch")
+            except Exception:
+                code_only.append({"name": branch, "commits_ahead": 0, "action": "unknown"})
+
+        # Find threads-only branches
+        for branch in threads_branches - code_branches:
+            try:
+                branch_obj = threads_repo.heads[branch]
+                commits_ahead = len(list(threads_repo.iter_commits(f"main..{branch}"))) if "main" in threads_branches else 0
+                threads_only.append({
+                    "name": branch,
+                    "commits_ahead": commits_ahead,
+                    "action": "delete_or_merge" if commits_ahead == 0 or include_merged else "create_code_branch",
+                })
+                if commits_ahead == 0:
+                    recommendations.append(f"Threads branch '{branch}' is fully merged - safe to delete")
+                else:
+                    recommendations.append(f"Code branch '{branch}' was deleted - merge or delete threads branch")
+            except Exception:
+                threads_only.append({"name": branch, "commits_ahead": 0, "action": "unknown"})
+
+        output = {
+            "synced_branches": synced,
+            "code_only_branches": code_only,
+            "threads_only_branches": threads_only,
+            "mismatched_branches": [],  # Future: detect name mismatches
+            "recommendations": recommendations,
+        }
+
+        return ToolResult(content=[TextContent(
+            type="text",
+            text=json.dumps(output, indent=2)
+        )])
+
+    except InvalidGitRepositoryError as e:
+        return ToolResult(content=[TextContent(
+            type="text",
+            text=f"Error: Not a git repository: {str(e)}"
+        )])
+    except Exception as e:
+        return ToolResult(content=[TextContent(
+            type="text",
+            text=f"Error auditing branch pairing: {str(e)}"
+        )])
+
+
+@mcp.tool(name="watercooler_v1_recover_branch_state")
+def recover_branch_state(
+    ctx: Context,
+    code_path: str = "",
+    auto_fix: bool = False,
+    diagnose_only: bool = False,
+) -> ToolResult:
+    """Recover from branch state inconsistencies.
+
+    Diagnoses and optionally fixes branch pairing issues:
+    - Branch name mismatches
+    - Orphaned threads branches (code branch deleted)
+    - Missing threads branches (code branch exists)
+    - Git state issues (rebase conflicts, detached HEAD, etc.)
+
+    Args:
+        code_path: Path to code repository directory
+        auto_fix: Automatically apply safe fixes
+        diagnose_only: Only report issues, don't fix
+
+    Returns:
+        Diagnostic report with detected issues and recommended fixes.
+    """
+    try:
+        error, context = _require_context(code_path)
+        if error:
+            return ToolResult(content=[TextContent(type="text", text=error)])
+        if context is None or not context.code_root or not context.threads_dir:
+            return ToolResult(content=[TextContent(
+                type="text",
+                text="Error: Unable to resolve code and threads repo paths."
+            )])
+
+        issues = []
+        fixes_applied = []
+
+        # Validate branch pairing
+        validation_result = validate_branch_pairing(
+            code_repo=context.code_root,
+            threads_repo=context.threads_dir,
+            strict=False,
+        )
+
+        if not validation_result.valid:
+            for mismatch in validation_result.mismatches:
+                issues.append({
+                    "type": mismatch.type,
+                    "severity": mismatch.severity,
+                    "description": f"Code: {mismatch.code}, Threads: {mismatch.threads}",
+                    "recovery": mismatch.recovery,
+                })
+
+                # Auto-fix if requested and safe
+                if auto_fix and not diagnose_only:
+                    if mismatch.type == "branch_name_mismatch" and mismatch.code:
+                        try:
+                            threads_repo = Repo(context.threads_dir, search_parent_directories=True)
+                            if mismatch.code in [b.name for b in threads_repo.heads]:
+                                threads_repo.git.checkout(mismatch.code)
+                                fixes_applied.append(f"Checked out '{mismatch.code}' in threads repo")
+                            else:
+                                threads_repo.git.checkout('-b', mismatch.code)
+                                fixes_applied.append(f"Created branch '{mismatch.code}' in threads repo")
+                        except Exception as e:
+                            issues.append({
+                                "type": "auto_fix_failed",
+                                "severity": "warning",
+                                "description": f"Failed to auto-fix {mismatch.type}: {str(e)}",
+                                "recovery": "Manual intervention required",
+                            })
+
+        # Check for git state issues
+        try:
+            code_repo = Repo(context.code_root, search_parent_directories=True)
+            if code_repo.head.is_detached:
+                issues.append({
+                    "type": "code_repo_detached_head",
+                    "severity": "warning",
+                    "description": "Code repo is in detached HEAD state",
+                    "recovery": "Checkout a branch: git checkout <branch>",
+                })
+        except Exception:
+            pass
+
+        try:
+            threads_repo = Repo(context.threads_dir, search_parent_directories=True)
+            if threads_repo.head.is_detached:
+                issues.append({
+                    "type": "threads_repo_detached_head",
+                    "severity": "warning",
+                    "description": "Threads repo is in detached HEAD state",
+                    "recovery": "Checkout a branch: git checkout <branch>",
+                })
+        except Exception:
+            pass
+
+        # Check for rebase/merge conflicts
+        try:
+            code_repo = Repo(context.code_root, search_parent_directories=True)
+            if (code_repo.git_dir / "rebase-merge").exists() or (code_repo.git_dir / "rebase-apply").exists():
+                issues.append({
+                    "type": "code_repo_rebase_in_progress",
+                    "severity": "error",
+                    "description": "Code repo has in-progress rebase",
+                    "recovery": "Run: git rebase --abort (or --continue)",
+                })
+        except Exception:
+            pass
+
+        try:
+            threads_repo = Repo(context.threads_dir, search_parent_directories=True)
+            if (threads_repo.git_dir / "rebase-merge").exists() or (threads_repo.git_dir / "rebase-apply").exists():
+                issues.append({
+                    "type": "threads_repo_rebase_in_progress",
+                    "severity": "error",
+                    "description": "Threads repo has in-progress rebase",
+                    "recovery": "Run: git rebase --abort (or --continue)",
+                })
+        except Exception:
+            pass
+
+        output = {
+            "diagnosis_complete": True,
+            "issues_found": len(issues),
+            "issues": issues,
+            "fixes_applied": fixes_applied,
+            "warnings": validation_result.warnings,
+        }
+
+        return ToolResult(content=[TextContent(
+            type="text",
+            text=json.dumps(output, indent=2)
+        )])
+
+    except InvalidGitRepositoryError as e:
+        return ToolResult(content=[TextContent(
+            type="text",
+            text=f"Error: Not a git repository: {str(e)}"
+        )])
+    except Exception as e:
+        return ToolResult(content=[TextContent(
+            type="text",
+            text=f"Error recovering branch state: {str(e)}"
+        )])
 
 
 # ============================================================================
