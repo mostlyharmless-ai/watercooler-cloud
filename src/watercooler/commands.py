@@ -894,6 +894,14 @@ def archive_branch(branch: str, *, code_root: Path | None = None, abandon: bool 
                 except Exception as e:
                     return f"Error closing thread {topic}: {str(e)}"
 
+            # Commit the status changes
+            try:
+                threads_repo.index.add([f"{topic}.md" for topic in open_threads])
+                commit_msg = f"Archive: set {len(open_threads)} threads to {status_to_set}"
+                threads_repo.index.commit(commit_msg)
+            except Exception as e:
+                return f"Error committing status changes: {str(e)}"
+
         # Merge to main
         if "main" in [b.name for b in threads_repo.heads]:
             threads_repo.git.checkout("main")
