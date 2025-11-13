@@ -22,7 +22,7 @@ import os
 import time
 import json
 from pathlib import Path
-from typing import Callable, TypeVar, Optional, Dict, Any, List
+from typing import Callable, TypeVar, Optional, Dict, List
 from ulid import ULID
 from git import Repo, InvalidGitRepositoryError, GitCommandError
 from watercooler import commands, fs
@@ -1358,14 +1358,24 @@ def sync_branch_state(
     - merge: Merge threads branch to main if code branch merged
     - checkout: Ensure both repos on same branch
 
+    Note:
+        This operational tool does **not** require ``agent_func`` or other
+        provenance parameters. Unlike write operations (``watercooler_v1_say``,
+        ``watercooler_v1_ack``, etc.), it only performs git lifecycle
+        management, so pass just ``code_path``, ``branch``, ``operation``, and
+        ``force``. FastMCP will automatically reject any unexpected parameters.
+
     Args:
-        code_path: Path to code repository directory
+        code_path: Path to code repository directory (default: current directory)
         branch: Specific branch to sync (default: current branch)
-        operation: One of "create", "delete", "merge", "checkout"
-        force: Skip safety checks (use with caution)
+        operation: One of "create", "delete", "merge", "checkout" (default: "checkout")
+        force: Skip safety checks (use with caution, default: False)
 
     Returns:
         Operation result with success/failure and any warnings.
+
+    Example:
+        >>> sync_branch_state(ctx, code_path=".", branch="feature-auth", operation="checkout")
     """
     try:
         error, context = _require_context(code_path)
