@@ -129,17 +129,32 @@ Consider if FastMCP allows custom parameter validation that could:
 - Show valid parameters in error response
 - Link to documentation
 
-## Implementation Priority
+## Implementation Status
 
-1. **High**: Add explicit note in docstring about `agent_func` not being needed
-2. **High**: Add `**kwargs` catch with helpful error message
-3. **Medium**: Create parameter pattern documentation
-4. **Low**: Explore FastMCP schema enhancements
+1. **✅ Completed**: Add explicit note in docstring about `agent_func` not being needed
+   - Updated `src/watercooler_mcp/server.py:1361-1366`
+   - Updated `docs/mcp-server.md:327-332`
+
+2. **❌ Not Feasible**: Add `**kwargs` catch with helpful error message
+   - Investigation Result: FastMCP doesn't support `**kwargs` in tool functions
+   - Error: `ValueError: Functions with **kwargs are not supported as tools`
+   - Resolution: Rely on FastMCP's built-in Pydantic validation for parameter checking
+   - FastMCP automatically rejects unexpected parameters with clear error messages
+
+3. **✅ Completed**: Create parameter pattern documentation
+   - Updated docstring to clarify operational vs write operation parameter requirements
+
+4. **Future**: Explore FastMCP schema enhancements
+   - Could investigate if FastMCP allows custom error message formatting for validation errors
+   - Not critical since current Pydantic errors are clear and actionable
 
 ## Testing Recommendations
 
-Add test cases for:
-- Calling `sync_branch_state` with `agent_func` parameter (should fail gracefully)
-- Verifying error message is helpful
-- Ensuring all operational tools have consistent parameter patterns
+**Status**: FastMCP's parameter validation prevents invalid parameters at the framework level:
+- ✅ FastMCP automatically rejects unexpected parameters (Pydantic validation)
+- ✅ Error messages identify the unexpected parameter by name
+- ⚠️ Error messages are generic ("unexpected keyword argument") rather than domain-specific
+- 📝 Domain-specific guidance provided through enhanced docstrings instead
+
+The trade-off is acceptable: clear docstrings prevent misuse, and FastMCP's validation provides a safety net with adequate error messages.
 

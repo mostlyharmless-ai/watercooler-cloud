@@ -759,13 +759,16 @@ class GitSyncManager:
         except GitCommandError as e:
             error_text = str(e).lower()
             # Fallback: explicitly specify remote/branch when git cannot infer upstream
+            # This occurs when multiple refs match the branch name (e.g., remotes/origin/main and remotes/fork/main)
             if "cannot rebase onto multiple branches" in error_text:
                 self._log("Pull failed due to ambiguous upstream; retrying with explicit remote/branch")
                 try:
                     tracking = None
                     try:
                         tracking = repo.active_branch.tracking_branch()
-                    except TypeError:
+                    except (AttributeError, TypeError):
+                        # Could not determine tracking branch, will use defaults
+                        self._log("Warning: Could not determine tracking branch, using defaults (origin/<branch>)")
                         tracking = None
                     remote_name = "origin"
                     remote_branch = repo.active_branch.name
@@ -786,6 +789,8 @@ class GitSyncManager:
                     self._log("Fallback pull completed successfully")
                     return True
                 except GitCommandError as retry_error:
+                    # Retry failed, continue with normal error handling using the retry error
+                    self._log(f"Fallback pull also failed: {str(retry_error)}")
                     error_text = str(retry_error).lower()
                     e = retry_error
             # Handle various non-error conditions
