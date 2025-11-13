@@ -790,7 +790,16 @@ def merge_branch(branch: str, *, code_root: Path | None = None, force: bool = Fa
         # Perform merge
         threads_repo.git.checkout("main")
         try:
-            threads_repo.git.merge(branch, '--no-ff', '-m', f"Merge {branch} into main")
+            from git import Actor
+            # Use watercooler bot identity for automated merges
+            author = Actor("Watercooler Bot", "watercooler@mostlyharmless.ai")
+            env = {
+                'GIT_AUTHOR_NAME': author.name,
+                'GIT_AUTHOR_EMAIL': author.email,
+                'GIT_COMMITTER_NAME': author.name,
+                'GIT_COMMITTER_EMAIL': author.email,
+            }
+            threads_repo.git.merge(branch, '--no-ff', '-m', f"Merge {branch} into main", env=env)
             result_msg = f"✅ Merged '{branch}' into 'main' in threads repo."
             if warnings:
                 result_msg += "\n" + "\n".join(warnings)
@@ -896,9 +905,12 @@ def archive_branch(branch: str, *, code_root: Path | None = None, abandon: bool 
 
             # Commit the status changes
             try:
+                from git import Actor
                 threads_repo.index.add([f"{topic}.md" for topic in open_threads])
                 commit_msg = f"Archive: set {len(open_threads)} threads to {status_to_set}"
-                threads_repo.index.commit(commit_msg)
+                # Use watercooler bot identity for automated commits
+                author = Actor("Watercooler Bot", "watercooler@mostlyharmless.ai")
+                threads_repo.index.commit(commit_msg, author=author, committer=author)
             except Exception as e:
                 return f"Error committing status changes: {str(e)}"
 
@@ -906,7 +918,16 @@ def archive_branch(branch: str, *, code_root: Path | None = None, abandon: bool 
         if "main" in [b.name for b in threads_repo.heads]:
             threads_repo.git.checkout("main")
             try:
-                threads_repo.git.merge(branch, '--no-ff', '-m', f"Archive {branch} to main")
+                from git import Actor
+                # Use watercooler bot identity for automated merges
+                author = Actor("Watercooler Bot", "watercooler@mostlyharmless.ai")
+                env = {
+                    'GIT_AUTHOR_NAME': author.name,
+                    'GIT_AUTHOR_EMAIL': author.email,
+                    'GIT_COMMITTER_NAME': author.name,
+                    'GIT_COMMITTER_EMAIL': author.email,
+                }
+                threads_repo.git.merge(branch, '--no-ff', '-m', f"Archive {branch} to main", env=env)
             except GitCommandError as e:
                 return f"Error merging branch: {str(e)}"
 
