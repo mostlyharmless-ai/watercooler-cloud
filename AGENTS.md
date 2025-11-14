@@ -256,6 +256,19 @@ Standardize how Codex (this assistant) uses Watercooler tools so entries remain 
 - **Alternative (per-call)**: Supply `agent_func` parameter in format `<platform>:<model>:<role>` (e.g., `"Codex:gpt-4:implementer"`) where platform is the actual IDE/platform name, model is the exact model identifier, and role is the agent role.
 - **Local context (no explicit setter)**: Still enforce the rule by selecting the matching entry Role and adding a visible `Spec: <value>` line at the top of the entry body.
 
+### Code Path Selection
+
+- Always set `code_path` to the root of the repository whose code or planning you are touching.
+- When the scope moves to a different repository, migrate the conversation to that repo's threads before posting again.
+- Never post watercooler-cloud updates while pointing at watercooler-site (or vice versa); keep the code/threads pair aligned.
+
+### Thread Reading & Entry Access
+
+- Use `watercooler_v1_list_thread_entries` with `format="json"` plus `offset`/`limit` to explore large conversations safely. Feed the returned `entry_id`/index into `watercooler_v1_get_thread_entry` or `watercooler_v1_get_thread_entry_range` for precise retrieval.
+- Request `format="markdown"` only when you need to present the entry text directly to the user; otherwise stick with JSON for easier downstream parsing.
+- Reserve `watercooler_v1_read_thread(format="json")` for full exports or analytics. For normal reading, paginate with the entry tools to avoid exceeding stdio output limits (~10 KB per response).
+- Break huge responses into manageable slices (e.g., 5–10 entries per call) and cite the `entry_id` when referencing or quoting a specific entry later.
+
 ### Role Alignment
 
 - Keep `spec` (session specialization) and Watercooler entry `Role` distinct but aligned:

@@ -26,6 +26,8 @@ from typing import Callable, TypeVar, Optional, Dict, List
 from ulid import ULID
 from git import Repo, InvalidGitRepositoryError, GitCommandError
 from watercooler import commands, fs
+from watercooler.metadata import thread_meta
+from watercooler.thread_entries import ThreadEntry, parse_thread_entries
 from .config import (
     ThreadContext,
     get_agent_name,
@@ -178,6 +180,63 @@ def _refresh_threads(context: ThreadContext) -> None:
         # Async mode relies on background pulls; avoid blocking operations.
         return
     sync.pull()
+
+
+_ALLOWED_FORMATS = {"markdown", "json"}
+
+
+def _resolve_format(value: str | None, *, default: str = "markdown") -> tuple[str | None, str]:
+    fmt = (value or "").strip().lower()
+    if not fmt:
+        return (None, default)
+    if fmt not in _ALLOWED_FORMATS:
+        allowed = ", ".join(sorted(_ALLOWED_FORMATS))
+        return (f"Error: unsupported format '{value}'. Allowed formats: {allowed}.", default)
+    return (None, fmt)
+
+
+def _load_thread_entries(topic: str, context: ThreadContext) -> tuple[str | None, list[ThreadEntry]]:
+    threads_dir = context.threads_dir
+    thread_path = fs.thread_path(topic, threads_dir)
+
+    if not thread_path.exists():
+        available = ", ".join(sorted(p.stem for p in threads_dir.glob("*.md"))) if threads_dir.exists() else "none"
+        return (
+            f"Error: Thread '{topic}' not found in {threads_dir}\n\nAvailable threads: {available}",
+            [],
+        )
+
+    content = fs.read_body(thread_path)
+    entries = parse_thread_entries(content)
+    return (None, entries)
+
+
+def _entry_header_payload(entry: ThreadEntry) -> Dict[str, object]:
+    return {
+        "index": entry.index,
+        "entry_id": entry.entry_id,
+        "agent": entry.agent,
+        "timestamp": entry.timestamp,
+        "role": entry.role,
+        "type": entry.entry_type,
+        "title": entry.title,
+        "header": entry.header,
+        "start_line": entry.start_line,
+        "end_line": entry.end_line,
+        "start_offset": entry.start_offset,
+        "end_offset": entry.end_offset,
+    }
+
+
+def _entry_full_payload(entry: ThreadEntry) -> Dict[str, object]:
+    data = _entry_header_payload(entry)
+    data.update(
+        {
+            "body": entry.body,
+            "markdown": entry.header + ("\n\n" + entry.body if entry.body else ""),
+        }
+    )
+    return data
 
 
 def _build_commit_footers(
@@ -661,8 +720,9 @@ def read_thread(
         - from_entry and limit are ignored (pagination in Phase 1B)
     """
     try:
-        if format != "markdown":
-            return f"Error: Phase 1A only supports format='markdown'. JSON support coming in Phase 1B."
+        fmt_error, resolved_format = _resolve_format(format, default="markdown")
+        if fmt_error:
+            return fmt_error
 
         error, context = _require_context(code_path)
         if error:
@@ -690,10 +750,251 @@ def read_thread(
 
         # Read full thread content
         content = fs.read_body(thread_path)
-        return content
+        if resolved_format == "markdown":
+            return content
+
+        entries = parse_thread_entries(content)
+        title, status, ball, last = thread_meta(thread_path)
+        header_block = content.split("---", 1)[0].strip()
+
+        payload = {
+            "topic": topic,
+            "format": "json",
+            "entry_count": len(entries),
+            "meta": {
+                "title": title,
+                "status": status,
+                "ball": ball,
+                "last_entry_at": last,
+                "header": header_block,
+            },
+            "entries": [_entry_full_payload(entry) for entry in entries],
+        }
+        return json.dumps(payload, indent=2)
 
     except Exception as e:
         return f"Error reading thread '{topic}': {str(e)}"
+
+
+@mcp.tool(name="watercooler_v1_list_thread_entries")
+def list_thread_entries(
+    topic: str,
+    offset: int = 0,
+    limit: int | None = None,
+    format: str = "json",
+    code_path: str = "",
+) -> ToolResult:
+    """Return thread entry headers (metadata only) with optional pagination."""
+
+    fmt_error, resolved_format = _resolve_format(format, default="json")
+    if fmt_error:
+        return ToolResult(content=[TextContent(type="text", text=fmt_error)])
+
+    error, context = _require_context(code_path)
+    if error:
+        return ToolResult(content=[TextContent(type="text", text=error)])
+    if context is None:
+        return ToolResult(content=[TextContent(type="text", text="Error: Unable to resolve code context for the provided code_path.")])
+    if _dynamic_context_missing(context):
+        return ToolResult(
+            content=[
+                TextContent(
+                    type="text",
+                    text=(
+                        "Dynamic threads repo was not resolved from your git context.\n"
+                        "Run from inside your code repo or set WATERCOOLER_CODE_REPO/WATERCOOLER_GIT_REPO."
+                    ),
+                )
+            ]
+        )
+
+    if offset < 0:
+        return ToolResult(content=[TextContent(type="text", text="Error: offset must be non-negative.")])
+    if limit is not None and limit < 0:
+        return ToolResult(content=[TextContent(type="text", text="Error: limit must be non-negative when provided.")])
+
+    _refresh_threads(context)
+    load_error, entries = _load_thread_entries(topic, context)
+    if load_error:
+        return ToolResult(content=[TextContent(type="text", text=load_error)])
+
+    total = len(entries)
+    start = min(offset, total)
+    end = total if limit is None else min(start + limit, total)
+    slice_entries = entries[start:end]
+
+    payload = {
+        "topic": topic,
+        "entry_count": total,
+        "offset": start,
+        "limit": limit,
+        "entries": [_entry_header_payload(entry) for entry in slice_entries],
+    }
+
+    if resolved_format == "markdown":
+        lines = [f"Entries for '{topic}' ({total} total)"]
+        if slice_entries:
+            for entry in slice_entries:
+                timestamp = entry.timestamp or "unknown"
+                title = entry.title or "(untitled)"
+                entry_id = entry.entry_id or "(no Entry-ID)"
+                lines.append(
+                    f"- [{entry.index}] {timestamp} — {title} ({entry.role or 'role?'} / {entry.entry_type or 'type?'}) id={entry_id}"
+                )
+        else:
+            lines.append("- (no entries in range)")
+        text = "\n".join(lines)
+        return ToolResult(content=[TextContent(type="text", text=text)])
+
+    return ToolResult(content=[TextContent(type="text", text=json.dumps(payload, indent=2))])
+
+
+@mcp.tool(name="watercooler_v1_get_thread_entry")
+def get_thread_entry(
+    topic: str,
+    index: int | None = None,
+    entry_id: str | None = None,
+    format: str = "json",
+    code_path: str = "",
+) -> ToolResult:
+    """Return a single thread entry (header + body)."""
+
+    fmt_error, resolved_format = _resolve_format(format, default="json")
+    if fmt_error:
+        return ToolResult(content=[TextContent(type="text", text=fmt_error)])
+
+    if index is None and entry_id is None:
+        return ToolResult(content=[TextContent(type="text", text="Error: provide either index or entry_id to select an entry.")])
+
+    error, context = _require_context(code_path)
+    if error:
+        return ToolResult(content=[TextContent(type="text", text=error)])
+    if context is None:
+        return ToolResult(content=[TextContent(type="text", text="Error: Unable to resolve code context for the provided code_path.")])
+    if _dynamic_context_missing(context):
+        return ToolResult(
+            content=[
+                TextContent(
+                    type="text",
+                    text=(
+                        "Dynamic threads repo was not resolved from your git context.\n"
+                        "Run from inside your code repo or set WATERCOOLER_CODE_REPO/WATERCOOLER_GIT_REPO."
+                    ),
+                )
+            ]
+        )
+
+    _refresh_threads(context)
+    load_error, entries = _load_thread_entries(topic, context)
+    if load_error:
+        return ToolResult(content=[TextContent(type="text", text=load_error)])
+
+    selected: ThreadEntry | None = None
+
+    if index is not None:
+        if index < 0 or index >= len(entries):
+            return ToolResult(content=[TextContent(type="text", text=f"Error: index {index} out of range (entries={len(entries)}).")])
+        selected = entries[index]
+
+    if entry_id is not None:
+        matching = next((entry for entry in entries if entry.entry_id == entry_id), None)
+        if matching is None:
+            return ToolResult(content=[TextContent(type="text", text=f"Error: entry_id '{entry_id}' not found in thread '{topic}'.")])
+        if selected is not None and matching.index != selected.index:
+            return ToolResult(content=[TextContent(type="text", text="Error: index and entry_id refer to different entries.")])
+        selected = matching
+
+    if selected is None:
+        return ToolResult(content=[TextContent(type="text", text="Error: failed to resolve the requested entry.")])
+
+    payload = {
+        "topic": topic,
+        "entry_count": len(entries),
+        "index": selected.index,
+        "entry": _entry_full_payload(selected),
+    }
+
+    if resolved_format == "markdown":
+        markdown = payload["entry"]["markdown"]  # type: ignore[index]
+        return ToolResult(content=[TextContent(type="text", text=markdown)])
+
+    return ToolResult(content=[TextContent(type="text", text=json.dumps(payload, indent=2))])
+
+
+@mcp.tool(name="watercooler_v1_get_thread_entry_range")
+def get_thread_entry_range(
+    topic: str,
+    start_index: int = 0,
+    end_index: int | None = None,
+    format: str = "json",
+    code_path: str = "",
+) -> ToolResult:
+    """Return a contiguous range of entries (inclusive)."""
+
+    fmt_error, resolved_format = _resolve_format(format, default="json")
+    if fmt_error:
+        return ToolResult(content=[TextContent(type="text", text=fmt_error)])
+
+    if start_index < 0:
+        return ToolResult(content=[TextContent(type="text", text="Error: start_index must be non-negative.")])
+    if end_index is not None and end_index < start_index:
+        return ToolResult(content=[TextContent(type="text", text="Error: end_index must be greater than or equal to start_index.")])
+
+    error, context = _require_context(code_path)
+    if error:
+        return ToolResult(content=[TextContent(type="text", text=error)])
+    if context is None:
+        return ToolResult(content=[TextContent(type="text", text="Error: Unable to resolve code context for the provided code_path.")])
+    if _dynamic_context_missing(context):
+        return ToolResult(
+            content=[
+                TextContent(
+                    type="text",
+                    text=(
+                        "Dynamic threads repo was not resolved from your git context.\n"
+                        "Run from inside your code repo or set WATERCOOLER_CODE_REPO/WATERCOOLER_GIT_REPO."
+                    ),
+                )
+            ]
+        )
+
+    _refresh_threads(context)
+    load_error, entries = _load_thread_entries(topic, context)
+    if load_error:
+        return ToolResult(content=[TextContent(type="text", text=load_error)])
+
+    total = len(entries)
+    if start_index >= total and total > 0:
+        return ToolResult(content=[TextContent(type="text", text=f"Error: start_index {start_index} out of range (entries={total}).")])
+
+    last_index = total - 1 if total else -1
+    effective_end = last_index if end_index is None else min(end_index, last_index)
+    if effective_end < start_index and total:
+        return ToolResult(content=[TextContent(type="text", text="Error: computed end index is before start index.")])
+
+    selected_entries = entries[start_index : effective_end + 1] if total else []
+
+    payload = {
+        "topic": topic,
+        "entry_count": total,
+        "start_index": start_index,
+        "end_index": effective_end if selected_entries else None,
+        "entries": [_entry_full_payload(entry) for entry in selected_entries],
+    }
+
+    if resolved_format == "markdown":
+        if not selected_entries:
+            return ToolResult(content=[TextContent(type="text", text="(no entries in range)")])
+        markdown_blocks = []
+        for entry in selected_entries:
+            block = entry.header
+            if entry.body:
+                block += "\n\n" + entry.body
+            markdown_blocks.append(block)
+        text = "\n\n---\n\n".join(markdown_blocks)
+        return ToolResult(content=[TextContent(type="text", text=text)])
+
+    return ToolResult(content=[TextContent(type="text", text=json.dumps(payload, indent=2))])
 
 
 @mcp.tool(name="watercooler_v1_say")
