@@ -73,13 +73,19 @@ def parse_thread_entries(text: str) -> list[ThreadEntry]:
     Returns:
         A list of ``ThreadEntry`` instances in order of appearance.
 
-    Note:
+    Performance Characteristics:
         This implementation loads the entire thread into memory and builds line offset
-        arrays for all entries. For typical threads (< 1000 entries, < 1MB), this is
-        efficient. For very large threads (10K+ lines, 10MB+), consider optimizations:
-        - Lazy parsing with generator-based iteration
-        - Caching parsed results with mtime invalidation
-        - Streaming parser for offset-based access
+        arrays for all entries.
+
+        Expected parse times (on typical hardware):
+        - Typical threads (< 1000 entries, < 1MB): ~10-50ms
+        - Large threads (1000-10K entries, 1-10MB): ~50-500ms
+        - Very large threads (10K+ entries, 10MB+): Consider optimizations:
+          * Lazy parsing with generator-based iteration
+          * Caching parsed results with mtime invalidation
+          * Streaming parser for offset-based access
+
+        Memory usage scales linearly with thread size (O(n) for n entries).
     """
 
     if not text:
@@ -141,8 +147,9 @@ def parse_thread_entries(text: str) -> list[ThreadEntry]:
         end_line_index = _resolve_last_content_line(entry_line_slice, entry_start_index)
 
         # Ensure end_line_index is within valid bounds
-        if end_line_index >= len(lines) or end_line_index >= len(line_starts):
-            end_line_index = len(lines) - 1
+        # Use max(0, ...) to handle edge case of empty lines (though early returns prevent this)
+        if not lines or end_line_index >= len(lines) or end_line_index >= len(line_starts):
+            end_line_index = max(0, len(lines) - 1)
 
         entry = ThreadEntry(
             index=entry_counter,

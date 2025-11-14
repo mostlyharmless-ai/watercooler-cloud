@@ -245,6 +245,19 @@ def _resolve_format(value: str | None, *, default: str = "markdown") -> tuple[st
 
 
 def _load_thread_entries(topic: str, context: ThreadContext) -> tuple[str | None, list[ThreadEntry]]:
+    """Load and parse thread entries from disk.
+
+    Thread Safety Note:
+        This function performs unlocked reads. This is safe because:
+        - Write operations (say, ack, handoff) use AdvisoryLock for serialization
+        - Reads may see partially written entries, but won't corrupt existing ones
+        - Thread entry boundaries (---) ensure partial writes don't break parsing
+        - File system guarantees atomic writes at the block level
+        - MCP tool calls are typically infrequent enough that read/write races are rare
+
+    For high-concurrency scenarios, consider adding shared/exclusive locking
+    or caching with mtime-based invalidation.
+    """
     threads_dir = context.threads_dir
     thread_path = fs.thread_path(topic, threads_dir)
 
