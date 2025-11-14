@@ -28,6 +28,7 @@ from git import Repo, InvalidGitRepositoryError, GitCommandError
 from watercooler import commands, fs
 from watercooler.metadata import thread_meta
 from watercooler.thread_entries import ThreadEntry, parse_thread_entries
+import re
 from .config import (
     ThreadContext,
     get_agent_name,
@@ -184,6 +185,48 @@ def _refresh_threads(context: ThreadContext) -> None:
 
 _ALLOWED_FORMATS = {"markdown", "json"}
 
+# Resource limits to prevent exhaustion
+_MAX_LIMIT = 1000  # Maximum entries that can be requested in a single call
+_MAX_OFFSET = 100000  # Maximum offset to prevent excessive memory usage
+
+# Regex patterns for extracting thread metadata from content
+_TITLE_RE = re.compile(r"^#\s*(?P<val>.+)$", re.MULTILINE)
+_STAT_RE = re.compile(r"^Status:\s*(?P<val>.+)$", re.IGNORECASE | re.MULTILINE)
+_BALL_RE = re.compile(r"^Ball:\s*(?P<val>.+)$", re.IGNORECASE | re.MULTILINE)
+_ENTRY_RE = re.compile(r"^Entry:\s*(?P<who>[^\d]+?)\s+(?P<ts>\d{4}-\d{2}-\d{2}T\d{2}:\d{2}:\d{2}Z)\s*$", re.MULTILINE)
+_CLOSED_STATES = {"done", "closed", "merged", "resolved", "abandoned", "obsolete"}
+
+
+def _normalize_status(s: str) -> str:
+    """Normalize status string to lowercase."""
+    return s.strip().lower()
+
+
+def _extract_thread_metadata(content: str, topic: str) -> tuple[str, str, str, str]:
+    """Extract thread metadata from content string without re-reading the file.
+
+    Args:
+        content: Full thread markdown content
+        topic: Thread topic (used as fallback for title)
+
+    Returns:
+        Tuple of (title, status, ball, last_entry_timestamp)
+    """
+    title_match = _TITLE_RE.search(content)
+    title = title_match.group("val").strip() if title_match else topic
+
+    status_match = _STAT_RE.search(content)
+    status = _normalize_status(status_match.group("val") if status_match else "open")
+
+    ball_match = _BALL_RE.search(content)
+    ball = ball_match.group("val").strip() if ball_match else "unknown"
+
+    # Extract last entry timestamp
+    hits = list(_ENTRY_RE.finditer(content))
+    last = hits[-1].group("ts").strip() if hits else fs.utcnow_iso()
+
+    return title, status, ball, last
+
 
 def _resolve_format(value: str | None, *, default: str = "markdown") -> tuple[str | None, str]:
     fmt = (value or "").strip().lower()
@@ -230,13 +273,38 @@ def _entry_header_payload(entry: ThreadEntry) -> Dict[str, object]:
 
 def _entry_full_payload(entry: ThreadEntry) -> Dict[str, object]:
     data = _entry_header_payload(entry)
+    # Handle whitespace-only bodies as empty
+    body_content = entry.body.strip() if entry.body else ""
     data.update(
         {
             "body": entry.body,
-            "markdown": entry.header + ("\n\n" + entry.body if entry.body else ""),
+            "markdown": entry.header + ("\n\n" + body_content if body_content else ""),
         }
     )
     return data
+
+
+def _validate_thread_context(code_path: str) -> tuple[str | None, ThreadContext | None]:
+    """Validate and resolve thread context for MCP tools.
+
+    Args:
+        code_path: Path to code repository
+
+    Returns:
+        Tuple of (error_message, context). If error_message is not None, context will be None.
+    """
+    error, context = _require_context(code_path)
+    if error:
+        return (error, None)
+    if context is None:
+        return ("Error: Unable to resolve code context for the provided code_path.", None)
+    if _dynamic_context_missing(context):
+        return (
+            "Dynamic threads repo was not resolved from your git context.\n"
+            "Run from inside your code repo or set WATERCOOLER_CODE_REPO/WATERCOOLER_GIT_REPO.",
+            None,
+        )
+    return (None, context)
 
 
 def _build_commit_footers(
@@ -753,9 +821,10 @@ def read_thread(
         if resolved_format == "markdown":
             return content
 
+        # Parse once and extract all needed data from content
         entries = parse_thread_entries(content)
-        title, status, ball, last = thread_meta(thread_path)
-        header_block = content.split("---", 1)[0].strip()
+        header_block = content.split("---", 1)[0].strip() if "---" in content else ""
+        title, status, ball, last = _extract_thread_metadata(content, topic)
 
         payload = {
             "topic": topic,
@@ -790,28 +859,18 @@ def list_thread_entries(
     if fmt_error:
         return ToolResult(content=[TextContent(type="text", text=fmt_error)])
 
-    error, context = _require_context(code_path)
-    if error:
-        return ToolResult(content=[TextContent(type="text", text=error)])
-    if context is None:
-        return ToolResult(content=[TextContent(type="text", text="Error: Unable to resolve code context for the provided code_path.")])
-    if _dynamic_context_missing(context):
-        return ToolResult(
-            content=[
-                TextContent(
-                    type="text",
-                    text=(
-                        "Dynamic threads repo was not resolved from your git context.\n"
-                        "Run from inside your code repo or set WATERCOOLER_CODE_REPO/WATERCOOLER_GIT_REPO."
-                    ),
-                )
-            ]
-        )
+    error, context = _validate_thread_context(code_path)
+    if error or context is None:
+        return ToolResult(content=[TextContent(type="text", text=error or "Unknown error")])
 
     if offset < 0:
         return ToolResult(content=[TextContent(type="text", text="Error: offset must be non-negative.")])
+    if offset > _MAX_OFFSET:
+        return ToolResult(content=[TextContent(type="text", text=f"Error: offset must not exceed {_MAX_OFFSET}.")])
     if limit is not None and limit < 0:
         return ToolResult(content=[TextContent(type="text", text="Error: limit must be non-negative when provided.")])
+    if limit is not None and limit > _MAX_LIMIT:
+        return ToolResult(content=[TextContent(type="text", text=f"Error: limit must not exceed {_MAX_LIMIT}.")])
 
     _refresh_threads(context)
     load_error, entries = _load_thread_entries(topic, context)
@@ -866,23 +925,9 @@ def get_thread_entry(
     if index is None and entry_id is None:
         return ToolResult(content=[TextContent(type="text", text="Error: provide either index or entry_id to select an entry.")])
 
-    error, context = _require_context(code_path)
-    if error:
-        return ToolResult(content=[TextContent(type="text", text=error)])
-    if context is None:
-        return ToolResult(content=[TextContent(type="text", text="Error: Unable to resolve code context for the provided code_path.")])
-    if _dynamic_context_missing(context):
-        return ToolResult(
-            content=[
-                TextContent(
-                    type="text",
-                    text=(
-                        "Dynamic threads repo was not resolved from your git context.\n"
-                        "Run from inside your code repo or set WATERCOOLER_CODE_REPO/WATERCOOLER_GIT_REPO."
-                    ),
-                )
-            ]
-        )
+    error, context = _validate_thread_context(code_path)
+    if error or context is None:
+        return ToolResult(content=[TextContent(type="text", text=error or "Unknown error")])
 
     _refresh_threads(context)
     load_error, entries = _load_thread_entries(topic, context)
@@ -937,26 +982,16 @@ def get_thread_entry_range(
 
     if start_index < 0:
         return ToolResult(content=[TextContent(type="text", text="Error: start_index must be non-negative.")])
+    if start_index > _MAX_OFFSET:
+        return ToolResult(content=[TextContent(type="text", text=f"Error: start_index must not exceed {_MAX_OFFSET}.")])
     if end_index is not None and end_index < start_index:
         return ToolResult(content=[TextContent(type="text", text="Error: end_index must be greater than or equal to start_index.")])
+    if end_index is not None and (end_index - start_index) > _MAX_LIMIT:
+        return ToolResult(content=[TextContent(type="text", text=f"Error: requested range size must not exceed {_MAX_LIMIT} entries.")])
 
-    error, context = _require_context(code_path)
-    if error:
-        return ToolResult(content=[TextContent(type="text", text=error)])
-    if context is None:
-        return ToolResult(content=[TextContent(type="text", text="Error: Unable to resolve code context for the provided code_path.")])
-    if _dynamic_context_missing(context):
-        return ToolResult(
-            content=[
-                TextContent(
-                    type="text",
-                    text=(
-                        "Dynamic threads repo was not resolved from your git context.\n"
-                        "Run from inside your code repo or set WATERCOOLER_CODE_REPO/WATERCOOLER_GIT_REPO."
-                    ),
-                )
-            ]
-        )
+    error, context = _validate_thread_context(code_path)
+    if error or context is None:
+        return ToolResult(content=[TextContent(type="text", text=error or "Unknown error")])
 
     _refresh_threads(context)
     load_error, entries = _load_thread_entries(topic, context)

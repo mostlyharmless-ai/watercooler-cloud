@@ -3,13 +3,24 @@
 These helpers expose structured metadata for individual entries inside a
 thread markdown file so higher layers (CLI, MCP, etc.) can work with
 entry-level operations without reparsing the raw file repeatedly.
+
+Entry-ID Format:
+    Entry-ID is a ULID (Universally Unique Lexicographically Sortable Identifier)
+    embedded in thread entries as HTML comments (<!-- Entry-ID: ... -->).
+    ULIDs are 26-character case-insensitive strings that encode both timestamp
+    and randomness, making them ideal for tracking entries chronologically while
+    ensuring uniqueness. The format is: [0-9A-Z]{26} (base32 encoded).
+
+    Entry-IDs are automatically generated when entries are created via the
+    watercooler commands (say, ack, handoff) and stored in commit footers for
+    full traceability in git history.
 """
 
 from __future__ import annotations
 
 from dataclasses import dataclass
 import re
-from typing import Iterable, List, Optional
+from typing import Iterable, Optional
 
 
 _ENTRY_LINE_RE = re.compile(
@@ -20,7 +31,23 @@ _ENTRY_ID_RE = re.compile(r"<!--\s*Entry-ID:\s*([A-Za-z0-9_-]+)\s*-->", re.IGNOR
 
 @dataclass(frozen=True)
 class ThreadEntry:
-    """Structured representation of a single thread entry."""
+    """Structured representation of a single thread entry.
+
+    Attributes:
+        index: Zero-based entry position in the thread
+        header: Markdown header block (agent, timestamp, role, type, title)
+        body: Entry body content (markdown)
+        agent: Agent name (extracted from "Entry: Agent ..." line)
+        timestamp: ISO 8601 timestamp (YYYY-MM-DDTHH:MM:SSZ)
+        role: Agent role (planner, critic, implementer, tester, pm, scribe)
+        entry_type: Entry type (Note, Plan, Decision, PR, Closure)
+        title: Entry title
+        entry_id: ULID identifier from <!-- Entry-ID: ... --> comment (26 chars, base32)
+        start_line: Starting line number (1-indexed)
+        end_line: Ending line number (1-indexed)
+        start_offset: Starting byte offset in file
+        end_offset: Ending byte offset in file
+    """
 
     index: int
     header: str
@@ -37,7 +64,7 @@ class ThreadEntry:
     end_offset: int
 
 
-def parse_thread_entries(text: str) -> List[ThreadEntry]:
+def parse_thread_entries(text: str) -> list[ThreadEntry]:
     """Parse thread entries from a markdown thread file.
 
     Args:
@@ -61,13 +88,13 @@ def parse_thread_entries(text: str) -> List[ThreadEntry]:
     header_end_index = separator_indexes[0]
     current_index = header_end_index + 1
 
-    line_starts: List[int] = []
+    line_starts: list[int] = []
     offset = 0
     for line in lines:
         line_starts.append(offset)
         offset += len(line)
 
-    entries: List[ThreadEntry] = []
+    entries: list[ThreadEntry] = []
     entry_counter = 0
 
     while current_index < len(lines):
@@ -103,6 +130,10 @@ def parse_thread_entries(text: str) -> List[ThreadEntry]:
 
         end_line_index = _resolve_last_content_line(entry_line_slice, entry_start_index)
 
+        # Ensure end_line_index is within valid bounds
+        if end_line_index >= len(lines) or end_line_index >= len(line_starts):
+            end_line_index = len(lines) - 1
+
         entry = ThreadEntry(
             index=entry_counter,
             header=header_text,
@@ -133,9 +164,9 @@ class _EntryMetadata:
     title: Optional[str]
 
 
-def _split_entry_header_body(entry_lines: Iterable[str]) -> tuple[List[str], List[str]]:
-    header_lines: List[str] = []
-    body_lines: List[str] = []
+def _split_entry_header_body(entry_lines: Iterable[str]) -> tuple[list[str], list[str]]:
+    header_lines: list[str] = []
+    body_lines: list[str] = []
     in_header = True
 
     for line in entry_lines:
@@ -193,7 +224,7 @@ def _extract_entry_id(entry_lines: Iterable[str]) -> Optional[str]:
     return match.group(1).strip() or None
 
 
-def _resolve_last_content_line(entry_lines: List[str], entry_start_index: int) -> int:
+def _resolve_last_content_line(entry_lines: list[str], entry_start_index: int) -> int:
     """Return absolute line index for the last line with content in the entry."""
 
     for reverse_offset, line in enumerate(reversed(entry_lines)):
