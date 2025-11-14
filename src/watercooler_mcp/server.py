@@ -249,7 +249,14 @@ def _load_thread_entries(topic: str, context: ThreadContext) -> tuple[str | None
     thread_path = fs.thread_path(topic, threads_dir)
 
     if not thread_path.exists():
-        available = ", ".join(sorted(p.stem for p in threads_dir.glob("*.md"))) if threads_dir.exists() else "none"
+        if threads_dir.exists():
+            available_list = sorted(p.stem for p in threads_dir.glob("*.md"))
+            if len(available_list) > 10:
+                available = ", ".join(available_list[:10]) + f" (and {len(available_list) - 10} more)"
+            else:
+                available = ", ".join(available_list) if available_list else "none"
+        else:
+            available = "none"
         return (
             f"Error: Thread '{topic}' not found in {threads_dir}\n\nAvailable threads: {available}",
             [],
@@ -278,13 +285,26 @@ def _entry_header_payload(entry: ThreadEntry) -> Dict[str, object]:
 
 
 def _entry_full_payload(entry: ThreadEntry) -> Dict[str, object]:
+    """Convert ThreadEntry to full JSON payload including body content.
+
+    Note on whitespace handling:
+        - 'body' field preserves original whitespace from the thread file
+        - 'markdown' field uses stripped body to avoid trailing whitespace in output
+        This ensures markdown rendering is clean while preserving original content.
+
+    Args:
+        entry: ThreadEntry to convert
+
+    Returns:
+        Dictionary with entry metadata, body, and markdown representation
+    """
     data = _entry_header_payload(entry)
     # Handle whitespace-only bodies as empty
     body_content = entry.body.strip() if entry.body else ""
     data.update(
         {
-            "body": entry.body,
-            "markdown": entry.header + ("\n\n" + body_content if body_content else ""),
+            "body": entry.body,  # Preserve original whitespace
+            "markdown": entry.header + ("\n\n" + body_content if body_content else ""),  # Clean output
         }
     )
     return data

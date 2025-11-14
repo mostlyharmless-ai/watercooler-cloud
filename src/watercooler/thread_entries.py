@@ -72,6 +72,14 @@ def parse_thread_entries(text: str) -> list[ThreadEntry]:
 
     Returns:
         A list of ``ThreadEntry`` instances in order of appearance.
+
+    Note:
+        This implementation loads the entire thread into memory and builds line offset
+        arrays for all entries. For typical threads (< 1000 entries, < 1MB), this is
+        efficient. For very large threads (10K+ lines, 10MB+), consider optimizations:
+        - Lazy parsing with generator-based iteration
+        - Caching parsed results with mtime invalidation
+        - Streaming parser for offset-based access
     """
 
     if not text:
@@ -88,6 +96,8 @@ def parse_thread_entries(text: str) -> list[ThreadEntry]:
     header_end_index = separator_indexes[0]
     current_index = header_end_index + 1
 
+    # Build line offset array for byte-level indexing
+    # For large threads (10K+ lines), this is O(n) but acceptable for Phase 1
     line_starts: list[int] = []
     offset = 0
     for line in lines:

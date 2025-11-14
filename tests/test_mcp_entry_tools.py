@@ -115,6 +115,19 @@ def test_get_thread_entry_by_id(patched_context):
     assert payload["entry"]["entry_id"] == "01KA0PK97G9Q6AB0B17896Y1EB"
 
 
+def test_get_thread_entry_index_id_mismatch(patched_context):
+    """Test that an error is returned when index and entry_id point to different entries."""
+    result = server.get_thread_entry.fn(
+        topic="entry-access-tools",
+        index=0,  # Points to first entry with ID 01KA0PK97G9Q6AB0B17896Y1EB
+        entry_id="01KA0PYSR7X43QQ61H1BCR3S2S",  # ID of second entry (index 1)
+        code_path=".",
+    )
+    text = _extract_text(result)
+    assert "Error" in text
+    assert "different entries" in text
+
+
 def test_get_thread_entry_range_inclusive(patched_context):
     result = server.get_thread_entry_range.fn(
         topic="entry-access-tools",
