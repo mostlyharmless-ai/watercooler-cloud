@@ -15,20 +15,26 @@ if sys.version_info < (3, 10):
     raise RuntimeError(
         f"Watercooler MCP requires Python 3.10+; found {sys.version.split()[0]}"
     )
+
+# Standard library imports
+import json
+import os
+import re
+import time
+from pathlib import Path
+from typing import Callable, TypeVar, Optional, Dict, List
+
+# Third-party imports
 from fastmcp import FastMCP, Context
 from fastmcp.tools.tool import ToolResult
 from mcp.types import TextContent
-import os
-import time
-import json
-from pathlib import Path
-from typing import Callable, TypeVar, Optional, Dict, List
 from ulid import ULID
 from git import Repo, InvalidGitRepositoryError, GitCommandError
+
+# Local application imports
 from watercooler import commands, fs
 from watercooler.metadata import thread_meta
 from watercooler.thread_entries import ThreadEntry, parse_thread_entries
-import re
 from .config import (
     ThreadContext,
     get_agent_name,
@@ -193,7 +199,7 @@ _MAX_OFFSET = 100000  # Maximum offset to prevent excessive memory usage
 _TITLE_RE = re.compile(r"^#\s*(?P<val>.+)$", re.MULTILINE)
 _STAT_RE = re.compile(r"^Status:\s*(?P<val>.+)$", re.IGNORECASE | re.MULTILINE)
 _BALL_RE = re.compile(r"^Ball:\s*(?P<val>.+)$", re.IGNORECASE | re.MULTILINE)
-_ENTRY_RE = re.compile(r"^Entry:\s*(?P<who>[^\d]+?)\s+(?P<ts>\d{4}-\d{2}-\d{2}T\d{2}:\d{2}:\d{2}Z)\s*$", re.MULTILINE)
+_ENTRY_RE = re.compile(r"^Entry:\s*(?P<who>.+?)\s+(?P<ts>\d{4}-\d{2}-\d{2}T\d{2}:\d{2}:\d{2}Z)\s*$", re.MULTILINE)
 _CLOSED_STATES = {"done", "closed", "merged", "resolved", "abandoned", "obsolete"}
 
 

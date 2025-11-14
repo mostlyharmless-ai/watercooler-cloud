@@ -227,6 +227,9 @@ def _extract_entry_id(entry_lines: Iterable[str]) -> Optional[str]:
 def _resolve_last_content_line(entry_lines: list[str], entry_start_index: int) -> int:
     """Return absolute line index for the last line with content in the entry."""
 
+    if not entry_lines:
+        return entry_start_index
+
     for reverse_offset, line in enumerate(reversed(entry_lines)):
         if line.strip():
             return entry_start_index + len(entry_lines) - 1 - reverse_offset
