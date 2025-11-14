@@ -256,6 +256,20 @@ Standardize how Claude (this assistant) uses Watercooler tools so entries remain
 - **Alternative (per-call)**: Supply `agent_func` parameter in format `<platform>:<model>:<role>` (e.g., `"Claude Code:sonnet-4:implementer"`) where platform is the actual IDE/platform name, model is the exact model identifier, and role is the agent role.
 - **Local context (no explicit setter)**: Still enforce the rule by selecting the matching entry Role and adding a visible `Spec: <value>` line at the top of the entry body.
 
+### Code Path Selection
+
+- Always set `code_path` to the root of the repository whose code or planning you are touching.
+- When the scope moves to a different repository, migrate the conversation to that repo's threads before posting again.
+- Never post watercooler-cloud updates while pointing at watercooler-site (or vice versa); keep the code/threads pair aligned.
+
+### Thread Reading & Entry Access
+
+- Default to `watercooler_v1_list_thread_entries` with `format="json"` and explicit `offset`/`limit` whenever you need to inspect or reason about entries programmatically. Follow up with `watercooler_v1_get_thread_entry` / `get_thread_entry_range` using the returned `entry_id` or index.
+- Switch to `format="markdown"` when you intend to quote entries back to a human (e.g., preparing a response or summary). The markdown payload mirrors the thread file and avoids accidental reformatting.
+- Use `watercooler_v1_read_thread(format="json")` only when you have a clear need for the entire thread structure (e.g., exporting or analytics). For routine reading, prefer paginated entry tools to stay under stdio size caps.
+- Large threads can exceed the MCP stdio ceiling; always chunk requests (batch size of ~5–10 entries works well) before relaying content.
+- Preserve provenance by capturing the `entry_id` from JSON responses when referencing a specific entry in follow-up messages or commits.
+
 ### Role Alignment
 
 - Keep `spec` (session specialization) and Watercooler entry `Role` distinct but aligned:
@@ -491,4 +505,3 @@ When Claude uses Watercooler MCP tools:
 4. **Meaningful titles**: Use descriptive titles, not generic ones like "Update" or "Done"
 5. **Choose correct types**: Use `Decision` for decisions, `Plan` for plans, `PR` for PRs, `Closure` for closures
 6. **Manage ball appropriately**: Use `say` for normal back-and-forth, `ack` to keep ball, `handoff` for explicit coordination
-

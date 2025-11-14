@@ -217,9 +217,115 @@ Read complete thread content.
 - `topic` (str): Thread topic identifier (e.g., "feature-auth")
 - `from_entry` (int): Starting entry index (not yet implemented - returns from start)
 - `limit` (int): Max entries (not yet implemented - returns all)
-- `format` (str): Output format - "markdown" (json support deferred)
+- `format` (str): Output format - `"markdown"` (default) or `"json"`
 
-**Returns:** Full markdown thread content with all entries
+**Returns:**
+- Markdown: original thread markdown
+- JSON: structured payload containing thread metadata plus an `entries[]` array (`header`, `body`, offsets)
+
+**Usage Tips:**
+- Prefer `format="json"` when a client needs to examine individual entries without reparsing markdown. Each element in `entries[]` mirrors the structures returned by the entry tools.
+- Remember that large JSON payloads can still exceed stdio limits; paginate with the entry tools when you only need a subset.
+- When preparing a human-facing summary, stick with the default markdown output so you can reuse the canonical thread text verbatim.
+
+#### `watercooler_v1_list_thread_entries`
+List entry headers (metadata only) for a thread so clients can select specific entries without downloading the entire file.
+
+**Parameters:**
+- `topic` (str): Thread topic identifier
+- `offset` (int): Zero-based entry offset (default: 0)
+- `limit` (int | None): Maximum entries to return (default: all from `offset`)
+- `format` (str): `"json"` (default) for structured data or `"markdown"` for a human-readable list
+- `code_path` (str): Code repository root (required to resolve the paired threads repo)
+
+**Returns:**
+- JSON: `entry_count`, effective `offset`, and an array of entry headers (`index`, `entry_id`, `agent`, etc.)
+- Markdown: bullet list summarising the selected entries
+
+**Usage Tips:**
+- Use pagination (`offset`, `limit`) to stay well below stdio response limits in very long threads.
+- Programmatic clients should stick with the JSON default and feed the `entry_id`/`index` into follow-up calls to `get_thread_entry` or `get_thread_entry_range`.
+- Markdown mode is convenient when you only need a quick, human-readable index to relay back to a user.
+
+**Example (JSON request):**
+```python
+tool_result = list_thread_entries(
+    topic="entry-access-tools",
+    offset=0,
+    limit=5,
+    format="json",
+    code_path="/path/to/watercooler-cloud",
+)
+payload = json.loads(tool_result.content[0].text)
+entries = payload["entries"]
+```
+- `index`, `entry_id`
+- `agent`, `timestamp`, `role`, `type`, `title`
+- `header` (markdown header block)
+- `start_line`/`end_line` and `start_offset`/`end_offset` for editor integrations
+
+#### `watercooler_v1_get_thread_entry`
+Retrieve a single entry (header + body) either by index or by `entry_id`.
+
+**Parameters:**
+- `topic` (str): Thread topic identifier
+- `index` (int | None): Zero-based entry index (optional)
+- `entry_id` (str | None): ULID captured in the entry footer (optional)
+- `format` (str): `"json"` (default) or `"markdown"`
+- `code_path` (str): Code repository root (required)
+
+**Returns:**
+- JSON: entry metadata/body in a structured object (including a `markdown` convenience field)
+- Markdown: raw entry header + body block
+
+**Usage Tips:**
+- Provide both `index` and `entry_id` when you want an extra guard that you are inspecting the expected entry; the tool will error if they disagree.
+- JSON output is ideal for downstream automation (e.g., extracting timestamps or authors), while markdown output is perfect for quoting the entry as-is in a response.
+
+**Example (markdown slice):**
+```python
+markdown_entry = get_thread_entry(
+    topic="entry-access-tools",
+    index=3,
+    format="markdown",
+    code_path="/path/to/watercooler-cloud",
+)
+entry_text = markdown_entry.content[0].text
+```
+
+Provide either `index` or `entry_id` (or both, if you want validation that they refer to the same entry).
+
+#### `watercooler_v1_get_thread_entry_range`
+Return a contiguous, inclusive range of entries for streaming scenarios.
+
+**Parameters:**
+- `topic` (str): Thread topic identifier
+- `start_index` (int): Starting entry index (default: 0)
+- `end_index` (int | None): Inclusive end index (defaults to last entry)
+- `format` (str): `"json"` (default) or `"markdown"`
+- `code_path` (str): Code repository root (required)
+
+**Returns:**
+- JSON: `entries` array (header + body per entry) with `start_index`/`end_index`
+- Markdown: concatenated entry blocks separated by `---`
+
+**Usage Tips:**
+- Request smaller windows (e.g., batches of 5–10 entries) to reduce payload size and allow streaming consumption on the client side.
+- Markdown output mirrors the thread file layout, making it easy to forward directly to a user after light editing.
+- Combine `list_thread_entries` (for navigation) with `get_thread_entry_range` to fetch just the span you need.
+
+**Example (JSON window):**
+```python
+window_result = get_thread_entry_range(
+    topic="entry-access-tools",
+    start_index=10,
+    end_index=12,
+    format="json",
+    code_path="/path/to/watercooler-cloud",
+)
+window_payload = json.loads(window_result.content[0].text)
+entries = window_payload["entries"]
+```
 
 #### `watercooler_v1_say`
 Add your response to a thread and flip the ball to your counterpart.
