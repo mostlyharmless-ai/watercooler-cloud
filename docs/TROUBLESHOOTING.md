@@ -362,6 +362,46 @@ Git pushes/pulls fail, or you see `Permission denied (publickey)` / `fatal: Auth
 
 ---
 
+## Stale MCP Server Processes
+
+If you interrupt the MCP server with CTRL-C, background processes may linger as orphaned daemons. This can cause issues with code updates not taking effect.
+
+### Symptom
+- Code changes don't take effect despite restarting client
+- Multiple watercooler MCP processes running
+- Unexpected behavior after updates
+
+### Check for Stale Processes
+
+```bash
+./check-mcp-servers.sh
+```
+
+This warns about processes older than 1 hour.
+
+### Clean Up Stale Processes
+
+```bash
+./cleanup-mcp-servers.sh
+```
+
+The cleanup script shows all watercooler MCP processes and prompts for confirmation before killing them.
+
+### Manual Cleanup
+
+```bash
+# Kill all watercooler MCP processes
+pkill -f watercooler_mcp
+
+# Or kill specific PIDs
+ps aux | grep watercooler_mcp
+kill <PID>
+```
+
+**After cleanup:** Restart Claude Code (or your MCP client) to reconnect with fresh server processes.
+
+---
+
 ## Git Sync Issues (Cloud Mode)
 
 If you enabled cloud sync via `WATERCOOLER_GIT_REPO`, here are common problems and fixes:
