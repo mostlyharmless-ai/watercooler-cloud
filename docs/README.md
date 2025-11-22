@@ -94,8 +94,8 @@ File-based collaboration protocol for agentic coding projects with CLI tools and
 ## 📖 Complete Documentation Index
 
 ### Getting Started
-- **[Setup & Quickstart](SETUP_AND_QUICKSTART.md)** - 5-minute intro and standard workflow
-- **[Main README](../README.md)** - Installation, examples, command reference
+- **[Installation Guide](INSTALLATION.md)** - Complete setup for all platforms and MCP clients
+- **[Main README](../README.md)** - Project overview and quick start
 - **[FAQ](FAQ.md)** - Common questions and troubleshooting
 
 ### MCP Server (AI Agent Integration)
@@ -116,6 +116,8 @@ File-based collaboration protocol for agentic coding projects with CLI tools and
 - **[Integration Guide](archive/integration.md)** - Python library usage and configuration
 
 ### Reference Documentation
+- **[CLI Reference](CLI_REFERENCE.md)** - Complete command-line interface documentation
+- **[Architecture](ARCHITECTURE.md)** - Design principles, features, and development guide
 - **[API Reference](archive/integration.md#python-api-reference)** - Complete Python library API
 - **[Structured Entries](STRUCTURED_ENTRIES.md)** - Entry format, 6 roles, 5 types
 - **[Agent Registry](archive/AGENT_REGISTRY.md)** - Agent configuration and counterparts
