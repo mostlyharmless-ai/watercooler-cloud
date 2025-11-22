@@ -271,7 +271,12 @@ class GitSyncManager:
 
         # Configure HTTPS authentication with token if available
         # For HTTPS URLs, git can use GIT_ASKPASS to get credentials
-        github_token = self._env.get('GITHUB_TOKEN') or self._env.get('GH_TOKEN')
+        # Priority: WATERCOOLER_GITHUB_TOKEN > GITHUB_TOKEN > GH_TOKEN
+        github_token = (
+            self._env.get('WATERCOOLER_GITHUB_TOKEN')
+            or self._env.get('GITHUB_TOKEN')
+            or self._env.get('GH_TOKEN')
+        )
         if github_token and self.repo_url.startswith('https://'):
             # Create inline askpass script that returns the token
             # Git calls askpass with "Username for 'https://github.com':" and "Password for '...':"
