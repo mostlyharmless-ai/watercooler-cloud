@@ -1909,7 +1909,25 @@ def sync_branch_state(
             threads_repo.git.checkout("main")
             try:
                 threads_repo.git.merge(target_branch, '--no-ff', '-m', f"Merge {target_branch} into main")
-                result_msg = f"✅ Merged '{target_branch}' into 'main' in threads repo."
+
+                # Check if code repo branch exists on remote - if yes, push threads merge too
+                code_branch_on_remote = False
+                if context.code_root:
+                    try:
+                        code_repo_obj = Repo(context.code_root, search_parent_directories=True)
+                        remote_refs = [ref.name for ref in code_repo_obj.remote().refs]
+                        code_branch_on_remote = f"origin/{target_branch}" in remote_refs
+                    except Exception:
+                        pass  # Ignore errors checking remote
+
+                if code_branch_on_remote:
+                    # Code branch is on remote, push threads merge too
+                    threads_repo.git.push('origin', 'main')
+                    result_msg = f"✅ Merged '{target_branch}' into 'main' in threads repo and pushed to remote."
+                else:
+                    # Code branch is local only, keep threads merge local
+                    result_msg = f"✅ Merged '{target_branch}' into 'main' in threads repo (local only - code branch not on remote)."
+
                 if warnings:
                     result_msg += "\n" + "\n".join(warnings)
             except GitCommandError as e:
