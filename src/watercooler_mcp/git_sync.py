@@ -305,6 +305,95 @@ class GitSyncManager:
             self._init_async()
 
     # ------------------------------------------------------------------
+    # Branch pairing auto-sync
+    # ------------------------------------------------------------------
+
+    def _quick_branch_check(self) -> tuple[str, str, bool]:
+        """Check if code and threads repos are on same branch.
+
+        Returns:
+            tuple of (code_branch, threads_branch, in_sync)
+
+        Performance: ~0.1-1ms (just file reads)
+        """
+        if not self.code_repo:
+            # No code repo configured, skip check
+            return ("", "", True)
+
+        try:
+            # Read .git/HEAD - very fast, O(1) file read
+            code_head_file = self.code_repo / ".git" / "HEAD"
+            threads_head_file = self.local_path / ".git" / "HEAD"
+
+            if not code_head_file.exists() or not threads_head_file.exists():
+                # One or both not git repos
+                return ("", "", True)
+
+            code_head = code_head_file.read_text().strip()
+            threads_head = threads_head_file.read_text().strip()
+
+            # Extract branch names from refs
+            code_branch = code_head.replace("ref: refs/heads/", "")
+            threads_branch = threads_head.replace("ref: refs/heads/", "")
+
+            # If HEAD is detached (SHA instead of ref), treat as in-sync
+            # since detached state is intentional and not a pairing issue
+            if not code_head.startswith("ref:") or not threads_head.startswith("ref:"):
+                return (code_branch, threads_branch, True)
+
+            in_sync = code_head == threads_head
+            return (code_branch, threads_branch, in_sync)
+
+        except Exception as e:
+            # If we can't read HEAD files, assume in sync to avoid blocking operations
+            self._log(f"Branch check failed: {e}")
+            return ("", "", True)
+
+    def _ensure_branch_sync(self) -> None:
+        """Ensure threads repo is on same branch as code repo.
+
+        Auto-syncs by checking out matching branch in threads repo if needed.
+        Called before write operations to maintain branch pairing invariant.
+
+        Raises:
+            GitSyncError: If auto-sync fails
+        """
+        code_branch, threads_branch, in_sync = self._quick_branch_check()
+
+        if in_sync:
+            return  # Already synced, nothing to do
+
+        if not code_branch or not threads_branch:
+            return  # Can't determine branches, skip
+
+        # Log the mismatch
+        self._log(f"Branch mismatch detected: code={code_branch}, threads={threads_branch}")
+        self._log(f"Auto-syncing threads repo to {code_branch}")
+
+        try:
+            # Check out matching branch in threads repo
+            repo = self._repo()
+
+            # Check if branch exists locally
+            try:
+                repo.git.checkout(code_branch)
+                self._log(f"Checked out existing branch: {code_branch}")
+            except GitCommandError:
+                # Branch doesn't exist locally, try to create from remote
+                try:
+                    repo.git.checkout("-b", code_branch, f"origin/{code_branch}")
+                    self._log(f"Created and checked out branch from remote: {code_branch}")
+                except GitCommandError:
+                    # Remote branch doesn't exist either, create new orphan branch
+                    repo.git.checkout("--orphan", code_branch)
+                    self._log(f"Created new orphan branch: {code_branch}")
+
+        except Exception as e:
+            error_msg = f"Failed to auto-sync branches: {e}"
+            self._log(error_msg)
+            raise GitSyncError(error_msg) from e
+
+    # ------------------------------------------------------------------
     # Logging helpers
     # ------------------------------------------------------------------
 
@@ -1068,6 +1157,9 @@ class GitSyncManager:
         a background worker pushes it to the remote (flushing immediately for
         priority operations such as ball hand-offs).
         """
+        # Auto-sync branches before any write operation
+        self._ensure_branch_sync()
+
         if self._async is None:
             return self._with_sync_sync(
                 operation,
