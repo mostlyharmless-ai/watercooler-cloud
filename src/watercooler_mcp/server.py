@@ -74,7 +74,9 @@ if sys.platform == "win32":
             write_through=True
         )
 
-# Initialize FastMCP server
+# Initialize FastMCP server with configurable transport
+# WATERCOOLER_MCP_TRANSPORT: "http" or "stdio" (default: "stdio" for backward compatibility)
+_TRANSPORT = os.getenv("WATERCOOLER_MCP_TRANSPORT", "stdio").lower()
 mcp = FastMCP(name="Watercooler Cloud")
 
 
@@ -2243,7 +2245,21 @@ def recover_branch_state(
 
 def main():
     """Entry point for watercooler-mcp command."""
-    mcp.run()
+    # Get transport configuration
+    transport = os.getenv("WATERCOOLER_MCP_TRANSPORT", "stdio").lower()
+
+    if transport == "http":
+        # HTTP transport configuration
+        host = os.getenv("WATERCOOLER_MCP_HOST", "127.0.0.1")
+        port = int(os.getenv("WATERCOOLER_MCP_PORT", "3000"))
+
+        print(f"Starting Watercooler MCP Server on http://{host}:{port}", file=sys.stderr)
+        print(f"Health check: http://{host}:{port}/health", file=sys.stderr)
+
+        mcp.run(transport="http", host=host, port=port)
+    else:
+        # stdio transport (default)
+        mcp.run()
 
 
 if __name__ == "__main__":

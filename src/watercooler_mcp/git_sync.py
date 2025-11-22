@@ -265,10 +265,28 @@ class GitSyncManager:
         # Disable interactive prompts so git fails fast instead of hanging when
         # credentials are required (particularly important inside MCP tools).
         self._env.setdefault("GIT_TERMINAL_PROMPT", "0")
-        self._env.setdefault("GIT_ASKPASS", "echo")
         self._env.setdefault("GCM_INTERACTIVE", "never")
         self._env.setdefault("GIT_HTTP_LOW_SPEED_LIMIT", "1")
         self._env.setdefault("GIT_HTTP_LOW_SPEED_TIME", "30")
+
+        # Configure HTTPS authentication with token if available
+        # For HTTPS URLs, git can use GIT_ASKPASS to get credentials
+        github_token = self._env.get('GITHUB_TOKEN') or self._env.get('GH_TOKEN')
+        if github_token and self.repo_url.startswith('https://'):
+            # Create inline askpass script that returns the token
+            # Git calls askpass with "Username for 'https://github.com':" and "Password for '...':"
+            # We return the token for password, and 'x-access-token' or 'oauth2' for username
+            import sys
+            askpass_script = (
+                f'{sys.executable} -c "import sys; '
+                f'print(\\"x-access-token\\" if \\"Username\\" in sys.argv[1] '
+                f'else \\"{github_token}\\")"'
+            )
+            self._env["GIT_ASKPASS"] = askpass_script
+        else:
+            # No token available, use echo to fail fast
+            self._env.setdefault("GIT_ASKPASS", "echo")
+
         if self.ssh_key_path:
             self._env["GIT_SSH_COMMAND"] = f"ssh -i {self.ssh_key_path} -o IdentitiesOnly=yes"
 
@@ -637,7 +655,8 @@ class GitSyncManager:
 
         try:
             repo = self._repo
-            origin = repo.remotes.origin
+            # Safely get origin remote - repo.remotes returns IterableList, not dict
+            origin = repo.remote('origin')
 
             # Use GitPython to list remote refs (equivalent to git ls-remote)
             _diag("GIT_OP_START: ls-remote (via origin.refs)")
@@ -664,7 +683,7 @@ class GitSyncManager:
 
                     # Retry with GitPython after provisioning
                     repo = self._repo
-                    origin = repo.remotes.origin
+                    origin = repo.remote('origin')
                     with git.Git().custom_environment(**self._env):
                         refs = origin.refs
                         self._remote_empty = len(refs) == 0
@@ -747,7 +766,7 @@ class GitSyncManager:
             _diag("GIT_OP_START: fetch origin")
             with git.Git().custom_environment(**self._env):
                 # Fetch first
-                repo.remotes.origin.fetch()
+                repo.remote('origin').fetch()
             _diag("GIT_OP_END: fetch origin")
             _diag("GIT_OP_START: pull --rebase --autostash")
             with git.Git().custom_environment(**self._env):
@@ -894,7 +913,7 @@ class GitSyncManager:
                 repo = self._repo
                 _diag(f"GIT_OP_START: push (attempt {attempt+1})")
                 with git.Git().custom_environment(**self._env):
-                    repo.remotes.origin.push(env=self._env)
+                    repo.remote('origin').push(env=self._env)
                 _diag(f"GIT_OP_END: push (attempt {attempt+1})")
                 self._log("Push completed successfully")
                 return True
@@ -980,7 +999,7 @@ class GitSyncManager:
             if remote_available:
                 # Check if remote has the branch
                 with git.Git().custom_environment(**self._env):
-                    origin = repo.remotes.origin
+                    origin = repo.remote('origin')
                     remote_has_branch = f"origin/{branch}" in [ref.name for ref in origin.refs]
 
             if exists:
@@ -994,7 +1013,7 @@ class GitSyncManager:
                     # Fetch and checkout remote branch
                     _diag(f"GIT_OP_START: fetch {branch}")
                     with git.Git().custom_environment(**self._env):
-                        origin = repo.remotes.origin
+                        origin = repo.remote('origin')
                         origin.fetch(refspec=f"{branch}:refs/heads/{branch}", env=self._env)
                     _diag(f"GIT_OP_END: fetch {branch}")
                     _diag(f"GIT_OP_START: checkout {branch}")
