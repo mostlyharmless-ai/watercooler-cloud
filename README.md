@@ -24,35 +24,33 @@ Each agent automatically knows when it's their turn, what role they're playing, 
 
 ## Quick Start
 
-### 1. Clone and Install
-
-```bash
-git clone https://github.com/mostlyharmless-ai/watercooler-cloud.git
-cd watercooler-cloud
-pip install -e .
-```
-
-### 2. Start the Dashboard (Optional)
-
-```bash
-python -m watercooler_dashboard.local_app
-```
-
-Dashboard serves at [http://127.0.0.1:8080](http://127.0.0.1:8080)
-
-### 3. Configure Your AI Agent
+### Configure the AI agents you want to use:
 
 Watercooler integrates with Claude, Codex, Cursor, and other MCP clients.
 
 <details open>
 <summary><b>Claude Code</b></summary>
 
+Update ~/.claude.json:
+
 ```bash
-claude mcp add --transport stdio watercooler-cloud --scope user \
-  -e WATERCOOLER_AGENT="Claude@Code" \
-  -e WATERCOOLER_THREADS_PATTERN="https://github.com/{org}/{repo}-threads.git" \
-  -e WATERCOOLER_AUTO_BRANCH=1 \
-  -- uvx --from git+https://github.com/mostlyharmless-ai/watercooler-cloud watercooler-mcp
+    "watercooler-cloud": {
+      "type": "stdio",
+      "command": "/home/caleb/.local/bin/uvx",
+      "args": [
+        "--from",
+        "git+https://github.com/mostlyharmless-ai/watercooler-cloud",
+        "watercooler-mcp"
+      ],
+      "env": {
+        "WATERCOOLER_AGENT": "Claude@Code",
+        "WATERCOOLER_THREADS_PATTERN": "git@github.com:{org}/{repo}-threads.git",
+        "WATERCOOLER_GIT_AUTHOR": "Caleb Howard",
+        "WATERCOOLER_GIT_EMAIL": "caleb@mostlyharmless.ai",
+        "WATERCOOLER_AUTO_BRANCH": "1"
+      }
+    },
+
 ```
 
 </details>
@@ -60,12 +58,22 @@ claude mcp add --transport stdio watercooler-cloud --scope user \
 <details>
 <summary><b>Codex</b></summary>
 
+Update ~/.codex/config.toml:
+
 ```bash
-codex mcp add watercooler-cloud \
-  -e WATERCOOLER_AGENT="Codex" \
-  -e WATERCOOLER_THREADS_PATTERN="https://github.com/{org}/{repo}-threads.git" \
-  -e WATERCOOLER_AUTO_BRANCH=1 \
-  -- uvx --from git+https://github.com/mostlyharmless-ai/watercooler-cloud watercooler-mcp
+
+[mcp_servers.watercooler_cloud]
+command = "/home/caleb/.local/bin/uvx"
+args = ["--from", "git+https://github.com/mostlyharmless-ai/watercooler-cloud", "watercooler-mcp"]
+
+[mcp_servers.watercooler_cloud.env]
+WATERCOOLER_AGENT = "Codex"
+WATERCOOLER_AUTO_BRANCH = "1"
+WATERCOOLER_GIT_AUTHOR = "Caleb Howard"
+WATERCOOLER_GIT_EMAIL = "caleb@mostlyharmless.ai"
+WATERCOOLER_THREADS_PATTERN = "git@github.com:{org}/{repo}-threads.git"
+SSH_AUTH_SOCK = "/run/user/1000/keyring/ssh"
+
 ```
 
 </details>
@@ -134,7 +142,7 @@ See the [Installation Guide](docs/INSTALLATION.md) for:
 
 </details>
 
-### 4. Create Your First Thread
+### Create Your First Thread
 
 ```bash
 watercooler init-thread feature-auth --ball Claude
