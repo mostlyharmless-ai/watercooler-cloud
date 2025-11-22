@@ -158,8 +158,10 @@ def _discover_git(code_root: Optional[Path]) -> _GitDetails:
 
         # Get origin remote URL
         try:
-            remote = repo.remotes.origin.url if 'origin' in [r.name for r in repo.remotes] else None
-        except (AttributeError, IndexError):
+            # repo.remotes returns IterableList - use repo.remote() for safe access
+            remote = repo.remote('origin').url
+        except (ValueError, AttributeError, IndexError):
+            # ValueError raised if 'origin' remote doesn't exist
             remote = None
 
         if root is not None:

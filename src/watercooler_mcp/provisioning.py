@@ -21,6 +21,7 @@ caller can surface it in error messages or logs.
 from __future__ import annotations
 
 import os
+import re
 import subprocess
 from dataclasses import dataclass
 from typing import Dict
@@ -102,6 +103,92 @@ def _build_context(repo_url: str, slug: str | None, code_repo: str | None) -> Pr
     )
 
 
+def _is_https_github_url(repo_url: str) -> bool:
+    """Check if repo_url is an HTTPS GitHub URL."""
+    return repo_url.startswith("https://github.com/")
+
+
+def _provision_via_github_api(
+    repo_url: str,
+    slug: str | None,
+    code_repo: str | None,
+    env: dict[str, str] | None = None,
+) -> str:
+    """Provision repository via GitHub API for HTTPS URLs.
+
+    This is used as a fallback when gh CLI isn't available or for programmatic access.
+    Requires GITHUB_TOKEN environment variable.
+    """
+    try:
+        import urllib.request
+        import json
+    except ImportError as e:
+        raise ProvisioningError(f"Cannot use GitHub API provisioning: {e}") from e
+
+    # Extract org/repo from URL
+    # https://github.com/org/repo-threads.git -> org/repo-threads
+    match = re.match(r'https://github\.com/([^/]+)/([^/]+?)(?:\.git)?$', repo_url)
+    if not match:
+        raise ProvisioningError(f"Invalid GitHub HTTPS URL: {repo_url}")
+
+    org, repo_name = match.groups()
+
+    # Get token from environment
+    merged_env = os.environ.copy()
+    if env:
+        merged_env.update(env)
+
+    token = merged_env.get('GITHUB_TOKEN') or merged_env.get('GH_TOKEN')
+    if not token:
+        raise ProvisioningError(
+            "GitHub API provisioning requires GITHUB_TOKEN or GH_TOKEN environment variable"
+        )
+
+    # Create repository via API
+    api_url = f'https://api.github.com/orgs/{org}/repos'
+    request_data = json.dumps({
+        'name': repo_name,
+        'private': True,
+        'description': f'Watercooler threads for {code_repo or "project"}',
+        'auto_init': False,  # Don't create initial commit
+        'has_issues': False,
+        'has_wiki': False,
+    }).encode('utf-8')
+
+    request = urllib.request.Request(
+        api_url,
+        data=request_data,
+        headers={
+            'Authorization': f'Bearer {token}',
+            'Accept': 'application/vnd.github.v3+json',
+            'Content-Type': 'application/json',
+        },
+        method='POST'
+    )
+
+    try:
+        with urllib.request.urlopen(request, timeout=30) as response:
+            result = json.loads(response.read().decode('utf-8'))
+            return f"Created repository via GitHub API: {result['html_url']}"
+    except urllib.error.HTTPError as e:
+        error_body = e.read().decode('utf-8')
+        try:
+            error_data = json.loads(error_body)
+            error_message = error_data.get('message', error_body)
+        except json.JSONDecodeError:
+            error_message = error_body
+
+        if e.code == 422 and 'already exists' in error_message.lower():
+            # Repository already exists - this is OK
+            return f"Repository already exists: {repo_url}"
+
+        raise ProvisioningError(
+            f"GitHub API request failed (HTTP {e.code}): {error_message}"
+        ) from e
+    except Exception as e:
+        raise ProvisioningError(f"Failed to create repository via GitHub API: {e}") from e
+
+
 def provision_threads_repo(
     repo_url: str,
     slug: str | None,
@@ -110,6 +197,9 @@ def provision_threads_repo(
     env: dict[str, str] | None = None,
 ) -> str:
     """Execute the configured provisioning command.
+
+    For HTTPS GitHub URLs, attempts to use GitHub API first (if GITHUB_TOKEN is available),
+    then falls back to the configured CLI command.
 
     Args:
         repo_url: Full git URL for the threads repo.
@@ -125,6 +215,26 @@ def provision_threads_repo(
         command fails.
     """
 
+    # For HTTPS GitHub URLs, try GitHub API first if token is available
+    if _is_https_github_url(repo_url):
+        merged_env = os.environ.copy()
+        if env:
+            merged_env.update(env)
+
+        token = merged_env.get('GITHUB_TOKEN') or merged_env.get('GH_TOKEN')
+        if token:
+            try:
+                return _provision_via_github_api(repo_url, slug, code_repo, env)
+            except ProvisioningError as e:
+                # If GitHub API fails, fall back to CLI command
+                # (user might have gh CLI configured instead)
+                if "GITHUB_TOKEN" in str(e):
+                    # Don't fall back if the issue is missing token
+                    raise
+                # Otherwise continue to try CLI command below
+                pass
+
+    # Fall back to CLI command (works for SSH and HTTPS if gh CLI is configured)
     template = os.getenv(PROVISION_CMD_ENV, DEFAULT_PROVISION_CMD)
     if not template:
         raise ProvisioningError(
