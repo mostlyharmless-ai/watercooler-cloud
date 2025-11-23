@@ -169,7 +169,49 @@ def parse_thread_entries(text: str) -> list[ThreadEntry]:
         entries.append(entry)
         entry_counter += 1
 
-    return entries
+    # Deduplicate entries by Entry-ID (keep first occurrence)
+    # This handles git merge scenarios where same entry appears on multiple branches
+    seen_ids: set[str] = set()
+    deduplicated: list[ThreadEntry] = []
+    for entry in entries:
+        if entry.entry_id:
+            if entry.entry_id in seen_ids:
+                continue  # Skip duplicate
+            seen_ids.add(entry.entry_id)
+        deduplicated.append(entry)
+
+    # Sort entries by timestamp (chronological order)
+    # Entries without timestamps sort to the end
+    def sort_key(entry: ThreadEntry) -> tuple[int, str]:
+        # Entries with timestamps sort first (0), entries without sort last (1)
+        # Within each group, sort by timestamp (or empty string for missing timestamps)
+        has_timestamp = 0 if entry.timestamp else 1
+        timestamp = entry.timestamp or ""
+        return (has_timestamp, timestamp)
+
+    sorted_entries = sorted(deduplicated, key=sort_key)
+
+    # Re-index entries after deduplication and sorting
+    for idx, entry in enumerate(sorted_entries):
+        # ThreadEntry is frozen (dataclass(frozen=True)), so we need to create new instances
+        # with updated index values
+        sorted_entries[idx] = ThreadEntry(
+            index=idx,
+            header=entry.header,
+            body=entry.body,
+            agent=entry.agent,
+            timestamp=entry.timestamp,
+            role=entry.role,
+            entry_type=entry.entry_type,
+            title=entry.title,
+            entry_id=entry.entry_id,
+            start_line=entry.start_line,
+            end_line=entry.end_line,
+            start_offset=entry.start_offset,
+            end_offset=entry.end_offset,
+        )
+
+    return sorted_entries
 
 
 @dataclass(frozen=True)
