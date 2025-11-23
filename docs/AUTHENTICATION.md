@@ -35,7 +35,8 @@ The MCP server uses a **git credential helper** to automatically fetch your GitH
 When the MCP server needs to perform git operations (clone, push, pull):
 
 1. Git asks the credential helper for credentials
-2. The credential helper checks environment variables in this priority:
+2. The credential helper checks sources in this priority:
+   - `~/.watercooler/credentials.json` (downloaded from dashboard)
    - `WATERCOOLER_GITHUB_TOKEN` (dedicated Watercooler token)
    - `GITHUB_TOKEN` (standard GitHub token)
    - `GH_TOKEN` (GitHub CLI token)
@@ -59,20 +60,40 @@ No manual git configuration required!
 
 ## Setup Options
 
-### Option 1: Using Dashboard Token (Future)
+### Option 1: Using Dashboard Credentials (Recommended)
 
-**Note:** This integration is under development. Once complete, the dashboard will provide an API endpoint to fetch your token.
+**Seamless authentication with minimal setup**
 
-1. Sign in to the dashboard
-2. The MCP server will automatically fetch your token from the dashboard API
-3. No environment variables needed
+1. **Sign in to the dashboard** at https://watercooler-site.vercel.app
+   - Click "Sign in with GitHub"
+   - Grant access to your organizations
+   - Complete onboarding
 
-### Option 2: Using Environment Variables (Current)
+2. **Download credentials file**
+   - Go to Settings → GitHub Connection
+   - Click "Download Credentials" button
+   - File downloads as `credentials.json`
 
-Set your GitHub token as an environment variable:
+3. **Place credentials file**
+   ```bash
+   # Create directory
+   mkdir -p ~/.watercooler
+
+   # Move downloaded file
+   mv ~/Downloads/credentials.json ~/.watercooler/
+   ```
+
+4. **Done!** MCP server will automatically use the credentials
+   - No environment variables needed
+   - No MCP configuration changes required
+   - Credentials auto-detected by git credential helper
+
+### Option 2: Using Environment Variables (Advanced)
+
+For advanced users or CI/CD environments, set your GitHub token as an environment variable:
 
 ```bash
-# Dedicated Watercooler token (highest priority)
+# Dedicated Watercooler token (second priority)
 export WATERCOOLER_GITHUB_TOKEN=ghp_your_github_token_here
 
 # Or use standard GitHub token
@@ -84,7 +105,7 @@ export GH_TOKEN=ghp_your_github_token_here
 
 Add to your shell profile (`~/.bashrc`, `~/.zshrc`, etc.) to persist across sessions.
 
-### Creating a GitHub Personal Access Token
+#### Creating a GitHub Personal Access Token
 
 If using environment variables, create a GitHub Personal Access Token:
 
@@ -103,6 +124,21 @@ If using environment variables, create a GitHub Personal Access Token:
 
 Add to `~/.config/claude/claude-code/mcp-settings.json`:
 
+**Minimal configuration** (using credentials file from Option 1):
+
+```json
+{
+  "mcpServers": {
+    "watercooler-cloud": {
+      "command": "uvx",
+      "args": ["--from", "git+https://github.com/mostlyharmless-ai/watercooler-cloud", "watercooler-mcp"]
+    }
+  }
+}
+```
+
+**With environment variable** (Option 2):
+
 ```json
 {
   "mcpServers": {
@@ -120,6 +156,21 @@ Add to `~/.config/claude/claude-code/mcp-settings.json`:
 ### Cursor
 
 Add to `.cursor/mcp.json`:
+
+**Minimal configuration** (using credentials file from Option 1):
+
+```json
+{
+  "mcpServers": {
+    "watercooler-cloud": {
+      "command": "uvx",
+      "args": ["--from", "git+https://github.com/mostlyharmless-ai/watercooler-cloud", "watercooler-mcp"]
+    }
+  }
+}
+```
+
+**With environment variable** (Option 2):
 
 ```json
 {
