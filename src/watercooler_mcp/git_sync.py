@@ -804,7 +804,7 @@ class GitSyncManager:
             return False
 
     def _configure_git(self):
-        """Configure git user for commits using GitPython (no subprocess).
+        """Configure git user and credential helper using GitPython (no subprocess).
 
         Raises:
             GitSyncError: If configuration fails
@@ -815,6 +815,28 @@ class GitSyncManager:
             with repo.config_writer() as config:
                 config.set_value('user', 'name', self.author_name)
                 config.set_value('user', 'email', self.author_email)
+
+                # Configure credential helper for seamless GitHub authentication
+                # Only configure if using HTTPS URLs and credential helper script exists
+                if self.repo_url.startswith('https://'):
+                    # Find the credential helper script
+                    # It should be in scripts/ directory relative to this module
+                    module_dir = Path(__file__).resolve().parent
+                    repo_root = module_dir.parent.parent  # Up two levels from src/watercooler_mcp/
+                    helper_script = repo_root / "scripts" / "git-credential-watercooler"
+
+                    if helper_script.exists():
+                        # Configure git to use our credential helper for github.com
+                        # Format: credential.https://github.com.helper <path>
+                        config.set_value(
+                            'credential "https://github.com"',
+                            'helper',
+                            str(helper_script)
+                        )
+                        self._log(f"Credential helper configured: {helper_script}")
+                    else:
+                        self._log("Credential helper script not found, skipping configuration")
+
             self._log("Git user configured")
         except Exception as e:
             raise GitSyncError(f"Failed to configure git: {e}") from e
