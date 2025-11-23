@@ -804,12 +804,12 @@ class GitSyncManager:
             return False
 
     def _configure_git(self):
-        """Configure git user and credential helper using GitPython (no subprocess).
+        """Configure git user, credential helper, and hooks using GitPython (no subprocess).
 
         Raises:
             GitSyncError: If configuration fails
         """
-        self._log("Configuring git user")
+        self._log("Configuring git user and hooks")
         try:
             repo = self._repo
             with repo.config_writer() as config:
@@ -837,9 +837,55 @@ class GitSyncManager:
                     else:
                         self._log("Credential helper script not found, skipping configuration")
 
-            self._log("Git user configured")
+                # Install git hooks for protocol enforcement
+                # Hooks are CRITICAL for team collaboration to prevent data corruption
+                self._install_git_hooks()
+
+                # Configure git to use hooks directory
+                config.set_value('core', 'hooksPath', '.githooks')
+
+            self._log("Git user and hooks configured")
         except Exception as e:
             raise GitSyncError(f"Failed to configure git: {e}") from e
+
+    def _install_git_hooks(self):
+        """Install git hooks into threads repository for protocol enforcement.
+
+        Copies the pre-commit hook from watercooler-cloud installation to the
+        threads repository's .githooks directory. This is REQUIRED for team
+        collaboration to prevent manual edits that violate the append-only protocol.
+        """
+        try:
+            # Find source hooks in watercooler-cloud installation
+            module_dir = Path(__file__).resolve().parent
+            repo_root = module_dir.parent.parent  # Up two levels from src/watercooler_mcp/
+            source_hook = repo_root / ".githooks" / "pre-commit"
+
+            if not source_hook.exists():
+                self._log("Warning: Source pre-commit hook not found, skipping hook installation")
+                return
+
+            # Create .githooks directory in threads repo
+            hooks_dir = self.local_path / ".githooks"
+            hooks_dir.mkdir(exist_ok=True)
+
+            # Copy pre-commit hook
+            import shutil
+            dest_hook = hooks_dir / "pre-commit"
+            shutil.copy2(source_hook, dest_hook)
+
+            # Make hook executable (Unix/Mac only)
+            import stat
+            try:
+                dest_hook.chmod(dest_hook.stat().st_mode | stat.S_IXUSR | stat.S_IXGRP | stat.S_IXOTH)
+            except Exception:
+                pass  # Windows doesn't need executable bit
+
+            self._log(f"Git hooks installed: {dest_hook}")
+        except Exception as e:
+            # Don't fail initialization if hook installation fails
+            # but log the error for debugging
+            self._log(f"Warning: Failed to install git hooks: {e}")
 
     def pull(self) -> bool:
         """Pull latest changes from remote with rebase.
