@@ -122,7 +122,7 @@ Edit `~/Library/Application Support/Claude/claude_desktop_config.json` (macOS) o
 See the [Installation Guide](docs/INSTALLATION.md) for:
 - Helper scripts (macOS/Linux/Windows)
 - fastmcp setup
-- Additional configuration options
+- [Advanced configuration](docs/ENVIRONMENT_VARS.md) (optional environment variables)
 
 </details>
 

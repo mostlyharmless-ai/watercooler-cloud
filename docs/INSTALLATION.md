@@ -63,6 +63,13 @@ That's it! All MCP servers will automatically authenticate using this file.
 - Set `GITHUB_TOKEN` or `GH_TOKEN` (standard GitHub environment variables)
 - CI/CD: Use GitHub Actions secrets or environment-specific tokens
 
+**Advanced configuration:**
+For fine-grained control, see [Environment Variables Reference](ENVIRONMENT_VARS.md) to customize:
+- Agent identity (`WATERCOOLER_AGENT`)
+- Repository patterns (`WATERCOOLER_THREADS_PATTERN`)
+- Git authorship (`WATERCOOLER_GIT_AUTHOR`, `WATERCOOLER_GIT_EMAIL`)
+- And 20+ other optional settings
+
 ---
 
 ## MCP Client Configuration
@@ -148,6 +155,7 @@ See [WATERCOOLER_SETUP.md](../.github/WATERCOOLER_SETUP.md) for the detailed set
 ## Additional Resources
 
 - **[Setup & Quickstart](archive/SETUP_AND_QUICKSTART.md)** - Step-by-step walkthrough
+- **[Environment Variables](ENVIRONMENT_VARS.md)** - Advanced configuration reference
 - **[Claude Code Setup](archive/CLAUDE_CODE_SETUP.md)** - Client-specific details
 - **[Claude Desktop Setup](archive/CLAUDE_DESKTOP_SETUP.md)** - Desktop app setup
 - **[MCP Server Guide](mcp-server.md)** - Tool reference and parameters

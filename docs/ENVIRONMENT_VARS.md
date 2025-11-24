@@ -1,6 +1,8 @@
 # Environment Variables Reference
 
-Complete reference for all watercooler-cloud environment variables.
+**Advanced Configuration Guide** - Complete reference for all watercooler-cloud environment variables.
+
+> **Note:** Basic setup requires NO environment variables. The [Installation Guide](INSTALLATION.md) covers the minimal configuration using credentials file + MCP config. Use these environment variables only for advanced customization.
 
 ---
 
@@ -8,7 +10,7 @@ Complete reference for all watercooler-cloud environment variables.
 
 | Variable | Required | Default | Used By | Purpose |
 |----------|----------|---------|---------|---------|
-| [`WATERCOOLER_AGENT`](#watercooler_agent) | MCP: Yes<br>CLI: No | `"Agent"` | MCP Server | Agent identity for entries |
+| [`WATERCOOLER_AGENT`](#watercooler_agent) | No (auto-detected) | Auto from client | MCP Server | Override agent identity |
 | [`WATERCOOLER_THREADS_BASE`](#watercooler_threads_base) | No | _Sibling `<repo>-threads`_ | MCP Server | Optional central root for threads repos |
 | [`WATERCOOLER_THREADS_PATTERN`](#watercooler_threads_pattern) | No | `https://github.com/{org}/{repo}-threads.git` | MCP Server | Remote threads repo URL template |
 | [`WATERCOOLER_THREADS_AUTO_PROVISION`](#watercooler_threads_auto_provision) | No | `"0"` | MCP Server | Opt-in creation of missing threads repos |
@@ -28,13 +30,11 @@ Complete reference for all watercooler-cloud environment variables.
 
 ### WATERCOOLER_AGENT
 
-**Purpose:** Agent identity used in thread entries and ball ownership.
+**Purpose:** Override agent identity used in thread entries and ball ownership.
 
-**Required:**
-- **MCP Server:** Yes (recommended)
-- **CLI:** No (defaults to "Team")
+**Required:** **No** - Auto-detected from MCP client
 
-**Default:** `"Agent"` (MCP), `"Team"` (CLI)
+**Default:** Auto-detected based on MCP client (e.g., "Claude Code", "Codex", "Cursor")
 
 **Format:** String (e.g., `"Claude"`, `"Codex"`, `"GPT-4"`)
 
@@ -42,24 +42,33 @@ Complete reference for all watercooler-cloud environment variables.
 
 **Details:**
 
-Determines your agent identity in watercooler threads. When you create entries, they appear as:
+**With new authentication (recommended):**
+Agent identity is automatically detected from your MCP client. No configuration needed!
+
+**Auto-detection mapping:**
+- Claude Code → "Claude Code"
+- Claude Desktop → "Claude"
+- Codex → "Codex"
+- Cursor → "Cursor"
+
+**When you create entries, they appear as:**
 ```
-Entry: Claude (agent) 2025-10-10T08:00:00Z
+Entry: Claude Code (user) 2025-10-10T08:00:00Z
 ```
 
 Where:
-- `Claude` = Agent name from `WATERCOOLER_AGENT`
-- `(agent)` = OS username from `getpass.getuser()` (automatically appended)
+- `Claude Code` = Auto-detected from MCP client (or override from `WATERCOOLER_AGENT`)
+- `(user)` = OS username from `getpass.getuser()` (automatically appended)
 
-**Precedence (MCP only):**
-1. `WATERCOOLER_AGENT` env var (highest priority)
+**Override precedence:**
+1. `WATERCOOLER_AGENT` env var (if set - overrides auto-detection)
 2. `client_id` from MCP Context (auto-detected from client name)
 3. Fallback: `"Agent"`
 
-**Client ID mapping:**
-- "Claude Desktop" → "Claude"
-- "Claude Code" → "Claude"
-- Other values passed through as-is
+**When to use this variable:**
+- Override auto-detected client name
+- Running multiple agents with different identities on same client
+- CI/CD environments where client detection doesn't work
 
 **Configuration examples:**
 
