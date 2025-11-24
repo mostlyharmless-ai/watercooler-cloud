@@ -25,20 +25,19 @@ Optional but helpful:
 
 Dive deeper in [BRANCH_PAIRING.md](BRANCH_PAIRING.md) for the full rationale and edge cases.
 
-## 3. Optional global overrides
-Universal mode works without configuration. Set these only if you need to deviate from defaults:
+## 3. Authentication setup
 
-```bash
-# Optional central cache for threads repos (default: sibling <repo>-threads)
-export WATERCOOLER_THREADS_BASE="/srv/watercooler-threads"
+**One-time GitHub authorization** enables seamless access:
 
-# Custom URL pattern if your Git hosting differs from GitHub SSH
-export WATERCOOLER_THREADS_PATTERN="https://github.com/{org}/{repo}-threads.git"
+1. Visit the [Watercooler Dashboard](https://watercoolerdev.com)
+2. Click "Sign in with GitHub"
+3. Grant access to your organizations
+4. Download credentials file from Settings → GitHub Connection
+5. Place it at `~/.watercooler/credentials.json`
 
-# Commit authorship override for the threads repo
-export WATERCOOLER_GIT_AUTHOR="<Your Name>"
-export WATERCOOLER_GIT_EMAIL="you@example.com"
-```
+All git authentication now happens automatically via this credentials file.
+
+### Optional: Configure threads repo merge strategy
 
 In the threads repo itself, ensure markdown merges are append-friendly:
 
@@ -56,18 +55,12 @@ Run **one** command per client. It registers a user-scope server that adapts to 
 **Claude CLI:**
 ```bash
 claude mcp add --transport stdio watercooler-cloud --scope user \
-  -e WATERCOOLER_AGENT="Claude@Code" \
-  -e WATERCOOLER_THREADS_PATTERN="https://github.com/{org}/{repo}-threads.git" \
-  -e WATERCOOLER_AUTO_BRANCH=1 \
   -- uvx --from git+https://github.com/mostlyharmless-ai/watercooler-cloud watercooler-mcp
 ```
 
 **Codex CLI:**
 ```bash
 codex mcp add watercooler-cloud \
-  -e WATERCOOLER_AGENT=Codex \
-  -e WATERCOOLER_THREADS_PATTERN=https://github.com/{org}/{repo}-threads.git \
-  -e WATERCOOLER_AUTO_BRANCH=1 \
   -- uvx --from git+https://github.com/mostlyharmless-ai/watercooler-cloud watercooler-mcp
 ```
 
@@ -82,12 +75,7 @@ Edit `~/.cursor/mcp.json`:
         "--from",
         "git+https://github.com/mostlyharmless-ai/watercooler-cloud",
         "watercooler-mcp"
-      ],
-      "env": {
-        "WATERCOOLER_AGENT": "Cursor",
-        "WATERCOOLER_THREADS_PATTERN": "https://github.com/{org}/{repo}-threads.git",
-        "WATERCOOLER_AUTO_BRANCH": "1"
-      }
+      ]
     }
   }
 }
