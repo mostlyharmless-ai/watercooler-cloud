@@ -60,15 +60,24 @@ After server-side merges to main, regenerate the index:
 watercooler reindex
 ```
 
-## Optional: Pre-commit Hook Setup
+## Required: Pre-commit Hook Setup
 
-The repository includes a pre-commit hook that enforces the append-only protocol.
+**CRITICAL FOR TEAM COLLABORATION**: The pre-commit hook enforces the append-only protocol and prevents data corruption during team merges. While the MCP server automatically installs hooks in threads repositories, you should also configure hooks in your code repositories.
 
 ### Installation
 
 ```bash
 git config core.hooksPath .githooks
 ```
+
+### Why Hooks Are Required
+
+Without the pre-commit hook, manual edits to thread files can violate the append-only protocol:
+
+- **Scenario**: Developer manually edits `project-threads/feature-auth.md` in vim
+- **Problem**: Modifies existing entry body (violates append-only)
+- **Result**: Later merge with another developer's changes corrupts thread
+- **Solution**: Hook blocks the commit and suggests using CLI commands
 
 ### What the Hook Does
 

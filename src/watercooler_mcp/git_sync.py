@@ -29,6 +29,14 @@ from typing import Callable, Optional, TypeVar, List, Dict, Any
 import sys
 import hashlib
 
+# Import importlib.resources for accessing package data
+try:
+    # Python 3.9+
+    from importlib.resources import files
+except ImportError:
+    # Python 3.7-3.8 fallback
+    from importlib_resources import files
+
 # GitPython for in-process git operations (avoids subprocess stdio issues on Windows)
 import git
 from git import Repo, GitCommandError, InvalidGitRepositoryError
@@ -804,20 +812,136 @@ class GitSyncManager:
             return False
 
     def _configure_git(self):
-        """Configure git user for commits using GitPython (no subprocess).
+        """Configure git user, credential helper, and hooks using GitPython (no subprocess).
 
         Raises:
             GitSyncError: If configuration fails
         """
-        self._log("Configuring git user")
+        self._log("Configuring git user and hooks")
         try:
             repo = self._repo
             with repo.config_writer() as config:
                 config.set_value('user', 'name', self.author_name)
                 config.set_value('user', 'email', self.author_email)
-            self._log("Git user configured")
+
+                # Configure credential helper for seamless GitHub authentication
+                # Only configure if using HTTPS URLs and credential helper script exists
+                if self.repo_url.startswith('https://'):
+                    helper_script = self._get_credential_helper_path()
+
+                    if helper_script and helper_script.exists():
+                        # Ensure script is executable
+                        if not helper_script.is_file():
+                            self._log(f"Credential helper is not a file: {helper_script}")
+                        else:
+                            # Make executable (Unix/Mac only)
+                            if os.name != 'nt':
+                                helper_script.chmod(0o755)
+
+                            # Configure git to use our credential helper for github.com
+                            # Format: credential.https://github.com.helper <path>
+                            config.set_value(
+                                'credential "https://github.com"',
+                                'helper',
+                                str(helper_script)
+                            )
+                            self._log(f"Credential helper configured: {helper_script}")
+                    else:
+                        self._log("Credential helper script not found, skipping configuration")
+
+                # Install git hooks for protocol enforcement
+                # Hooks are CRITICAL for team collaboration to prevent data corruption
+                self._install_git_hooks()
+
+                # Configure git to use hooks directory
+                config.set_value('core', 'hooksPath', '.githooks')
+
+            self._log("Git user and hooks configured")
         except Exception as e:
             raise GitSyncError(f"Failed to configure git: {e}") from e
+
+    def _get_credential_helper_path(self) -> Optional[Path]:
+        """Get path to git credential helper script.
+
+        Uses importlib.resources to locate the credential helper script from
+        package data, ensuring it works regardless of installation method
+        (development, pip, uvx, etc.).
+
+        Returns:
+            Path to credential helper script, or None if not found
+        """
+        try:
+            # Try package data first (works for all installation methods)
+            package_files = files('watercooler_mcp')
+            script_resource = package_files / 'scripts' / 'git-credential-watercooler'
+
+            # For Python 3.9+, we can use as_file() context manager
+            # which extracts the resource to a temporary file if needed
+            try:
+                # Check if resource exists
+                if hasattr(script_resource, 'is_file') and script_resource.is_file():
+                    # Resource exists, get its path
+                    # Note: In Python 3.9+, this returns a Path-like object
+                    return Path(str(script_resource))
+            except (AttributeError, TypeError):
+                pass
+
+            # Fallback: try development location (relative path from module)
+            module_dir = Path(__file__).resolve().parent
+            dev_script = module_dir / "scripts" / "git-credential-watercooler"
+            if dev_script.exists():
+                return dev_script
+
+            # Last resort: check repo root (for editable install)
+            repo_root = module_dir.parent.parent
+            root_script = repo_root / "scripts" / "git-credential-watercooler"
+            if root_script.exists():
+                return root_script
+
+            return None
+
+        except Exception as e:
+            self._log(f"Error locating credential helper: {e}")
+            return None
+
+    def _install_git_hooks(self):
+        """Install git hooks into threads repository for protocol enforcement.
+
+        Copies the pre-commit hook from watercooler-cloud installation to the
+        threads repository's .githooks directory. This is REQUIRED for team
+        collaboration to prevent manual edits that violate the append-only protocol.
+        """
+        try:
+            # Find source hooks in watercooler-cloud installation
+            module_dir = Path(__file__).resolve().parent
+            repo_root = module_dir.parent.parent  # Up two levels from src/watercooler_mcp/
+            source_hook = repo_root / ".githooks" / "pre-commit"
+
+            if not source_hook.exists():
+                self._log("Warning: Source pre-commit hook not found, skipping hook installation")
+                return
+
+            # Create .githooks directory in threads repo
+            hooks_dir = self.local_path / ".githooks"
+            hooks_dir.mkdir(exist_ok=True)
+
+            # Copy pre-commit hook
+            import shutil
+            dest_hook = hooks_dir / "pre-commit"
+            shutil.copy2(source_hook, dest_hook)
+
+            # Make hook executable (Unix/Mac only)
+            import stat
+            try:
+                dest_hook.chmod(dest_hook.stat().st_mode | stat.S_IXUSR | stat.S_IXGRP | stat.S_IXOTH)
+            except Exception:
+                pass  # Windows doesn't need executable bit
+
+            self._log(f"Git hooks installed: {dest_hook}")
+        except Exception as e:
+            # Don't fail initialization if hook installation fails
+            # but log the error for debugging
+            self._log(f"Warning: Failed to install git hooks: {e}")
 
     def pull(self) -> bool:
         """Pull latest changes from remote with rebase.

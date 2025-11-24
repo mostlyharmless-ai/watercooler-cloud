@@ -282,6 +282,99 @@ WATERCOOLER_DIR = "/srv/watercooler/custom-project-threads"
 
 ---
 
+## Authentication Variables
+
+### WATERCOOLER_GITHUB_TOKEN
+
+**Purpose:** GitHub personal access token for git credential helper (seamless authentication).
+
+**Required:** No (but recommended for seamless authentication)
+
+**Default:** Falls back to `GITHUB_TOKEN`, then `GH_TOKEN`
+
+**Format:** GitHub personal access token string (e.g., `"ghp_xxxxxxxxxxxxxxxxxxxx"`)
+
+**Used by:** Git Credential Helper (`scripts/git-credential-watercooler`)
+
+**Details:**
+
+Enables seamless GitHub authentication for git operations across the web dashboard and MCP server. The git credential helper checks tokens in this priority order:
+
+1. `WATERCOOLER_GITHUB_TOKEN` (dedicated Watercooler token, highest priority)
+2. `GITHUB_TOKEN` (standard GitHub token)
+3. `GH_TOKEN` (GitHub CLI token)
+
+When the MCP server performs git operations (clone, push, pull), git automatically calls the credential helper script, which returns the token from one of these environment variables.
+
+**Configuration examples:**
+
+**Shell:**
+```bash
+export WATERCOOLER_GITHUB_TOKEN="ghp_xxxxxxxxxxxxxxxxxxxx"
+```
+
+**Claude Code (`.mcp.json`):**
+```json
+{
+  "mcpServers": {
+    "watercooler-cloud": {
+      "env": {
+        "WATERCOOLER_GITHUB_TOKEN": "ghp_xxxxxxxxxxxxxxxxxxxx"
+      }
+    }
+  }
+}
+```
+
+**Cursor (`.cursor/mcp.json`):**
+```json
+{
+  "mcpServers": {
+    "watercooler-cloud": {
+      "env": {
+        "WATERCOOLER_GITHUB_TOKEN": "ghp_xxxxxxxxxxxxxxxxxxxx"
+      }
+    }
+  }
+}
+```
+
+**Creating a GitHub Personal Access Token:**
+
+1. Go to https://github.com/settings/tokens
+2. Click "Generate new token (classic)"
+3. Select scopes:
+   - `repo` (Full control of private repositories)
+   - `read:org` (Read org and team membership)
+   - `read:user` (Read user profile data)
+4. Click "Generate token"
+5. Copy the token and add to environment
+
+**Auto-Configuration:**
+
+The MCP server automatically configures git to use the credential helper on first run:
+
+```python
+# Configured automatically in src/watercooler_mcp/git_sync.py
+config.set_value(
+    'credential "https://github.com"',
+    'helper',
+    str(helper_script)
+)
+```
+
+**Security:**
+- Tokens are stored in environment variables (not committed to git)
+- Credential helper only activates for HTTPS GitHub URLs
+- Tokens have specific scoped permissions
+- Never shared with third parties
+
+**Related:**
+- See [AUTHENTICATION.md](./AUTHENTICATION.md) for complete authentication flow
+- See [WATERCOOLER_GIT_REPO](#watercooler_git_repo) for cloud sync configuration
+
+---
+
 ## Cloud Sync Variables
 
 These variables enable git-based cloud synchronization for team collaboration. Only used by the MCP server.
