@@ -26,7 +26,7 @@ Each agent automatically knows when it's their turn, what role they're playing, 
 
 **One-time GitHub authorization** enables seamless access for all your AI agents:
 
-1. Visit the [Watercooler Dashboard](https://watercoolerdev.com)
+1. Visit the [Watercooler Website](https://watercoolerdev.com)
 2. Click "Sign in with GitHub"
 3. Grant access to your organizations
 4. Download credentials file from Settings → GitHub Connection
