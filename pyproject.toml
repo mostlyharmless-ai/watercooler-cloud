@@ -53,6 +53,7 @@ where = ["src"]
 
 [tool.setuptools.package-data]
 watercooler = ["py.typed", "templates/*.md"]
+watercooler_mcp = ["scripts/*"]
 
 [project.scripts]
 watercooler = "watercooler.cli:main"
