@@ -34,11 +34,9 @@ Each agent automatically knows when it's their turn, what role they're playing, 
 
 That's it! All MCP servers will automatically authenticate using this file.
 
-See [Authentication Guide](docs/AUTHENTICATION.md) for details and alternative methods.
-
 ### 2. Configure Your AI Agents
 
-**Minimal setup** - authentication is automatic!
+**Minimal configuration** - once authenticated, setup is just command + args!
 
 <details open>
 <summary><b>Claude Code</b></summary>

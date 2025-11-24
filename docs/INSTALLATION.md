@@ -58,7 +58,10 @@ The dashboard will be available at [http://127.0.0.1:8080](http://127.0.0.1:8080
 
 That's it! All MCP servers will automatically authenticate using this file.
 
-See [AUTHENTICATION.md](AUTHENTICATION.md) for details and alternative methods.
+**Alternative authentication methods:**
+- Set `WATERCOOLER_GITHUB_TOKEN` environment variable with your GitHub PAT
+- Set `GITHUB_TOKEN` or `GH_TOKEN` (standard GitHub environment variables)
+- CI/CD: Use GitHub Actions secrets or environment-specific tokens
 
 ---
 
@@ -144,7 +147,7 @@ See [WATERCOOLER_SETUP.md](../.github/WATERCOOLER_SETUP.md) for the detailed set
 
 ## Additional Resources
 
-- **[Setup & Quickstart](SETUP_AND_QUICKSTART.md)** - Step-by-step walkthrough
+- **[Setup & Quickstart](archive/SETUP_AND_QUICKSTART.md)** - Step-by-step walkthrough
 - **[Claude Code Setup](archive/CLAUDE_CODE_SETUP.md)** - Client-specific details
 - **[Claude Desktop Setup](archive/CLAUDE_DESKTOP_SETUP.md)** - Desktop app setup
 - **[MCP Server Guide](mcp-server.md)** - Tool reference and parameters

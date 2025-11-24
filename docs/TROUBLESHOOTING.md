@@ -635,20 +635,3 @@ If you encounter a bug, open an issue with:
 ---
 
 **Still having trouble?** Open an issue with the diagnostic information above. We're here to help!
-### 401 Unauthorized (cloud Remote MCP)
-
-Symptoms
-- Client shows "Unauthorized - No session" or cannot open `/sse`.
-
-Causes
-- No OAuth cookie session (browser flow not completed) and no Bearer token provided.
-- Attempted `?session=dev` while dev session is disabled (default for staging and always in production).
-
-Fix
-- OAuth: Visit `/auth/login` on the Worker to authenticate (browser popup from client, or open manually).
-- Token (CLI/headless): Visit `/console` to issue a personal token, then connect with header `Authorization: Bearer <token>`.
-- Staging: Only if absolutely necessary for testing, set `ALLOW_DEV_SESSION="true"` (never in production) and reconnect with `?session=dev`.
-
-Verification
-- `whoami` tool shows your `user_id` and current `project_id`.
-- Worker logs contain `session_validated` events.
