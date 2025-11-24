@@ -50,7 +50,7 @@ The dashboard will be available at [http://127.0.0.1:8080](http://127.0.0.1:8080
 
 **One-time GitHub authorization** enables seamless access for all your AI agents:
 
-1. Visit the [Watercooler Dashboard](https://watercooler.mostlyharmless.ai)
+1. Visit the [Watercooler Dashboard](https://watercoolerdev.com)
 2. Click "Sign in with GitHub"
 3. Grant access to your organizations
 4. Download credentials file from Settings → GitHub Connection

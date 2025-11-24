@@ -29,7 +29,7 @@ Dive deeper in [BRANCH_PAIRING.md](BRANCH_PAIRING.md) for the full rationale and
 
 **One-time GitHub authorization** enables seamless access:
 
-1. Visit the [Watercooler Dashboard](https://watercooler.mostlyharmless.ai)
+1. Visit the [Watercooler Dashboard](https://watercoolerdev.com)
 2. Click "Sign in with GitHub"
 3. Grant access to your organizations
 4. Download credentials file from Settings → GitHub Connection

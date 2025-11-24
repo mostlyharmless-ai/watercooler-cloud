@@ -321,7 +321,7 @@ Git pushes/pulls fail, or you see `Permission denied (publickey)` / `fatal: Auth
    - File permissions should be 0600 (Unix/Mac) for security
 
 2. **Re-authenticate via dashboard**
-   - Visit [Watercooler Dashboard](https://watercooler.mostlyharmless.ai)
+   - Visit [Watercooler Dashboard](https://watercoolerdev.com)
    - Sign in with GitHub
    - Download fresh credentials file from Settings → GitHub Connection
    - Replace `~/.watercooler/credentials.json`
