@@ -792,7 +792,7 @@ def merge_branch(branch: str, *, code_root: Path | None = None, force: bool = Fa
         try:
             from git import Actor
             # Use watercooler bot identity for automated merges
-            author = Actor("Watercooler Bot", "watercooler@mostlyharmless.ai")
+            author = Actor("Watercooler Bot", "watercooler@watercoolerdev.com")
             env = {
                 'GIT_AUTHOR_NAME': author.name,
                 'GIT_AUTHOR_EMAIL': author.email,
@@ -909,7 +909,7 @@ def archive_branch(branch: str, *, code_root: Path | None = None, abandon: bool 
                 threads_repo.index.add([f"{topic}.md" for topic in open_threads])
                 commit_msg = f"Archive: set {len(open_threads)} threads to {status_to_set}"
                 # Use watercooler bot identity for automated commits
-                author = Actor("Watercooler Bot", "watercooler@mostlyharmless.ai")
+                author = Actor("Watercooler Bot", "watercooler@watercoolerdev.com")
                 threads_repo.index.commit(commit_msg, author=author, committer=author)
             except Exception as e:
                 return f"Error committing status changes: {str(e)}"
@@ -920,7 +920,7 @@ def archive_branch(branch: str, *, code_root: Path | None = None, abandon: bool 
             try:
                 from git import Actor
                 # Use watercooler bot identity for automated merges
-                author = Actor("Watercooler Bot", "watercooler@mostlyharmless.ai")
+                author = Actor("Watercooler Bot", "watercooler@watercoolerdev.com")
                 env = {
                     'GIT_AUTHOR_NAME': author.name,
                     'GIT_AUTHOR_EMAIL': author.email,

@@ -128,6 +128,24 @@ See the [Installation Guide](docs/INSTALLATION.md) for:
 
 ### Create Your First Thread
 
+Most collaborators never touch the raw CLI anymore—we stay inside Codex, Claude,
+Cursor, etc., and let them call the MCP tools for us. A typical spin-up looks
+like this:
+
+1. **You → Codex:** “Start a thread called `feature-auth`, outline the auth
+   plan, and hand the ball to Claude.”
+2. **Codex:** Calls `watercooler_v1_say` (with your `agent_func`) which creates
+   the thread, writes the entry, commits, and pushes via `run_with_sync`.
+3. **Claude:** Sees the ball, continues refining the plan in the same thread,
+   again using `watercooler_v1_say` so git stays in sync.
+4. **Cursor/Codex:** Implements the feature, referencing the thread for context
+   and flipping the ball back when done.
+
+That’s the workflow we recommend because the MCP layer enforces formatting,
+branch pairing, git commits, and identity footers automatically. If you do need
+to work manually (for example, repairing a thread offline), the legacy CLI is
+still available:
+
 ```bash
 watercooler init-thread feature-auth --ball Claude
 watercooler say feature-auth \
@@ -137,39 +155,26 @@ watercooler say feature-auth \
   --body "Proposing OAuth2 with JWT tokens"
 ```
 
-See the [CLI Reference](docs/CLI_REFERENCE.md) for all commands.
+See the [CLI Reference](docs/CLI_REFERENCE.md) for every flag if you go that
+route.
 
 ---
 
 ## Example: Multi-Agent Collaboration
 
-```bash
-# Claude plans the feature
-watercooler say feature-payment \
-  --agent Claude \
-  --role planner \
-  --title "Payment Integration Plan" \
-  --body "Using Stripe with webhook handlers"
+1. **You** ask Codex: “Plan the payments feature in the `feature-payment`
+   thread.” Codex hits `watercooler_v1_say`, adds the plan entry, and the ball
+   flips to Claude.
+2. **Claude** (prompted by you) critiques the plan, calling the same MCP tool
+   so commits stay in sync. Ball now sits with Cursor.
+3. **Cursor/Codex** implements the feature, updates tests, and posts a
+   completion note via `watercooler_v1_say`, flipping the ball to Claude for
+   review.
+4. **Claude** runs `watercooler_v1_ack` to approve, then `watercooler_v1_set_status`
+   to mark the thread `CLOSED` after merge.
 
-# Ball automatically flips to Codex, who implements
-watercooler say feature-payment \
-  --agent Codex \
-  --role implementer \
-  --title "Implementation Complete" \
-  --body "Stripe integration with tests passing"
-
-# Back to Claude for review
-watercooler say feature-payment \
-  --agent Claude \
-  --role critic \
-  --title "LGTM" \
-  --body "Approved for merge"
-
-# Close the thread
-watercooler set-status feature-payment CLOSED
-```
-
-All of this happens automatically when using MCP - agents discover the tools and coordinate seamlessly.
+No manual git work, no hand-written metadata—each MCP call bundles the entry,
+ball movement, commit footers, and push.
 
 ---
 

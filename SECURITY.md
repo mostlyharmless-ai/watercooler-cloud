@@ -8,7 +8,7 @@ We aim to backport fixes to the latest minor release. During the 0.x series, we 
 
 ## Reporting a Vulnerability
 
-- Email: [security@mostlyharmless.ai](mailto:security@mostlyharmless.ai)
+- Email: [security@watercoolerdev.com](mailto:security@watercoolerdev.com)
 - GPG: optional—include a link to your public key if you prefer encrypted responses.
 
 Please include:

@@ -361,7 +361,7 @@ Each Watercooler entry includes:
 
 ### Security Reporting
 
-- For security vulnerabilities, email: [security@mostlyharmless.ai](mailto:security@mostlyharmless.ai)
+- For security vulnerabilities, email: [security@watercoolerdev.com](mailto:security@watercoolerdev.com)
 - Do not create public GitHub issues for suspected vulnerabilities
 - Follow the disclosure timeline in `SECURITY.md`
 
