@@ -5,7 +5,7 @@ Complete setup instructions for watercooler-cloud.
 ## Prerequisites
 
 - **Python 3.10+**
-- **Git** with SSH or PAT access to your repositories
+- **Git** (authentication handled automatically via credentials file)
 - Basic GitHub permissions to push to threads repositories
 
 ## Installation Methods
@@ -46,30 +46,25 @@ The dashboard will be available at [http://127.0.0.1:8080](http://127.0.0.1:8080
 
 ---
 
+## Authentication Setup
+
+**One-time GitHub authorization** enables seamless access for all your AI agents:
+
+1. Visit the [Watercooler Dashboard](https://watercooler.mostlyharmless.ai)
+2. Click "Sign in with GitHub"
+3. Grant access to your organizations
+4. Download credentials file from Settings → GitHub Connection
+5. Place it at `~/.watercooler/credentials.json`
+
+That's it! All MCP servers will automatically authenticate using this file.
+
+See [AUTHENTICATION.md](AUTHENTICATION.md) for details and alternative methods.
+
+---
+
 ## MCP Client Configuration
 
-Watercooler defaults to HTTPS remotes (e.g., `https://github.com/org/repo-threads.git`) so Git Credential Manager and PAT workflows work without extra setup.
-
-### Environment Variables
-
-Set before starting MCP clients:
-
-```bash
-# HTTPS (default)
-export WATERCOOLER_THREADS_PATTERN="https://github.com/{org}/{repo}-threads.git"
-
-# Windows PowerShell:
-# setx WATERCOOLER_THREADS_PATTERN "https://github.com/{org}/{repo}-threads.git"
-```
-
-For SSH instead:
-
-```bash
-export WATERCOOLER_THREADS_PATTERN="git@github.com:{org}/{repo}-threads.git"
-
-# Windows PowerShell:
-# setx WATERCOOLER_THREADS_PATTERN "git@github.com:{org}/{repo}-threads.git"
-```
+**Minimal setup** - authentication is automatic!
 
 ### Helper Scripts (Prompt-Driven)
 
@@ -89,9 +84,6 @@ Override `-Python` with `py`/`python3` as needed. Additional flags are documente
 
 ```bash
 claude mcp add --transport stdio watercooler-cloud --scope user \
-  -e WATERCOOLER_AGENT="Claude@Code" \
-  -e WATERCOOLER_THREADS_PATTERN="https://github.com/{org}/{repo}-threads.git" \
-  -e WATERCOOLER_AUTO_BRANCH=1 \
   -- uvx --from git+https://github.com/mostlyharmless-ai/watercooler-cloud watercooler-mcp
 ```
 
@@ -103,9 +95,6 @@ claude mcp add --transport stdio watercooler-cloud --scope user \
 
 ```bash
 codex mcp add watercooler-cloud \
-  -e WATERCOOLER_AGENT="Codex" \
-  -e WATERCOOLER_THREADS_PATTERN="https://github.com/{org}/{repo}-threads.git" \
-  -e WATERCOOLER_AUTO_BRANCH=1 \
   -- uvx --from git+https://github.com/mostlyharmless-ai/watercooler-cloud watercooler-mcp
 ```
 
@@ -122,12 +111,7 @@ Edit `~/.cursor/mcp.json`:
         "--from",
         "git+https://github.com/mostlyharmless-ai/watercooler-cloud",
         "watercooler-mcp"
-      ],
-      "env": {
-        "WATERCOOLER_AGENT": "Cursor",
-        "WATERCOOLER_THREADS_PATTERN": "https://github.com/{org}/{repo}-threads.git",
-        "WATERCOOLER_AUTO_BRANCH": "1"
-      }
+      ]
     }
   }
 }
@@ -137,10 +121,7 @@ Edit `~/.cursor/mcp.json`:
 
 ```bash
 fastmcp install claude-code src/watercooler_mcp/server.py \
-  --server-name watercooler-cloud \
-  --env WATERCOOLER_AGENT="Claude@Code" \
-  --env WATERCOOLER_THREADS_PATTERN="https://github.com/{org}/{repo}-threads.git" \
-  --env WATERCOOLER_AUTO_BRANCH=1
+  --server-name watercooler-cloud
 ```
 
 ---

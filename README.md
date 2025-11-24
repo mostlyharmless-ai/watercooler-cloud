@@ -8,8 +8,6 @@ File-based collaboration protocol for agentic coding projects
 
 ---
 
----
-
 [![Watercooler Cloud](docs/images/hero-banner.png)](https://www.watercoolerdev.com)
 
 
@@ -24,31 +22,38 @@ Each agent automatically knows when it's their turn, what role they're playing, 
 
 ## Quick Start
 
-### Configure the AI agents you want to use:
+### 1. Authentication Setup
 
-Watercooler integrates with Claude, Codex, Cursor, and other MCP clients.
+**One-time GitHub authorization** enables seamless access for all your AI agents:
+
+1. Visit the [Watercooler Dashboard](https://watercooler.mostlyharmless.ai)
+2. Click "Sign in with GitHub"
+3. Grant access to your organizations
+4. Download credentials file from Settings → GitHub Connection
+5. Place it at `~/.watercooler/credentials.json`
+
+That's it! All MCP servers will automatically authenticate using this file.
+
+See [Authentication Guide](docs/AUTHENTICATION.md) for details and alternative methods.
+
+### 2. Configure Your AI Agents
+
+**Minimal setup** - authentication is automatic!
 
 <details open>
 <summary><b>Claude Code</b></summary>
 
-Update ~/.claude.json:
+Update `~/.claude.json`:
 
-```bash
+```json
     "watercooler-cloud": {
       "type": "stdio",
-      "command": "/home/caleb/.local/bin/uvx",
+      "command": "uvx",
       "args": [
         "--from",
         "git+https://github.com/mostlyharmless-ai/watercooler-cloud",
         "watercooler-mcp"
-      ],
-      "env": {
-        "WATERCOOLER_AGENT": "Claude@Code",
-        "WATERCOOLER_THREADS_PATTERN": "git@github.com:{org}/{repo}-threads.git",
-        "WATERCOOLER_GIT_AUTHOR": "Caleb Howard",
-        "WATERCOOLER_GIT_EMAIL": "caleb@mostlyharmless.ai",
-        "WATERCOOLER_AUTO_BRANCH": "1"
-      }
+      ]
     },
 
 ```
@@ -58,21 +63,12 @@ Update ~/.claude.json:
 <details>
 <summary><b>Codex</b></summary>
 
-Update ~/.codex/config.toml:
+Update `~/.codex/config.toml`:
 
-```bash
-
+```toml
 [mcp_servers.watercooler_cloud]
-command = "/home/caleb/.local/bin/uvx"
+command = "uvx"
 args = ["--from", "git+https://github.com/mostlyharmless-ai/watercooler-cloud", "watercooler-mcp"]
-
-[mcp_servers.watercooler_cloud.env]
-WATERCOOLER_AGENT = "Codex"
-WATERCOOLER_AUTO_BRANCH = "1"
-WATERCOOLER_GIT_AUTHOR = "Caleb Howard"
-WATERCOOLER_GIT_EMAIL = "caleb@mostlyharmless.ai"
-WATERCOOLER_THREADS_PATTERN = "git@github.com:{org}/{repo}-threads.git"
-SSH_AUTH_SOCK = "/run/user/1000/keyring/ssh"
 
 ```
 
@@ -92,12 +88,7 @@ Edit `~/.cursor/mcp.json`:
         "--from",
         "git+https://github.com/mostlyharmless-ai/watercooler-cloud",
         "watercooler-mcp"
-      ],
-      "env": {
-        "WATERCOOLER_AGENT": "Cursor",
-        "WATERCOOLER_THREADS_PATTERN": "https://github.com/{org}/{repo}-threads.git",
-        "WATERCOOLER_AUTO_BRANCH": "1"
-      }
+      ]
     }
   }
 }
@@ -119,12 +110,7 @@ Edit `~/Library/Application Support/Claude/claude_desktop_config.json` (macOS) o
         "--from",
         "git+https://github.com/mostlyharmless-ai/watercooler-cloud",
         "watercooler-mcp"
-      ],
-      "env": {
-        "WATERCOOLER_AGENT": "Claude",
-        "WATERCOOLER_THREADS_PATTERN": "https://github.com/{org}/{repo}-threads.git",
-        "WATERCOOLER_AUTO_BRANCH": "1"
-      }
+      ]
     }
   }
 }

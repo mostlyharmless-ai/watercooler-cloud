@@ -137,36 +137,24 @@ MCP tools don't appear in your client (Claude Desktop, Claude Code, Codex).
 ## Wrong Agent Identity
 
 ### Symptom
-`watercooler_v1_whoami` shows incorrect agent name.
+`watercooler_v1_whoami` shows incorrect or unexpected agent name.
 
 ### Solutions
 
-1. **Check WATERCOOLER_AGENT environment variable**
+1. **Use identity tool before writing**
+   Call `watercooler_v1_set_agent(base="Claude Code", spec="implementer-code")` before any write operations (say, ack, handoff, set_status).
 
-   **Codex config.toml:**
-   ```toml
-   [mcp_servers.wc_universal.env]
-   WATERCOOLER_AGENT = "Codex"  # ← Must match your desired name
-   ```
-
-   **Claude Desktop config.json:**
-   ```json
-   {
-     "env": {
-       "WATERCOOLER_AGENT": "Claude"
-     }
-   }
-   ```
-
-2. **Understand precedence**
-   - `WATERCOOLER_AGENT` env var (highest priority)
-   - `client_id` from MCP Context (auto-detected)
-   - Fallback: "Agent"
+2. **Alternative: Use agent_func parameter**
+   Supply `agent_func="<platform>:<model>:<role>"` on each write call (e.g., `"Claude Code:sonnet-4:implementer"`).
 
 3. **Client ID auto-detection**
    - "Claude Desktop" → "Claude"
-   - "Claude Code" → "Claude"
+   - "Claude Code" → "Claude Code"
+   - "Codex" → "Codex"
+   - "Cursor" → "Cursor"
    - Other values passed through as-is
+
+See [STRUCTURED_ENTRIES.md](STRUCTURED_ENTRIES.md#identity-pre-flight) for complete identity requirements.
 
 ## Threads Directory Not Found
 
@@ -242,7 +230,7 @@ This is **normal for local STDIO connections**. The `client_id` is:
 ### Solutions
 
 1. **For local usage**: This is expected and doesn't affect functionality
-   - Agent name comes from `WATERCOOLER_AGENT` env var
+   - Agent identity is set via `watercooler_v1_set_agent` tool or `agent_func` parameter
    - Everything works normally
 
 2. **For multi-tenant cloud deployment**: Configure OAuth provider
@@ -327,38 +315,33 @@ Git pushes/pulls fail, or you see `Permission denied (publickey)` / `fatal: Auth
 
 ### Solutions
 
-1. **Decide on HTTPS vs SSH**
-   - *HTTPS (default):* relies on Git Credential Manager or stored Personal Access Tokens. No extra setup if `git clone https://…` already works in your shell.
-   - *SSH:* uses your SSH agent/keys. Choose this when your environment is already configured for `git@github.com:…`.
+1. **Verify credentials file**
+   - Check that `~/.watercooler/credentials.json` exists
+   - File should contain `{"github_token": "ghp_..."}`
+   - File permissions should be 0600 (Unix/Mac) for security
 
-2. **Switch the remote pattern if needed**
-   - HTTPS example:
-     ```bash
-     export WATERCOOLER_THREADS_PATTERN="https://github.com/{org}/{repo}-threads.git"
-     # Windows PowerShell:
-     # setx WATERCOOLER_THREADS_PATTERN "https://github.com/{org}/{repo}-threads.git"
-     ```
-   - SSH example:
-     ```bash
-     export WATERCOOLER_THREADS_PATTERN="git@github.com:{org}/{repo}-threads.git"
-     # Windows PowerShell:
-     # setx WATERCOOLER_THREADS_PATTERN "git@github.com:{org}/{repo}-threads.git"
-     ```
+2. **Re-authenticate via dashboard**
+   - Visit [Watercooler Dashboard](https://watercooler.mostlyharmless.ai)
+   - Sign in with GitHub
+   - Download fresh credentials file from Settings → GitHub Connection
+   - Replace `~/.watercooler/credentials.json`
 
-3. **HTTPS troubleshooting**
-   - Ensure `git push https://github.com/<org>/<repo>-threads.git` succeeds manually.
-   - If prompted for credentials, create a PAT with `repo` scope and let Git Credential Manager store it once.
-   - On CI, set `GIT_ASKPASS` to a helper that echoes the PAT, or export `GITHUB_TOKEN` (GitHub Actions).
+3. **Verify git credential helper**
+   - The MCP server automatically configures the git credential helper
+   - Test manually: `echo "protocol=https\nhost=github.com\n" | git credential fill`
+   - Should return your token
 
-4. **SSH troubleshooting**
-   - Add your key to the agent: `ssh-add ~/.ssh/id_ed25519`.
-   - Verify GitHub trust: `ssh -T git@github.com`.
-   - Ensure the key has repo access (deploy key or personal key).
-   - When running Watercooler non-interactively, point `WATERCOOLER_GIT_SSH_KEY` to the private key.
+4. **Check token permissions**
+   - Token must have `repo` scope for private repositories
+   - Visit GitHub Settings → Developer settings → Personal access tokens
+   - Regenerate token if scopes are incorrect
 
-5. **Re-run the command**
-   - After updating the env var, restart your MCP client so the new value applies.
-   - Confirm using `watercooler_v1_health`: the `Threads Repo URL` should show the expected scheme.
+5. **SSH alternative (advanced)**
+   - If you prefer SSH over HTTPS, ensure your SSH keys are configured
+   - Verify with: `ssh -T git@github.com`
+   - The credential helper will still be used for HTTPS operations
+
+See [AUTHENTICATION.md](AUTHENTICATION.md) for complete authentication guide.
 
 ---
 
