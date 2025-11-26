@@ -225,6 +225,69 @@ class ThreadEntry:
     agent: Optional[str]
 ```
 
+## Schema Sync Process
+
+### Syncing Schemas Between Repos
+
+The canonical schemas live in `watercooler-cloud/schemas/` and are copied to `watercooler-site/schemas/` when needed:
+
+```bash
+# From watercooler-site root:
+cp ../watercooler-cloud/schemas/*.json schemas/
+```
+
+**When to sync:**
+- After any schema updates in watercooler-cloud
+- Before adding new validation or tests
+- When field names or optionality rules change
+
+### Maintaining Schema Parity
+
+**Automated validation:**
+- Python tests: `pytest tests/test_schema_validation.py`
+- TypeScript tests: `npx tsx test-schema-validation.ts`
+
+**Manual checks:**
+1. Compare field names in both repos
+2. Verify optionality rules match (Optional in Python ↔ `| null` in TypeScript)
+3. Check enum values are identical
+4. Validate ULID/timestamp patterns
+
+**CI/CD Integration:**
+Add schema validation to your CI pipeline to catch drift early:
+
+```yaml
+# .github/workflows/test.yml
+- name: Validate schema parity
+  run: |
+    pytest tests/test_schema_validation.py
+    cd ../watercooler-site && npx tsx test-schema-validation.ts
+```
+
+### Field Mapping During Transition
+
+**Backward Compatibility Layer:**
+`watercooler-site/lib/threadMapper.ts` provides backward compatibility for old database records:
+
+```typescript
+agent: entry.agent || entry.author || 'unknown',  // Support both
+entryType: entry.entryType || entry.type || 'Note',  // Support both
+```
+
+**Timeline:**
+1. **Phase 1 (Complete)**: Schema defined, field names aligned, validation added
+2. **Phase 2 (Current)**: Parser creates new field names, old records supported via mapper
+3. **Phase 3 (Future)**: After all DB records migrated, remove backward compatibility
+
+**Migration Status:**
+- ✅ Canonical schemas created
+- ✅ Field names aligned (author→agent, type→entryType)
+- ✅ Optionality rules matched
+- ✅ Validation utilities added
+- ✅ Tests added
+- 🔄 Database records gradually migrating (via normal sync process)
+- ⏳ Backward compatibility can be removed once all records migrated
+
 ## Version History
 
 - **2025-01-26** - Initial canonical schema creation
@@ -232,3 +295,5 @@ class ThreadEntry:
   - Established `entry_type` (not `type`)
   - Defined optionality rules
   - Created cross-repo validation process
+  - Added schema validation utilities and tests
+  - Documented schema sync process
