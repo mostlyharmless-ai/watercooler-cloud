@@ -174,16 +174,85 @@ def _dynamic_context_missing(context: ThreadContext) -> bool:
     return dynamic_env and not context.explicit_dir and context.threads_slug is None
 
 
-def _refresh_threads(context: ThreadContext) -> None:
+def _validate_and_sync_branches(
+    context: ThreadContext,
+    skip_validation: bool = False,
+) -> None:
+    """Validate branch pairing and sync branches if needed.
+    
+    This helper is used by both read and write operations to ensure
+    the threads repo is on the correct branch before any operation.
+    
+    Args:
+        context: Thread context with code and threads repo info
+        skip_validation: If True, skip strict validation (used for recovery operations)
+        
+    Raises:
+        BranchPairingError: If branch validation fails and skip_validation=False
+    """
     sync = get_git_sync_manager_from_context(context)
     if not sync:
         return
+        
+    # Validate branch pairing before any operation
+    if not skip_validation and context.code_root and context.threads_dir:
+        try:
+            validation_result = validate_branch_pairing(
+                code_repo=context.code_root,
+                threads_repo=context.threads_dir,
+                strict=True,
+            )
+            if not validation_result.valid:
+                # Build error message with recovery steps
+                error_parts = [
+                    "Branch pairing validation failed:",
+                    f"  Code branch: {validation_result.code_branch or '(detached/unknown)'}",
+                    f"  Threads branch: {validation_result.threads_branch or '(detached/unknown)'}",
+                ]
+                if validation_result.mismatches:
+                    error_parts.append("\nMismatches:")
+                    for mismatch in validation_result.mismatches:
+                        error_parts.append(f"  - {mismatch.type}: {mismatch.recovery}")
+                if validation_result.warnings:
+                    error_parts.append("\nWarnings:")
+                    for warning in validation_result.warnings:
+                        error_parts.append(f"  - {warning}")
+                error_parts.append(
+                    "\nRun: watercooler_v1_sync_branch_state with operation='checkout' to sync branches"
+                )
+                raise BranchPairingError("\n".join(error_parts))
+        except BranchPairingError:
+            raise
+        except Exception as e:
+            # Log but don't block on validation errors (e.g., repo not initialized)
+            _diag(f"Branch validation warning: {e}")
+    
+    # Attempt to sync branches (catch exceptions to avoid blocking legitimate operations)
     branch = context.code_branch
     if branch and _should_auto_branch():
         try:
             sync.ensure_branch(branch)
         except Exception:
             pass
+
+
+def _refresh_threads(context: ThreadContext, skip_validation: bool = False) -> None:
+    """Refresh threads repo by validating branch pairing and pulling latest changes.
+    
+    Args:
+        context: Thread context with repo information
+        skip_validation: If True, skip branch validation (used for recovery operations)
+        
+    Raises:
+        BranchPairingError: If branch validation fails and skip_validation=False
+    """
+    # Validate and sync branches (will raise if validation fails)
+    _validate_and_sync_branches(context, skip_validation=skip_validation)
+    
+    sync = get_git_sync_manager_from_context(context)
+    if not sync:
+        return
+        
     status = sync.get_async_status()
     if status.get("mode") == "async":
         # Async mode relies on background pulls; avoid blocking operations.
@@ -386,46 +455,8 @@ def run_with_sync(
     if not sync:
         return operation()
 
-    # Validate branch pairing before write operation
-    if not skip_validation and context.code_root and context.threads_dir:
-        try:
-            validation_result = validate_branch_pairing(
-                code_repo=context.code_root,
-                threads_repo=context.threads_dir,
-                strict=True,
-            )
-            if not validation_result.valid:
-                # Build error message with recovery steps
-                error_parts = [
-                    "Branch pairing validation failed:",
-                    f"  Code branch: {validation_result.code_branch or '(detached/unknown)'}",
-                    f"  Threads branch: {validation_result.threads_branch or '(detached/unknown)'}",
-                ]
-                if validation_result.mismatches:
-                    error_parts.append("\nMismatches:")
-                    for mismatch in validation_result.mismatches:
-                        error_parts.append(f"  - {mismatch.type}: {mismatch.recovery}")
-                if validation_result.warnings:
-                    error_parts.append("\nWarnings:")
-                    for warning in validation_result.warnings:
-                        error_parts.append(f"  - {warning}")
-                error_parts.append(
-                    "\nTo fix: Use watercooler_v1_sync_branch_state to sync branches, "
-                    "or set skip_validation=True to bypass (not recommended)."
-                )
-                raise BranchPairingError("\n".join(error_parts))
-        except BranchPairingError:
-            raise
-        except Exception as e:
-            # Log but don't block on validation errors (e.g., repo not initialized)
-            _diag(f"Branch validation warning: {e}")
-
-    branch = context.code_branch
-    if branch and _should_auto_branch():
-        try:
-            sync.ensure_branch(branch)
-        except Exception:
-            pass
+    # Validate and sync branches before write operation
+    _validate_and_sync_branches(context, skip_validation=skip_validation)
 
     footers = _build_commit_footers(
         context,
