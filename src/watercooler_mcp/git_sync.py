@@ -1542,12 +1542,20 @@ class BranchDivergenceInfo:
 
 
 def _find_main_branch(repo: Repo) -> Optional[str]:
-    """Find the main/master branch name in a repository."""
+    """Find the main/master branch name in a repository.
+
+    Args:
+        repo: GitPython Repo object
+
+    Returns:
+        Branch name ('main' or 'master') if found, None otherwise
+    """
     for name in ["main", "master"]:
         try:
             repo.commit(name)
             return name
-        except Exception:
+        except Exception as e:
+            _diag(f"Branch '{name}' not found: {e}")
             continue
     return None
 
@@ -1787,10 +1795,13 @@ def _rebase_branch_onto(
     Returns:
         BranchSyncResult with outcome details
     """
+    original_branch: Optional[str] = None
+    stash_created = False
+
     try:
         # Count commits that will be rebased
-        commits_ahead = len(list(repo.iter_commits(f"{onto}..{branch}")))
-        commits_behind = len(list(repo.iter_commits(f"{branch}..{onto}")))
+        commits_ahead = sum(1 for _ in repo.iter_commits(f"{onto}..{branch}"))
+        commits_behind = sum(1 for _ in repo.iter_commits(f"{branch}..{onto}"))
 
         if commits_behind == 0:
             return BranchSyncResult(
@@ -1805,7 +1816,38 @@ def _rebase_branch_onto(
         # Stash any uncommitted changes
         stash_needed = repo.is_dirty()
         if stash_needed:
-            repo.git.stash()
+            try:
+                repo.git.stash('push', '-m', 'Auto-stash for rebase onto main')
+                stash_created = True
+            except Exception as e:
+                _diag(f"Warning: Could not stash changes: {e}")
+
+        # Ensure we're on the target branch before rebasing
+        try:
+            original_branch = repo.active_branch.name
+        except TypeError:
+            # Detached HEAD state
+            original_branch = None
+
+        if original_branch != branch:
+            _diag(f"Switching from '{original_branch}' to '{branch}' for rebase")
+            try:
+                repo.git.checkout(branch)
+            except Exception as e:
+                _diag(f"Failed to checkout branch '{branch}': {e}")
+                if stash_created:
+                    try:
+                        repo.git.stash('pop')
+                    except Exception as pop_e:
+                        _diag(f"Warning: Could not pop stash: {pop_e}")
+                return BranchSyncResult(
+                    success=False,
+                    action_taken="error",
+                    commits_preserved=0,
+                    commits_lost=0,
+                    details=f"Failed to checkout branch '{branch}': {e}",
+                    needs_manual_resolution=True,
+                )
 
         try:
             # Rebase onto target
@@ -1814,11 +1856,11 @@ def _rebase_branch_onto(
             _diag(f"GIT_OP_END: rebase {branch} onto {onto}")
 
             # Pop stash if needed
-            if stash_needed:
+            if stash_created:
                 try:
                     repo.git.stash('pop')
-                except Exception:
-                    pass  # May fail if conflicts, that's ok
+                except Exception as e:
+                    _diag(f"Warning: Could not pop stash after rebase: {e}")
 
             # Force push (with lease for safety)
             if force:
@@ -1842,15 +1884,15 @@ def _rebase_branch_onto(
             # Abort rebase on failure
             try:
                 repo.git.rebase('--abort')
-            except Exception:
-                pass
+            except Exception as abort_e:
+                _diag(f"Warning: Could not abort rebase: {abort_e}")
 
             # Pop stash if we stashed
-            if stash_needed:
+            if stash_created:
                 try:
                     repo.git.stash('pop')
-                except Exception:
-                    pass
+                except Exception as pop_e:
+                    _diag(f"Warning: Could not pop stash after rebase failure: {pop_e}")
 
             return BranchSyncResult(
                 success=False,
