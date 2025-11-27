@@ -11,12 +11,21 @@ from pathlib import Path
 from typing import Any, Dict, List, Optional, Tuple
 
 try:
-    from jsonschema import validate, ValidationError, SchemaError
+    from jsonschema import validate, ValidationError, SchemaError, Draft7Validator
+    from referencing import Registry, Resource
+    from referencing.jsonschema import DRAFT7
     JSONSCHEMA_AVAILABLE = True
+    REFERENCING_AVAILABLE = True
 except ImportError:
-    JSONSCHEMA_AVAILABLE = False
-    ValidationError = Exception  # type: ignore
-    SchemaError = Exception  # type: ignore
+    try:
+        from jsonschema import validate, ValidationError, SchemaError
+        JSONSCHEMA_AVAILABLE = True
+        REFERENCING_AVAILABLE = False
+    except ImportError:
+        JSONSCHEMA_AVAILABLE = False
+        REFERENCING_AVAILABLE = False
+        ValidationError = Exception  # type: ignore
+        SchemaError = Exception  # type: ignore
 
 
 def _get_schema_path(schema_name: str) -> Path:
@@ -51,6 +60,50 @@ def load_schema(schema_name: str) -> Dict[str, Any]:
         raise FileNotFoundError(f"Schema not found: {schema_path}")
 
     return json.loads(schema_path.read_text())
+
+
+def _create_schema_registry() -> Any:
+    """Create a referencing registry with all watercooler schemas.
+
+    This enables $ref resolution between schemas (e.g., watercooler_thread
+    referencing thread_entry).
+
+    Returns:
+        A referencing.Registry with all schemas loaded, or None if
+        referencing is not available.
+    """
+    if not REFERENCING_AVAILABLE:
+        return None
+
+    # Load both schemas
+    thread_entry_schema = load_schema("thread_entry.schema.json")
+    watercooler_thread_schema = load_schema("watercooler_thread.schema.json")
+
+    # Create resources for each schema with their $id as the URI
+    # The $ref in watercooler_thread.schema.json is relative ("thread_entry.schema.json")
+    # so we need to map both the full URI and the relative filename
+    resources = [
+        # Map by full $id URI
+        (
+            thread_entry_schema.get("$id", "thread_entry.schema.json"),
+            Resource.from_contents(thread_entry_schema, default_specification=DRAFT7),
+        ),
+        (
+            watercooler_thread_schema.get("$id", "watercooler_thread.schema.json"),
+            Resource.from_contents(watercooler_thread_schema, default_specification=DRAFT7),
+        ),
+        # Map by relative filename (for $ref resolution)
+        (
+            "thread_entry.schema.json",
+            Resource.from_contents(thread_entry_schema, default_specification=DRAFT7),
+        ),
+        (
+            "watercooler_thread.schema.json",
+            Resource.from_contents(watercooler_thread_schema, default_specification=DRAFT7),
+        ),
+    ]
+
+    return Registry().with_resources(resources)
 
 
 def validate_thread_entry(entry_dict: Dict[str, Any]) -> Tuple[bool, List[str]]:
@@ -122,8 +175,19 @@ def validate_watercooler_thread(thread_dict: Dict[str, Any]) -> Tuple[bool, List
 
     try:
         schema = load_schema("watercooler_thread.schema.json")
-        validate(instance=thread_dict, schema=schema)
-        return True, []
+
+        # Use registry for $ref resolution (watercooler_thread references thread_entry)
+        registry = _create_schema_registry()
+        if registry is not None:
+            validator = Draft7Validator(schema, registry=registry)
+            errors_list = list(validator.iter_errors(thread_dict))
+            if errors_list:
+                return False, [errors_list[0].message]
+            return True, []
+        else:
+            # Fallback to simple validation (may fail on $ref)
+            validate(instance=thread_dict, schema=schema)
+            return True, []
     except ValidationError as e:
         return False, [str(e.message)]
     except SchemaError as e:
