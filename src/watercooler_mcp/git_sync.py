@@ -1529,10 +1529,461 @@ def _detect_branch_rename(
         return (False, None, 0.0)
 
 
+@dataclass
+class BranchDivergenceInfo:
+    """Information about branch history divergence between repos."""
+    diverged: bool
+    commits_ahead: int  # Threads branch commits ahead of common ancestor
+    commits_behind: int  # Threads branch commits behind code branch
+    common_ancestor: Optional[str]  # Common merge-base commit SHA (if any)
+    needs_rebase: bool  # True if threads branch needs to be rebased
+    needs_fetch: bool  # True if remote fetch might help
+    details: str  # Human-readable explanation
+
+
+def _detect_branch_divergence(
+    code_repo_obj: Repo,
+    threads_repo_obj: Repo,
+    code_branch: str,
+    threads_branch: str,
+) -> BranchDivergenceInfo:
+    """Detect if branches have diverged in commit history.
+    
+    This checks if the threads branch and code branch have diverged, which
+    can happen when:
+    - Code branch was rebased but threads branch was not
+    - Force-push occurred on one repo but not the other
+    - Branches were created from different base commits
+    
+    Args:
+        code_repo_obj: GitPython Repo object for code repository
+        threads_repo_obj: GitPython Repo object for threads repository
+        code_branch: Name of the code branch
+        threads_branch: Name of the threads branch
+        
+    Returns:
+        BranchDivergenceInfo with divergence status and remediation info
+    """
+    try:
+        # Get the HEAD commits for both branches
+        try:
+            code_head = code_repo_obj.commit(code_branch)
+        except Exception:
+            return BranchDivergenceInfo(
+                diverged=False,
+                commits_ahead=0,
+                commits_behind=0,
+                common_ancestor=None,
+                needs_rebase=False,
+                needs_fetch=False,
+                details=f"Could not find code branch '{code_branch}'"
+            )
+        
+        try:
+            threads_head = threads_repo_obj.commit(threads_branch)
+        except Exception:
+            return BranchDivergenceInfo(
+                diverged=False,
+                commits_ahead=0,
+                commits_behind=0,
+                common_ancestor=None,
+                needs_rebase=False,
+                needs_fetch=False,
+                details=f"Could not find threads branch '{threads_branch}'"
+            )
+        
+        # Check if threads repo has origin/branch to compare against
+        threads_origin_ref = None
+        needs_fetch = False
+        try:
+            threads_origin_ref = threads_repo_obj.commit(f"origin/{threads_branch}")
+        except Exception:
+            # No remote tracking branch - might need to fetch
+            needs_fetch = True
+        
+        # For threads repo: check if local is ahead/behind origin
+        commits_ahead = 0
+        commits_behind = 0
+        common_ancestor_sha: Optional[str] = None
+        
+        if threads_origin_ref:
+            # Find merge-base between local and origin
+            try:
+                merge_base = threads_repo_obj.merge_base(threads_head, threads_origin_ref)
+                if merge_base:
+                    common_ancestor_sha = merge_base[0].hexsha[:8]
+                    
+                    # Count commits ahead (local has but origin doesn't)
+                    ahead_commits = list(threads_repo_obj.iter_commits(
+                        f"origin/{threads_branch}..{threads_branch}"
+                    ))
+                    commits_ahead = len(ahead_commits)
+                    
+                    # Count commits behind (origin has but local doesn't)
+                    behind_commits = list(threads_repo_obj.iter_commits(
+                        f"{threads_branch}..origin/{threads_branch}"
+                    ))
+                    commits_behind = len(behind_commits)
+            except Exception:
+                pass
+        
+        # Determine if diverged and what remediation is needed
+        diverged = commits_ahead > 0 and commits_behind > 0
+        needs_rebase = diverged or commits_behind > 0
+        
+        if diverged:
+            details = (
+                f"Threads branch '{threads_branch}' has diverged from origin: "
+                f"{commits_ahead} commits ahead, {commits_behind} behind. "
+                f"Common ancestor: {common_ancestor_sha or 'unknown'}. "
+                f"This typically happens after a rebase on the code repo. "
+                f"Recommended: rebase threads branch onto origin/{threads_branch}"
+            )
+        elif commits_behind > 0:
+            details = (
+                f"Threads branch '{threads_branch}' is {commits_behind} commits behind origin. "
+                f"Recommended: pull or rebase to sync with remote."
+            )
+        elif commits_ahead > 0:
+            details = (
+                f"Threads branch '{threads_branch}' is {commits_ahead} commits ahead of origin. "
+                f"This is normal for unpushed local changes."
+            )
+        elif needs_fetch:
+            details = (
+                f"No remote tracking info for threads branch '{threads_branch}'. "
+                f"Consider fetching from origin to check for updates."
+            )
+        else:
+            details = f"Threads branch '{threads_branch}' is in sync with origin."
+        
+        return BranchDivergenceInfo(
+            diverged=diverged,
+            commits_ahead=commits_ahead,
+            commits_behind=commits_behind,
+            common_ancestor=common_ancestor_sha,
+            needs_rebase=needs_rebase,
+            needs_fetch=needs_fetch,
+            details=details,
+        )
+        
+    except Exception as e:
+        return BranchDivergenceInfo(
+            diverged=False,
+            commits_ahead=0,
+            commits_behind=0,
+            common_ancestor=None,
+            needs_rebase=False,
+            needs_fetch=True,
+            details=f"Error detecting divergence: {str(e)}"
+        )
+
+
+@dataclass 
+class BranchSyncResult:
+    """Result of branch history synchronization."""
+    success: bool
+    action_taken: str  # "rebased", "reset", "fast_forward", "no_action", "error"
+    commits_preserved: int  # Number of local commits preserved after rebase
+    commits_lost: int  # Number of commits that couldn't be rebased (conflicts)
+    details: str  # Human-readable description of what happened
+    needs_manual_resolution: bool  # True if manual intervention required
+
+
+def sync_branch_history(
+    threads_repo_path: Path,
+    branch: str,
+    strategy: str = "rebase",
+    force: bool = False,
+) -> BranchSyncResult:
+    """Synchronize threads branch history with remote.
+    
+    This function handles branch divergence by rebasing or resetting
+    the local threads branch to match the remote state.
+    
+    Args:
+        threads_repo_path: Path to threads repository
+        branch: Branch name to sync
+        strategy: Sync strategy - "rebase" (default, preserves local work),
+                  "reset" (discards local changes), or "merge" (creates merge commit)
+        force: If True, use force push after rebase/reset
+        
+    Returns:
+        BranchSyncResult with outcome details
+    """
+    try:
+        repo = Repo(threads_repo_path, search_parent_directories=True)
+        
+        # Ensure we're on the target branch
+        if repo.active_branch.name != branch:
+            try:
+                repo.git.checkout(branch)
+            except Exception as e:
+                return BranchSyncResult(
+                    success=False,
+                    action_taken="error",
+                    commits_preserved=0,
+                    commits_lost=0,
+                    details=f"Failed to checkout branch '{branch}': {str(e)}",
+                    needs_manual_resolution=True,
+                )
+        
+        # Fetch latest from origin
+        try:
+            repo.git.fetch('origin', branch)
+        except Exception as e:
+            return BranchSyncResult(
+                success=False,
+                action_taken="error",
+                commits_preserved=0,
+                commits_lost=0,
+                details=f"Failed to fetch from origin: {str(e)}",
+                needs_manual_resolution=True,
+            )
+        
+        # Check divergence status
+        local_head = repo.commit(branch)
+        try:
+            remote_head = repo.commit(f"origin/{branch}")
+        except Exception:
+            # Remote branch doesn't exist - just push
+            try:
+                repo.git.push('origin', branch, '--set-upstream')
+                return BranchSyncResult(
+                    success=True,
+                    action_taken="push_new",
+                    commits_preserved=0,
+                    commits_lost=0,
+                    details=f"Pushed new branch '{branch}' to origin.",
+                    needs_manual_resolution=False,
+                )
+            except Exception as push_e:
+                return BranchSyncResult(
+                    success=False,
+                    action_taken="error",
+                    commits_preserved=0,
+                    commits_lost=0,
+                    details=f"Failed to push new branch: {str(push_e)}",
+                    needs_manual_resolution=True,
+                )
+        
+        # Find merge base
+        try:
+            merge_base_list = repo.merge_base(local_head, remote_head)
+            if not merge_base_list:
+                return BranchSyncResult(
+                    success=False,
+                    action_taken="error",
+                    commits_preserved=0,
+                    commits_lost=0,
+                    details="No common ancestor found between local and remote. Branches have completely divergent histories.",
+                    needs_manual_resolution=True,
+                )
+            merge_base = merge_base_list[0]
+        except Exception as e:
+            return BranchSyncResult(
+                success=False,
+                action_taken="error",
+                commits_preserved=0,
+                commits_lost=0,
+                details=f"Failed to find merge base: {str(e)}",
+                needs_manual_resolution=True,
+            )
+        
+        # Count commits ahead/behind
+        commits_ahead = len(list(repo.iter_commits(f"origin/{branch}..{branch}")))
+        commits_behind = len(list(repo.iter_commits(f"{branch}..origin/{branch}")))
+        
+        # Determine if diverged
+        if commits_ahead == 0 and commits_behind == 0:
+            return BranchSyncResult(
+                success=True,
+                action_taken="no_action",
+                commits_preserved=0,
+                commits_lost=0,
+                details="Branch is already in sync with origin.",
+                needs_manual_resolution=False,
+            )
+        
+        if commits_ahead == 0 and commits_behind > 0:
+            # Local is behind - just pull/fast-forward
+            try:
+                repo.git.pull('origin', branch, '--ff-only')
+                return BranchSyncResult(
+                    success=True,
+                    action_taken="fast_forward",
+                    commits_preserved=0,
+                    commits_lost=0,
+                    details=f"Fast-forwarded {commits_behind} commits from origin.",
+                    needs_manual_resolution=False,
+                )
+            except Exception:
+                # Can't fast-forward, need rebase
+                pass
+        
+        if commits_ahead > 0 and commits_behind == 0:
+            # Local is ahead - just push
+            try:
+                repo.git.push('origin', branch)
+                return BranchSyncResult(
+                    success=True,
+                    action_taken="push",
+                    commits_preserved=commits_ahead,
+                    commits_lost=0,
+                    details=f"Pushed {commits_ahead} local commits to origin.",
+                    needs_manual_resolution=False,
+                )
+            except Exception as e:
+                return BranchSyncResult(
+                    success=False,
+                    action_taken="error",
+                    commits_preserved=0,
+                    commits_lost=0,
+                    details=f"Failed to push: {str(e)}",
+                    needs_manual_resolution=True,
+                )
+        
+        # Diverged - need to reconcile
+        if strategy == "rebase":
+            try:
+                # Stash any uncommitted changes
+                stash_needed = repo.is_dirty()
+                if stash_needed:
+                    repo.git.stash()
+                
+                # Rebase onto origin
+                repo.git.rebase(f"origin/{branch}")
+                
+                # Pop stash if needed
+                if stash_needed:
+                    try:
+                        repo.git.stash('pop')
+                    except Exception:
+                        pass  # May fail if conflicts, that's ok
+                
+                # Force push (with lease for safety)
+                if force:
+                    repo.git.push('origin', branch, '--force-with-lease')
+                    push_msg = "Force-pushed rebased branch to origin."
+                else:
+                    push_msg = "Rebase complete. Run with force=True to push, or push manually."
+                
+                return BranchSyncResult(
+                    success=True,
+                    action_taken="rebased",
+                    commits_preserved=commits_ahead,
+                    commits_lost=0,
+                    details=f"Rebased {commits_ahead} local commits onto origin/{branch}. {push_msg}",
+                    needs_manual_resolution=not force,
+                )
+            except Exception as e:
+                # Abort rebase on failure
+                try:
+                    repo.git.rebase('--abort')
+                except Exception:
+                    pass
+                
+                return BranchSyncResult(
+                    success=False,
+                    action_taken="error",
+                    commits_preserved=0,
+                    commits_lost=commits_ahead,
+                    details=f"Rebase failed (likely conflicts): {str(e)}. Manual resolution required.",
+                    needs_manual_resolution=True,
+                )
+        
+        elif strategy == "reset":
+            if not force:
+                return BranchSyncResult(
+                    success=False,
+                    action_taken="error",
+                    commits_preserved=0,
+                    commits_lost=0,
+                    details=f"Reset strategy requires force=True. This will discard {commits_ahead} local commits.",
+                    needs_manual_resolution=False,
+                )
+            
+            try:
+                repo.git.reset('--hard', f"origin/{branch}")
+                return BranchSyncResult(
+                    success=True,
+                    action_taken="reset",
+                    commits_preserved=0,
+                    commits_lost=commits_ahead,
+                    details=f"Reset to origin/{branch}. Lost {commits_ahead} local commits.",
+                    needs_manual_resolution=False,
+                )
+            except Exception as e:
+                return BranchSyncResult(
+                    success=False,
+                    action_taken="error",
+                    commits_preserved=0,
+                    commits_lost=0,
+                    details=f"Reset failed: {str(e)}",
+                    needs_manual_resolution=True,
+                )
+        
+        elif strategy == "merge":
+            try:
+                repo.git.merge(f"origin/{branch}", '--no-edit')
+                repo.git.push('origin', branch)
+                return BranchSyncResult(
+                    success=True,
+                    action_taken="merged",
+                    commits_preserved=commits_ahead,
+                    commits_lost=0,
+                    details=f"Merged origin/{branch} into local and pushed.",
+                    needs_manual_resolution=False,
+                )
+            except Exception as e:
+                try:
+                    repo.git.merge('--abort')
+                except Exception:
+                    pass
+                return BranchSyncResult(
+                    success=False,
+                    action_taken="error",
+                    commits_preserved=0,
+                    commits_lost=0,
+                    details=f"Merge failed: {str(e)}",
+                    needs_manual_resolution=True,
+                )
+        
+        else:
+            return BranchSyncResult(
+                success=False,
+                action_taken="error",
+                commits_preserved=0,
+                commits_lost=0,
+                details=f"Unknown strategy: {strategy}. Use 'rebase', 'reset', or 'merge'.",
+                needs_manual_resolution=False,
+            )
+            
+    except InvalidGitRepositoryError:
+        return BranchSyncResult(
+            success=False,
+            action_taken="error",
+            commits_preserved=0,
+            commits_lost=0,
+            details=f"Not a git repository: {threads_repo_path}",
+            needs_manual_resolution=True,
+        )
+    except Exception as e:
+        return BranchSyncResult(
+            success=False,
+            action_taken="error",
+            commits_preserved=0,
+            commits_lost=0,
+            details=f"Unexpected error: {str(e)}",
+            needs_manual_resolution=True,
+        )
+
+
 def validate_branch_pairing(
     code_repo: Path,
     threads_repo: Path,
     strict: bool = True,
+    check_history: bool = False,
 ) -> BranchPairingResult:
     """Validate that code and threads repos are on matching branches.
 
@@ -1541,6 +1992,9 @@ def validate_branch_pairing(
         threads_repo: Path to threads repository root (or .watercooler directory)
         strict: If True, return valid=False on any mismatch. If False, only return
                 valid=False on critical errors.
+        check_history: If True, also check for commit history divergence between
+                      branches (e.g., after rebase or force-push). This is more
+                      expensive but catches subtle sync issues.
 
     Returns:
         BranchPairingResult with validation status, branch names, and any mismatches
@@ -1550,6 +2004,7 @@ def validate_branch_pairing(
 
     # Get code repo branch
     code_branch: Optional[str] = None
+    code_repo_obj: Optional[Repo] = None
     try:
         code_repo_obj = Repo(code_repo, search_parent_directories=True)
         if code_repo_obj.head.is_detached:
@@ -1589,6 +2044,7 @@ def validate_branch_pairing(
 
     # Get threads repo branch
     threads_branch: Optional[str] = None
+    threads_repo_obj: Optional[Repo] = None
     try:
         threads_repo_obj = Repo(threads_repo, search_parent_directories=True)
         if threads_repo_obj.head.is_detached:
@@ -1682,6 +2138,36 @@ def validate_branch_pairing(
             severity="error",
             recovery=recovery_msg
         ))
+    elif check_history and code_repo_obj and threads_repo_obj:
+        # Branches match - check for commit history divergence
+        divergence = _detect_branch_divergence(
+            code_repo_obj, threads_repo_obj, code_branch, threads_branch
+        )
+        
+        if divergence.diverged:
+            # Branch histories have diverged - this is a critical issue
+            mismatches.append(BranchMismatch(
+                type="branch_history_diverged",
+                code=code_branch,
+                threads=threads_branch,
+                severity="error",
+                recovery=(
+                    f"Branch histories have diverged: {divergence.commits_ahead} ahead, "
+                    f"{divergence.commits_behind} behind. "
+                    f"Run: watercooler_v1_sync_branch_state with operation='recover' to attempt auto-fix, "
+                    f"or manually rebase the threads branch."
+                )
+            ))
+            warnings.append(divergence.details)
+        elif divergence.needs_rebase:
+            # Not diverged but behind - add warning
+            warnings.append(
+                f"Threads branch is {divergence.commits_behind} commits behind origin. "
+                f"Consider pulling or rebasing."
+            )
+        elif divergence.needs_fetch:
+            # No remote tracking info
+            warnings.append(divergence.details)
 
     # Determine validity
     has_errors = any(m.severity == "error" for m in mismatches)
