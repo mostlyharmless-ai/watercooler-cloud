@@ -49,6 +49,9 @@ from .git_sync import (
     validate_branch_pairing,
     GitSyncManager,
     _diag,
+    sync_branch_history,
+    BranchSyncResult,
+    BranchDivergenceInfo,
 )
 
 # Workaround for Windows stdio hang: Force auto-flush on every stdout write
@@ -174,16 +177,85 @@ def _dynamic_context_missing(context: ThreadContext) -> bool:
     return dynamic_env and not context.explicit_dir and context.threads_slug is None
 
 
-def _refresh_threads(context: ThreadContext) -> None:
+def _validate_and_sync_branches(
+    context: ThreadContext,
+    skip_validation: bool = False,
+) -> None:
+    """Validate branch pairing and sync branches if needed.
+    
+    This helper is used by both read and write operations to ensure
+    the threads repo is on the correct branch before any operation.
+    
+    Args:
+        context: Thread context with code and threads repo info
+        skip_validation: If True, skip strict validation (used for recovery operations)
+        
+    Raises:
+        BranchPairingError: If branch validation fails and skip_validation=False
+    """
     sync = get_git_sync_manager_from_context(context)
     if not sync:
         return
+        
+    # Validate branch pairing before any operation
+    if not skip_validation and context.code_root and context.threads_dir:
+        try:
+            validation_result = validate_branch_pairing(
+                code_repo=context.code_root,
+                threads_repo=context.threads_dir,
+                strict=True,
+            )
+            if not validation_result.valid:
+                # Build error message with recovery steps
+                error_parts = [
+                    "Branch pairing validation failed:",
+                    f"  Code branch: {validation_result.code_branch or '(detached/unknown)'}",
+                    f"  Threads branch: {validation_result.threads_branch or '(detached/unknown)'}",
+                ]
+                if validation_result.mismatches:
+                    error_parts.append("\nMismatches:")
+                    for mismatch in validation_result.mismatches:
+                        error_parts.append(f"  - {mismatch.type}: {mismatch.recovery}")
+                if validation_result.warnings:
+                    error_parts.append("\nWarnings:")
+                    for warning in validation_result.warnings:
+                        error_parts.append(f"  - {warning}")
+                error_parts.append(
+                    "\nRun: watercooler_v1_sync_branch_state with operation='checkout' to sync branches"
+                )
+                raise BranchPairingError("\n".join(error_parts))
+        except BranchPairingError:
+            raise
+        except Exception as e:
+            # Log but don't block on validation errors (e.g., repo not initialized)
+            _diag(f"Branch validation warning: {e}")
+    
+    # Attempt to sync branches (catch exceptions to avoid blocking legitimate operations)
     branch = context.code_branch
     if branch and _should_auto_branch():
         try:
             sync.ensure_branch(branch)
         except Exception:
             pass
+
+
+def _refresh_threads(context: ThreadContext, skip_validation: bool = False) -> None:
+    """Refresh threads repo by validating branch pairing and pulling latest changes.
+    
+    Args:
+        context: Thread context with repo information
+        skip_validation: If True, skip branch validation (used for recovery operations)
+        
+    Raises:
+        BranchPairingError: If branch validation fails and skip_validation=False
+    """
+    # Validate and sync branches (will raise if validation fails)
+    _validate_and_sync_branches(context, skip_validation=skip_validation)
+    
+    sync = get_git_sync_manager_from_context(context)
+    if not sync:
+        return
+        
     status = sync.get_async_status()
     if status.get("mode") == "async":
         # Async mode relies on background pulls; avoid blocking operations.
@@ -386,46 +458,8 @@ def run_with_sync(
     if not sync:
         return operation()
 
-    # Validate branch pairing before write operation
-    if not skip_validation and context.code_root and context.threads_dir:
-        try:
-            validation_result = validate_branch_pairing(
-                code_repo=context.code_root,
-                threads_repo=context.threads_dir,
-                strict=True,
-            )
-            if not validation_result.valid:
-                # Build error message with recovery steps
-                error_parts = [
-                    "Branch pairing validation failed:",
-                    f"  Code branch: {validation_result.code_branch or '(detached/unknown)'}",
-                    f"  Threads branch: {validation_result.threads_branch or '(detached/unknown)'}",
-                ]
-                if validation_result.mismatches:
-                    error_parts.append("\nMismatches:")
-                    for mismatch in validation_result.mismatches:
-                        error_parts.append(f"  - {mismatch.type}: {mismatch.recovery}")
-                if validation_result.warnings:
-                    error_parts.append("\nWarnings:")
-                    for warning in validation_result.warnings:
-                        error_parts.append(f"  - {warning}")
-                error_parts.append(
-                    "\nTo fix: Use watercooler_v1_sync_branch_state to sync branches, "
-                    "or set skip_validation=True to bypass (not recommended)."
-                )
-                raise BranchPairingError("\n".join(error_parts))
-        except BranchPairingError:
-            raise
-        except Exception as e:
-            # Log but don't block on validation errors (e.g., repo not initialized)
-            _diag(f"Branch validation warning: {e}")
-
-    branch = context.code_branch
-    if branch and _should_auto_branch():
-        try:
-            sync.ensure_branch(branch)
-        except Exception:
-            pass
+    # Validate and sync branches before write operation
+    _validate_and_sync_branches(context, skip_validation=skip_validation)
 
     footers = _build_commit_footers(
         context,
@@ -1734,6 +1768,7 @@ def sync_branch_state(
     - delete: Delete threads branch if code branch deleted (with safeguards)
     - merge: Merge threads branch to main if code branch merged
     - checkout: Ensure both repos on same branch
+    - recover: Recover from branch history divergence (e.g., after rebase/force-push)
 
     Note:
         This operational tool does **not** require ``agent_func`` or other
@@ -1745,14 +1780,16 @@ def sync_branch_state(
     Args:
         code_path: Path to code repository directory (default: current directory)
         branch: Specific branch to sync (default: current branch)
-        operation: One of "create", "delete", "merge", "checkout" (default: "checkout")
-        force: Skip safety checks (use with caution, default: False)
+        operation: One of "create", "delete", "merge", "checkout", "recover" (default: "checkout")
+        force: Skip safety checks (use with caution, default: False). For "recover",
+               this controls whether to force-push after rebasing.
 
     Returns:
         Operation result with success/failure and any warnings.
 
     Example:
         >>> sync_branch_state(ctx, code_path=".", branch="feature-auth", operation="checkout")
+        >>> sync_branch_state(ctx, code_path=".", branch="staging", operation="recover", force=True)
     """
     try:
         error, context = _require_context(code_path)
@@ -1964,10 +2001,57 @@ def sync_branch_state(
                     text=f"Error merging branch: {error_str}"
                 )])
 
+        elif operation == "recover":
+            # Recover from branch history divergence
+            # This handles cases where threads branch has diverged from remote
+            # (e.g., after force-push or rebase on code repo)
+
+            if target_branch not in [b.name for b in threads_repo.heads]:
+                return ToolResult(content=[TextContent(
+                    type="text",
+                    text=f"Error: Branch '{target_branch}' does not exist in threads repo."
+                )])
+
+            # Use sync_branch_history to attempt automatic recovery
+            sync_result = sync_branch_history(
+                threads_repo_path=context.threads_dir,
+                branch=target_branch,
+                strategy="rebase",  # Default to rebase to preserve local work
+                force=force,  # Only force-push if user explicitly requests
+            )
+
+            if sync_result.success:
+                result_msg = f"✅ Recovery successful: {sync_result.details}"
+                if sync_result.commits_preserved > 0:
+                    result_msg += f"\n  - Preserved {sync_result.commits_preserved} local commits"
+                if sync_result.needs_manual_resolution:
+                    result_msg += "\n  ⚠️ Manual push required: run with force=True to push changes"
+                    warnings.append("Rebase complete but push not performed. Use force=True to push.")
+            else:
+                if sync_result.needs_manual_resolution:
+                    result_msg = (
+                        f"❌ Recovery requires manual intervention:\n"
+                        f"  {sync_result.details}\n\n"
+                        f"Manual recovery options:\n"
+                        f"  1. Resolve conflicts and commit\n"
+                        f"  2. Use operation='recover' with force=True to discard local changes\n"
+                        f"  3. Manually rebase: git rebase origin/{target_branch}"
+                    )
+                else:
+                    result_msg = f"❌ Recovery failed: {sync_result.details}"
+
+                if sync_result.commits_lost > 0:
+                    warnings.append(f"Warning: {sync_result.commits_lost} local commits may be lost")
+
+                return ToolResult(content=[TextContent(
+                    type="text",
+                    text=result_msg
+                )])
+
         else:
             return ToolResult(content=[TextContent(
                 type="text",
-                text=f"Error: Unknown operation '{operation}'. Must be one of: create, delete, merge, checkout"
+                text=f"Error: Unknown operation '{operation}'. Must be one of: create, delete, merge, checkout, recover"
             )])
 
         output = {

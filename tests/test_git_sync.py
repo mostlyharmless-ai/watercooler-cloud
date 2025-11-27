@@ -239,3 +239,287 @@ def test_push_pending_respects_remote_disabled(tmp_path):
 # - Code review comments on PR #21
 # - Manual testing in development environments with multiple remotes
 # - Integration testing in real-world scenarios
+
+
+# ============================================================================
+# Branch Divergence Detection and Recovery Tests
+# ============================================================================
+
+from watercooler_mcp.git_sync import (
+    BranchDivergenceInfo,
+    BranchSyncResult,
+    _detect_branch_divergence,
+    sync_branch_history,
+    validate_branch_pairing,
+)
+
+
+def create_diverged_repos(tmp_path):
+    """Create a scenario with diverged branches."""
+    # Create remote
+    remote = tmp_path / "remote.git"
+    seed_remote_with_main(remote)
+
+    # Create threads repo
+    threads_path = tmp_path / "threads"
+    threads_repo = Repo.clone_from(remote.as_posix(), threads_path, branch="main")
+    threads_repo.config_writer().set_value("user", "email", "test@example.com").release()
+    threads_repo.config_writer().set_value("user", "name", "Tester").release()
+    # Ensure we're on main branch
+    if threads_repo.active_branch.name != "main":
+        threads_repo.git.checkout('-B', 'main', 'origin/main')
+    # Set up tracking
+    threads_repo.git.branch('--set-upstream-to=origin/main', 'main')
+
+    # Create code repo (doesn't need to be real, just for testing)
+    code_path = tmp_path / "code"
+    code_repo = Repo.init(code_path)
+    code_repo.config_writer().set_value("user", "email", "test@example.com").release()
+    code_repo.config_writer().set_value("user", "name", "Tester").release()
+    touch(code_path / "code.py", "# code")
+    code_repo.index.add(["code.py"])
+    code_repo.index.commit("initial code")
+    code_repo.git.branch('-M', 'main')
+
+    return remote, threads_path, code_path
+
+
+def test_detect_divergence_in_sync(tmp_path):
+    """Test divergence detection when branches are in sync."""
+    remote, threads_path, code_path = create_diverged_repos(tmp_path)
+
+    threads_repo = Repo(threads_path)
+    code_repo = Repo(code_path)
+
+    info = _detect_branch_divergence(code_repo, threads_repo, "main", "main")
+
+    # Should not be diverged since we just cloned
+    assert not info.diverged
+    assert info.commits_ahead == 0
+    assert info.commits_behind == 0
+
+
+def test_detect_divergence_ahead_of_origin(tmp_path):
+    """Test divergence detection when local is ahead."""
+    remote, threads_path, code_path = create_diverged_repos(tmp_path)
+
+    threads_repo = Repo(threads_path)
+    code_repo = Repo(code_path)
+
+    # Add a local commit
+    touch(threads_path / "local.md", "local change")
+    threads_repo.index.add(["local.md"])
+    threads_repo.index.commit("local commit")
+
+    info = _detect_branch_divergence(code_repo, threads_repo, "main", "main")
+
+    # Should be ahead but not diverged
+    assert not info.diverged
+    assert info.commits_ahead == 1
+    assert info.commits_behind == 0
+
+
+def test_detect_divergence_behind_origin(tmp_path):
+    """Test divergence detection when local is behind."""
+    remote, threads_path, code_path = create_diverged_repos(tmp_path)
+
+    threads_repo = Repo(threads_path)
+    code_repo = Repo(code_path)
+
+    # Push a change to remote from another clone
+    other_clone = tmp_path / "other"
+    other_repo = Repo.clone_from(remote.as_posix(), other_clone, branch="main")
+    other_repo.config_writer().set_value("user", "email", "test@example.com").release()
+    other_repo.config_writer().set_value("user", "name", "Tester").release()
+    touch(other_clone / "other.md", "other change")
+    other_repo.index.add(["other.md"])
+    other_repo.index.commit("other commit")
+    other_repo.remotes.origin.push("main")
+
+    # Fetch in our threads repo
+    threads_repo.remotes.origin.fetch()
+
+    info = _detect_branch_divergence(code_repo, threads_repo, "main", "main")
+
+    # Should be behind
+    assert not info.diverged
+    assert info.commits_ahead == 0
+    assert info.commits_behind == 1
+
+
+def test_detect_divergence_actually_diverged(tmp_path):
+    """Test divergence detection when branches have truly diverged."""
+    remote, threads_path, code_path = create_diverged_repos(tmp_path)
+
+    threads_repo = Repo(threads_path)
+    code_repo = Repo(code_path)
+
+    # Add a local commit first
+    touch(threads_path / "local.md", "local change")
+    threads_repo.index.add(["local.md"])
+    threads_repo.index.commit("local commit")
+
+    # Push a different change to remote from another clone
+    other_clone = tmp_path / "other"
+    other_repo = Repo.clone_from(remote.as_posix(), other_clone, branch="main")
+    other_repo.config_writer().set_value("user", "email", "test@example.com").release()
+    other_repo.config_writer().set_value("user", "name", "Tester").release()
+    touch(other_clone / "other.md", "other change")
+    other_repo.index.add(["other.md"])
+    other_repo.index.commit("other commit")
+    other_repo.remotes.origin.push("main")
+
+    # Fetch in our threads repo
+    threads_repo.remotes.origin.fetch()
+
+    info = _detect_branch_divergence(code_repo, threads_repo, "main", "main")
+
+    # Should be diverged - both ahead and behind
+    assert info.diverged
+    assert info.commits_ahead == 1
+    assert info.commits_behind == 1
+    assert info.needs_rebase
+
+
+def test_sync_branch_history_in_sync(tmp_path):
+    """Test sync_branch_history when already in sync."""
+    remote, threads_path, code_path = create_diverged_repos(tmp_path)
+
+    result = sync_branch_history(threads_path, "main")
+
+    assert result.success
+    assert result.action_taken == "no_action"
+    assert not result.needs_manual_resolution
+
+
+def test_sync_branch_history_fast_forward(tmp_path):
+    """Test sync_branch_history with fast-forward case."""
+    remote, threads_path, code_path = create_diverged_repos(tmp_path)
+
+    # Push a change to remote from another clone
+    other_clone = tmp_path / "other"
+    other_repo = Repo.clone_from(remote.as_posix(), other_clone, branch="main")
+    other_repo.config_writer().set_value("user", "email", "test@example.com").release()
+    other_repo.config_writer().set_value("user", "name", "Tester").release()
+    touch(other_clone / "other.md", "other change")
+    other_repo.index.add(["other.md"])
+    other_repo.index.commit("other commit")
+    other_repo.remotes.origin.push("main")
+
+    result = sync_branch_history(threads_path, "main")
+
+    assert result.success
+    assert result.action_taken == "fast_forward"
+    assert not result.needs_manual_resolution
+
+
+def test_sync_branch_history_push_local(tmp_path):
+    """Test sync_branch_history when local has unpushed commits."""
+    remote, threads_path, code_path = create_diverged_repos(tmp_path)
+    threads_repo = Repo(threads_path)
+
+    # Add a local commit
+    touch(threads_path / "local.md", "local change")
+    threads_repo.index.add(["local.md"])
+    threads_repo.index.commit("local commit")
+
+    result = sync_branch_history(threads_path, "main")
+
+    assert result.success
+    assert result.action_taken == "push"
+    assert result.commits_preserved == 1
+
+
+def test_sync_branch_history_rebase_diverged(tmp_path):
+    """Test sync_branch_history with rebase strategy on diverged branches."""
+    remote, threads_path, code_path = create_diverged_repos(tmp_path)
+    threads_repo = Repo(threads_path)
+
+    # Add a local commit first
+    touch(threads_path / "local.md", "local change")
+    threads_repo.index.add(["local.md"])
+    threads_repo.index.commit("local commit")
+
+    # Push a different change to remote from another clone
+    other_clone = tmp_path / "other"
+    other_repo = Repo.clone_from(remote.as_posix(), other_clone, branch="main")
+    other_repo.config_writer().set_value("user", "email", "test@example.com").release()
+    other_repo.config_writer().set_value("user", "name", "Tester").release()
+    touch(other_clone / "other.md", "other change")
+    other_repo.index.add(["other.md"])
+    other_repo.index.commit("other commit")
+    other_repo.remotes.origin.push("main")
+
+    # Now sync with rebase (no force, so won't push)
+    result = sync_branch_history(threads_path, "main", strategy="rebase", force=False)
+
+    assert result.success
+    assert result.action_taken == "rebased"
+    assert result.commits_preserved == 1
+    assert result.needs_manual_resolution  # needs force=True to push
+
+
+def test_sync_branch_history_rebase_with_force_push(tmp_path):
+    """Test sync_branch_history with rebase and force push."""
+    remote, threads_path, code_path = create_diverged_repos(tmp_path)
+    threads_repo = Repo(threads_path)
+
+    # Add a local commit first
+    touch(threads_path / "local.md", "local change")
+    threads_repo.index.add(["local.md"])
+    threads_repo.index.commit("local commit")
+
+    # Push a different change to remote from another clone
+    other_clone = tmp_path / "other"
+    other_repo = Repo.clone_from(remote.as_posix(), other_clone, branch="main")
+    other_repo.config_writer().set_value("user", "email", "test@example.com").release()
+    other_repo.config_writer().set_value("user", "name", "Tester").release()
+    touch(other_clone / "other.md", "other change")
+    other_repo.index.add(["other.md"])
+    other_repo.index.commit("other commit")
+    other_repo.remotes.origin.push("main")
+
+    # Now sync with rebase and force
+    result = sync_branch_history(threads_path, "main", strategy="rebase", force=True)
+
+    assert result.success
+    assert result.action_taken == "rebased"
+    assert result.commits_preserved == 1
+    assert not result.needs_manual_resolution
+
+
+def test_validate_branch_pairing_with_history_check(tmp_path):
+    """Test validate_branch_pairing with check_history enabled."""
+    remote, threads_path, code_path = create_diverged_repos(tmp_path)
+    threads_repo = Repo(threads_path)
+
+    # Add a local commit first
+    touch(threads_path / "local.md", "local change")
+    threads_repo.index.add(["local.md"])
+    threads_repo.index.commit("local commit")
+
+    # Push a different change to remote from another clone
+    other_clone = tmp_path / "other"
+    other_repo = Repo.clone_from(remote.as_posix(), other_clone, branch="main")
+    other_repo.config_writer().set_value("user", "email", "test@example.com").release()
+    other_repo.config_writer().set_value("user", "name", "Tester").release()
+    touch(other_clone / "other.md", "other change")
+    other_repo.index.add(["other.md"])
+    other_repo.index.commit("other commit")
+    other_repo.remotes.origin.push("main")
+
+    # Fetch in our threads repo
+    threads_repo.remotes.origin.fetch()
+
+    # Validate with history check
+    result = validate_branch_pairing(
+        code_repo=code_path,
+        threads_repo=threads_path,
+        strict=True,
+        check_history=True,
+    )
+
+    # Should detect the divergence
+    assert not result.valid
+    assert any(m.type == "branch_history_diverged" for m in result.mismatches)
+    assert len(result.warnings) > 0  # Should have divergence details in warnings
