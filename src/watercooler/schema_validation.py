@@ -67,8 +67,9 @@ def load_schema(schema_name: str) -> dict[str, Any]:
     return json.loads(schema_path.read_text())
 
 
+@lru_cache(maxsize=1)
 def _create_schema_registry() -> Any:
-    """Create a referencing registry with all watercooler schemas.
+    """Create a referencing registry with all watercooler schemas (cached).
 
     This enables $ref resolution between schemas (e.g., watercooler_thread
     referencing thread_entry).
@@ -76,6 +77,9 @@ def _create_schema_registry() -> Any:
     Returns:
         A referencing.Registry with all schemas loaded, or None if
         referencing is not available.
+
+    Note:
+        Results are cached since schemas don't change at runtime.
     """
     if not REFERENCING_AVAILABLE:
         return None
