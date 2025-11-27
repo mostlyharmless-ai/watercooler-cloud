@@ -236,14 +236,15 @@ def _validate_and_sync_branches(
                                 strict=True,
                                 check_history=True,
                             )
+                            # Update validation_result to reflect auto-fix outcome
+                            validation_result = revalidation
                             if revalidation.valid:
                                 _diag("Branch pairing now valid after auto-fix")
-                                # Continue - don't raise error
+                                # validation_result.valid is now True, so line 276 check will pass
                             else:
                                 # Auto-fix didn't fully resolve - report remaining issues
                                 _diag(f"Auto-fix completed but validation still failing: {revalidation.warnings}")
-                                # Fall through to error reporting below
-                                validation_result = revalidation
+                                # Fall through to error reporting below with updated validation_result
                         else:
                             # Auto-fix failed - report original issue with fix failure
                             _diag(f"Auto-fix failed: {sync_result.details}")
