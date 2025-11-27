@@ -222,14 +222,13 @@ def _validate_and_sync_branches(
                     _diag(f"Detected branch history divergence, attempting auto-fix via rebase")
                     try:
                         sync_result = sync_branch_history(
-                            code_repo=context.code_root,
-                            threads_repo=context.threads_dir,
+                            threads_repo_path=context.threads_dir,
                             branch=validation_result.threads_branch or context.code_branch,
                             strategy="rebase",
-                            force_push=True,  # Push the fix to remote
+                            force=True,  # Uses --force-with-lease for safety
                         )
                         if sync_result.success:
-                            _diag(f"Auto-fixed branch divergence: {sync_result.message}")
+                            _diag(f"Auto-fixed branch divergence: {sync_result.details}")
                             # Re-validate to confirm fix worked
                             revalidation = validate_branch_pairing(
                                 code_repo=context.code_root,
@@ -247,15 +246,15 @@ def _validate_and_sync_branches(
                                 validation_result = revalidation
                         else:
                             # Auto-fix failed - report original issue with fix failure
-                            _diag(f"Auto-fix failed: {sync_result.message}")
+                            _diag(f"Auto-fix failed: {sync_result.details}")
                             error_parts = [
                                 "Branch history divergence detected and auto-fix failed:",
                                 f"  Code branch: {validation_result.code_branch or '(detached/unknown)'}",
                                 f"  Threads branch: {validation_result.threads_branch or '(detached/unknown)'}",
-                                f"  Fix attempt: {sync_result.message}",
+                                f"  Fix attempt: {sync_result.details}",
                             ]
-                            if sync_result.conflicts:
-                                error_parts.append(f"  Conflicts: {', '.join(sync_result.conflicts)}")
+                            if sync_result.needs_manual_resolution:
+                                error_parts.append("  Manual resolution required.")
                             error_parts.append(
                                 "\nManual recovery: watercooler_v1_sync_branch_state with operation='recover'"
                             )
