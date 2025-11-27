@@ -213,7 +213,7 @@ def _validate_and_sync_branches(
             if not validation_result.valid:
                 # Check if this is a history divergence we can auto-fix
                 history_mismatch = next(
-                    (m for m in validation_result.mismatches if m.type == "history_divergence"),
+                    (m for m in validation_result.mismatches if m.type == "branch_history_diverged"),
                     None
                 )
 
