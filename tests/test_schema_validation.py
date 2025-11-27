@@ -30,7 +30,7 @@ def test_valid_thread_entry():
         "role": "implementer",
         "entry_type": "Note",
         "title": "Test Entry",
-        "entry_id": "01HKJM2NQR8XVZWF9PQRS3T4UV",
+        "entry_id": "01HKJM2NQR8XVZWF9PQRS3T4AB",
         "start_line": 10,
         "end_line": 20,
         "start_offset": 100,
@@ -121,7 +121,7 @@ def test_valid_watercooler_thread():
                 "role": "implementer",
                 "entry_type": "Note",
                 "title": "Start",
-                "entry_id": "01HKJM2NQR8XVZWF9PQRS3T4UV",
+                "entry_id": "01HKJM2NQR8XVZWF9PQRS3T4AB",
                 "start_line": 10,
                 "end_line": 15,
                 "start_offset": 100,
@@ -197,7 +197,7 @@ def test_entry_id_format():
         "role": None,
         "entry_type": None,
         "title": None,
-        "entry_id": "01HKJM2NQR8XVZWF9PQRS3T4UV",  # 26 chars, valid ULID
+        "entry_id": "01HKJM2NQR8XVZWF9PQRS3T4AB",  # 26 chars, valid ULID
         "start_line": 1,
         "end_line": 5,
         "start_offset": 0,

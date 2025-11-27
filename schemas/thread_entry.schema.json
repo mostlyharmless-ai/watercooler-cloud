@@ -43,8 +43,8 @@
     },
     "entry_id": {
       "type": ["string", "null"],
-      "description": "ULID identifier from <!-- Entry-ID: ... --> comment (26 chars, base32)",
-      "pattern": "^[0-9A-Za-z]{26}$"
+      "description": "ULID identifier from <!-- Entry-ID: ... --> comment (26 chars, Crockford base32)",
+      "pattern": "^[0-9A-HJKMNP-TV-Z]{26}$"
     },
     "start_line": {
       "type": "integer",
@@ -79,7 +79,7 @@
       "role": "implementer",
       "entry_type": "Note",
       "title": "Implementation complete",
-      "entry_id": "01HKJM2NQR8XVZWF9PQRS3T4UV",
+      "entry_id": "01HKJM2NQR8XVZWF9PQRS3T4AB",
       "start_line": 10,
       "end_line": 20,
       "start_offset": 500,

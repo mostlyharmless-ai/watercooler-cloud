@@ -7,8 +7,9 @@ Note: Requires jsonschema package (install with 'pip install jsonschema')
 """
 
 import json
+from functools import lru_cache
 from pathlib import Path
-from typing import Any, Dict, List, Optional, Tuple
+from typing import Any
 
 try:
     from jsonschema import validate, ValidationError, SchemaError, Draft7Validator
@@ -42,7 +43,8 @@ def _get_schema_path(schema_name: str) -> Path:
     return repo_root / "schemas" / schema_name
 
 
-def load_schema(schema_name: str) -> Dict[str, Any]:
+@lru_cache(maxsize=8)
+def load_schema(schema_name: str) -> dict[str, Any]:
     """Load a JSON schema from schemas/ directory.
 
     Args:
@@ -54,6 +56,9 @@ def load_schema(schema_name: str) -> Dict[str, Any]:
     Raises:
         FileNotFoundError: If schema file doesn't exist
         json.JSONDecodeError: If schema is invalid JSON
+
+    Note:
+        Results are cached to avoid repeated file I/O.
     """
     schema_path = _get_schema_path(schema_name)
     if not schema_path.exists():
@@ -106,14 +111,14 @@ def _create_schema_registry() -> Any:
     return Registry().with_resources(resources)
 
 
-def validate_thread_entry(entry_dict: Dict[str, Any]) -> Tuple[bool, List[str]]:
+def validate_thread_entry(entry_dict: dict[str, Any]) -> tuple[bool, list[str]]:
     """Validate a thread entry dictionary against canonical schema.
 
     Args:
         entry_dict: Dictionary representation of ThreadEntry
 
     Returns:
-        Tuple of (is_valid, errors) where errors is list of error messages
+        Tuple of (is_valid, errors) where errors is list of all error messages
 
     Example:
         >>> entry = {
@@ -135,10 +140,11 @@ def validate_thread_entry(entry_dict: Dict[str, Any]) -> Tuple[bool, List[str]]:
 
     try:
         schema = load_schema("thread_entry.schema.json")
-        validate(instance=entry_dict, schema=schema)
+        validator = Draft7Validator(schema)
+        errors_list = list(validator.iter_errors(entry_dict))
+        if errors_list:
+            return False, [err.message for err in errors_list]
         return True, []
-    except ValidationError as e:
-        return False, [str(e.message)]
     except SchemaError as e:
         return False, [f"Schema error: {e.message}"]
     except FileNotFoundError as e:
@@ -147,14 +153,14 @@ def validate_thread_entry(entry_dict: Dict[str, Any]) -> Tuple[bool, List[str]]:
         return False, [f"Invalid schema JSON: {e}"]
 
 
-def validate_watercooler_thread(thread_dict: Dict[str, Any]) -> Tuple[bool, List[str]]:
+def validate_watercooler_thread(thread_dict: dict[str, Any]) -> tuple[bool, list[str]]:
     """Validate a thread dictionary against canonical schema.
 
     Args:
         thread_dict: Dictionary representation of WatercoolerThread
 
     Returns:
-        Tuple of (is_valid, errors) where errors is list of error messages
+        Tuple of (is_valid, errors) where errors is list of all error messages
 
     Example:
         >>> thread = {
@@ -182,7 +188,7 @@ def validate_watercooler_thread(thread_dict: Dict[str, Any]) -> Tuple[bool, List
             validator = Draft7Validator(schema, registry=registry)
             errors_list = list(validator.iter_errors(thread_dict))
             if errors_list:
-                return False, [errors_list[0].message]
+                return False, [err.message for err in errors_list]
             return True, []
         else:
             # Fallback to simple validation (may fail on $ref)

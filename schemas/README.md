@@ -77,19 +77,22 @@ The TypeScript `ThreadEntry` class in `lib/threadStructure.ts` should use camelC
 
 ```typescript
 export class ThreadEntry {
-  index?: number;
-  header?: string;
-  body: string;
-  agent: string;                  // matches schema (was 'author')
-  timestamp: string;
-  role: string;
-  entryType: string;              // maps to 'entry_type' in schema
-  title: string;
-  entryId?: string;               // maps to 'entry_id' in schema
-  startLine?: number;             // maps to 'start_line' in schema
-  endLine?: number;               // maps to 'end_line' in schema
-  startOffset?: number;           // maps to 'start_offset' in schema
-  endOffset?: number;             // maps to 'end_offset' in schema
+  // Required fields
+  index: number;                  // Required by schema
+  header: string;                 // Required by schema
+  body: string;                   // Required by schema
+  startLine: number;              // Required, maps to 'start_line' in schema
+  endLine: number;                // Required, maps to 'end_line' in schema
+  startOffset: number;            // Required, maps to 'start_offset' in schema
+  endOffset: number;              // Required, maps to 'end_offset' in schema
+
+  // Optional fields (nullable in schema)
+  agent: string | null;           // matches schema (was 'author')
+  timestamp: string | null;
+  role: string | null;
+  entryType: string | null;       // maps to 'entry_type' in schema
+  title: string | null;
+  entryId: string | null;         // maps to 'entry_id' in schema
 }
 ```
 
