@@ -1799,9 +1799,30 @@ def _rebase_branch_onto(
     stash_created = False
 
     try:
-        # Count commits that will be rebased
-        commits_ahead = sum(1 for _ in repo.iter_commits(f"{onto}..{branch}"))
-        commits_behind = sum(1 for _ in repo.iter_commits(f"{branch}..{onto}"))
+        # Fetch origin to ensure we have the latest refs
+        # This is critical - we need fresh data for accurate commit counting
+        # and to rebase onto the latest origin/main
+        try:
+            _diag(f"Fetching origin before rebase onto {onto}")
+            repo.git.fetch('origin')
+        except Exception as e:
+            _diag(f"Warning: Could not fetch origin: {e}")
+            # Continue anyway - we might have recent enough refs
+
+        # Use origin/{onto} for the rebase target to ensure we're rebasing
+        # onto the latest remote state, not a potentially stale local branch
+        rebase_target = f"origin/{onto}"
+        try:
+            # Verify the remote ref exists
+            repo.commit(rebase_target)
+        except Exception:
+            # Fall back to local branch if remote doesn't exist
+            _diag(f"Remote ref '{rebase_target}' not found, using local '{onto}'")
+            rebase_target = onto
+
+        # Count commits that will be rebased (using the rebase target)
+        commits_ahead = sum(1 for _ in repo.iter_commits(f"{rebase_target}..{branch}"))
+        commits_behind = sum(1 for _ in repo.iter_commits(f"{branch}..{rebase_target}"))
 
         if commits_behind == 0:
             return BranchSyncResult(
@@ -1809,7 +1830,7 @@ def _rebase_branch_onto(
                 action_taken="no_action",
                 commits_preserved=commits_ahead,
                 commits_lost=0,
-                details=f"Branch '{branch}' is already up-to-date with '{onto}'.",
+                details=f"Branch '{branch}' is already up-to-date with '{rebase_target}'.",
                 needs_manual_resolution=False,
             )
 
@@ -1850,10 +1871,10 @@ def _rebase_branch_onto(
                 )
 
         try:
-            # Rebase onto target
-            _diag(f"GIT_OP_START: rebase {branch} onto {onto}")
-            repo.git.rebase(onto)
-            _diag(f"GIT_OP_END: rebase {branch} onto {onto}")
+            # Rebase onto target (using origin/{onto} for latest remote state)
+            _diag(f"GIT_OP_START: rebase {branch} onto {rebase_target}")
+            repo.git.rebase(rebase_target)
+            _diag(f"GIT_OP_END: rebase {branch} onto {rebase_target}")
 
             # Pop stash if needed
             if stash_created:
@@ -1875,7 +1896,7 @@ def _rebase_branch_onto(
                 commits_preserved=commits_ahead,
                 commits_lost=0,
                 details=(
-                    f"Rebased {commits_ahead} commits from '{branch}' onto '{onto}' "
+                    f"Rebased {commits_ahead} commits from '{branch}' onto '{rebase_target}' "
                     f"(was {commits_behind} behind). {push_msg}"
                 ),
                 needs_manual_resolution=not force,
@@ -1899,7 +1920,7 @@ def _rebase_branch_onto(
                 action_taken="error",
                 commits_preserved=0,
                 commits_lost=commits_ahead,
-                details=f"Rebase of '{branch}' onto '{onto}' failed (likely conflicts): {str(e)}",
+                details=f"Rebase of '{branch}' onto '{rebase_target}' failed (likely conflicts): {str(e)}",
                 needs_manual_resolution=True,
             )
 
