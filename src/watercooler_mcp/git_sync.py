@@ -1541,6 +1541,94 @@ class BranchDivergenceInfo:
     details: str  # Human-readable explanation
 
 
+def _find_main_branch(repo: Repo) -> Optional[str]:
+    """Find the main/master branch name in a repository.
+
+    Args:
+        repo: GitPython Repo object
+
+    Returns:
+        Branch name ('main' or 'master') if found, None otherwise
+    """
+    for name in ["main", "master"]:
+        try:
+            repo.commit(name)
+            return name
+        except Exception as e:
+            _diag(f"Branch '{name}' not found: {e}")
+            continue
+    return None
+
+
+def _detect_behind_main_divergence(
+    code_repo_obj: Repo,
+    threads_repo_obj: Repo,
+    code_branch: str,
+    threads_branch: str,
+) -> Optional[BranchDivergenceInfo]:
+    """Detect if threads branch is behind main while code branch is not.
+
+    This catches the scenario where code/staging was rebased onto code/main
+    but threads/staging was NOT rebased onto threads/main, leaving threads
+    missing commits that exist in threads/main.
+
+    Args:
+        code_repo_obj: GitPython Repo object for code repository
+        threads_repo_obj: GitPython Repo object for threads repository
+        code_branch: Name of the code branch (e.g., 'staging')
+        threads_branch: Name of the threads branch (e.g., 'staging')
+
+    Returns:
+        BranchDivergenceInfo if divergence detected, None otherwise
+    """
+    # Don't check if we're already on main
+    code_main = _find_main_branch(code_repo_obj)
+    threads_main = _find_main_branch(threads_repo_obj)
+
+    if not code_main or not threads_main:
+        return None
+
+    if code_branch == code_main or threads_branch == threads_main:
+        # Already on main, no need to check
+        return None
+
+    try:
+        # Check: is code/branch behind code/main?
+        code_behind_main = list(code_repo_obj.iter_commits(
+            f"{code_branch}..{code_main}"
+        ))
+
+        # Check: is threads/branch behind threads/main?
+        threads_behind_main = list(threads_repo_obj.iter_commits(
+            f"{threads_branch}..{threads_main}"
+        ))
+
+        # The problem: code is NOT behind main, but threads IS behind main
+        # This means code was rebased onto main but threads was not
+        if len(code_behind_main) == 0 and len(threads_behind_main) > 0:
+            return BranchDivergenceInfo(
+                diverged=True,
+                commits_ahead=0,
+                commits_behind=len(threads_behind_main),
+                common_ancestor=None,
+                needs_rebase=True,
+                needs_fetch=False,
+                details=(
+                    f"Threads branch '{threads_branch}' is {len(threads_behind_main)} commits behind "
+                    f"'{threads_main}', but code branch '{code_branch}' is fully up-to-date with "
+                    f"'{code_main}'. This typically happens when code branch was rebased onto main "
+                    f"but threads branch was not. Recommended: rebase threads/{threads_branch} onto "
+                    f"threads/{threads_main}"
+                )
+            )
+
+        return None
+
+    except Exception as e:
+        _diag(f"Error checking behind-main divergence: {e}")
+        return None
+
+
 def _detect_branch_divergence(
     code_repo_obj: Repo,
     threads_repo_obj: Repo,
@@ -1679,7 +1767,7 @@ def _detect_branch_divergence(
         )
 
 
-@dataclass 
+@dataclass
 class BranchSyncResult:
     """Result of branch history synchronization."""
     success: bool
@@ -1690,24 +1778,163 @@ class BranchSyncResult:
     needs_manual_resolution: bool  # True if manual intervention required
 
 
+def _rebase_branch_onto(
+    repo: Repo,
+    branch: str,
+    onto: str,
+    force: bool,
+) -> BranchSyncResult:
+    """Rebase a branch onto another branch (e.g., rebase staging onto main).
+
+    Args:
+        repo: GitPython Repo object
+        branch: Branch to rebase (e.g., 'staging')
+        onto: Target branch to rebase onto (e.g., 'main')
+        force: If True, force-push after rebase
+
+    Returns:
+        BranchSyncResult with outcome details
+    """
+    original_branch: Optional[str] = None
+    stash_created = False
+
+    try:
+        # Count commits that will be rebased
+        commits_ahead = sum(1 for _ in repo.iter_commits(f"{onto}..{branch}"))
+        commits_behind = sum(1 for _ in repo.iter_commits(f"{branch}..{onto}"))
+
+        if commits_behind == 0:
+            return BranchSyncResult(
+                success=True,
+                action_taken="no_action",
+                commits_preserved=commits_ahead,
+                commits_lost=0,
+                details=f"Branch '{branch}' is already up-to-date with '{onto}'.",
+                needs_manual_resolution=False,
+            )
+
+        # Stash any uncommitted changes
+        stash_needed = repo.is_dirty()
+        if stash_needed:
+            try:
+                repo.git.stash('push', '-m', 'Auto-stash for rebase onto main')
+                stash_created = True
+            except Exception as e:
+                _diag(f"Warning: Could not stash changes: {e}")
+
+        # Ensure we're on the target branch before rebasing
+        try:
+            original_branch = repo.active_branch.name
+        except TypeError:
+            # Detached HEAD state
+            original_branch = None
+
+        if original_branch != branch:
+            _diag(f"Switching from '{original_branch}' to '{branch}' for rebase")
+            try:
+                repo.git.checkout(branch)
+            except Exception as e:
+                _diag(f"Failed to checkout branch '{branch}': {e}")
+                if stash_created:
+                    try:
+                        repo.git.stash('pop')
+                    except Exception as pop_e:
+                        _diag(f"Warning: Could not pop stash: {pop_e}")
+                return BranchSyncResult(
+                    success=False,
+                    action_taken="error",
+                    commits_preserved=0,
+                    commits_lost=0,
+                    details=f"Failed to checkout branch '{branch}': {e}",
+                    needs_manual_resolution=True,
+                )
+
+        try:
+            # Rebase onto target
+            _diag(f"GIT_OP_START: rebase {branch} onto {onto}")
+            repo.git.rebase(onto)
+            _diag(f"GIT_OP_END: rebase {branch} onto {onto}")
+
+            # Pop stash if needed
+            if stash_created:
+                try:
+                    repo.git.stash('pop')
+                except Exception as e:
+                    _diag(f"Warning: Could not pop stash after rebase: {e}")
+
+            # Force push (with lease for safety)
+            if force:
+                repo.git.push('origin', branch, '--force-with-lease')
+                push_msg = "Force-pushed rebased branch to origin."
+            else:
+                push_msg = "Rebase complete. Run with force=True to push, or push manually."
+
+            return BranchSyncResult(
+                success=True,
+                action_taken="rebased",
+                commits_preserved=commits_ahead,
+                commits_lost=0,
+                details=(
+                    f"Rebased {commits_ahead} commits from '{branch}' onto '{onto}' "
+                    f"(was {commits_behind} behind). {push_msg}"
+                ),
+                needs_manual_resolution=not force,
+            )
+        except Exception as e:
+            # Abort rebase on failure
+            try:
+                repo.git.rebase('--abort')
+            except Exception as abort_e:
+                _diag(f"Warning: Could not abort rebase: {abort_e}")
+
+            # Pop stash if we stashed
+            if stash_created:
+                try:
+                    repo.git.stash('pop')
+                except Exception as pop_e:
+                    _diag(f"Warning: Could not pop stash after rebase failure: {pop_e}")
+
+            return BranchSyncResult(
+                success=False,
+                action_taken="error",
+                commits_preserved=0,
+                commits_lost=commits_ahead,
+                details=f"Rebase of '{branch}' onto '{onto}' failed (likely conflicts): {str(e)}",
+                needs_manual_resolution=True,
+            )
+
+    except Exception as e:
+        return BranchSyncResult(
+            success=False,
+            action_taken="error",
+            commits_preserved=0,
+            commits_lost=0,
+            details=f"Error during rebase: {str(e)}",
+            needs_manual_resolution=True,
+        )
+
+
 def sync_branch_history(
     threads_repo_path: Path,
     branch: str,
     strategy: str = "rebase",
     force: bool = False,
+    onto: Optional[str] = None,
 ) -> BranchSyncResult:
-    """Synchronize threads branch history with remote.
-    
+    """Synchronize threads branch history with a target branch.
+
     This function handles branch divergence by rebasing or resetting
-    the local threads branch to match the remote state.
-    
+    the local threads branch to match a target state.
+
     Args:
         threads_repo_path: Path to threads repository
         branch: Branch name to sync
         strategy: Sync strategy - "rebase" (default, preserves local work),
                   "reset" (discards local changes), or "merge" (creates merge commit)
         force: If True, use force push after rebase/reset
-        
+        onto: Target branch to rebase onto. If None, uses origin/{branch}.
+              For behind-main divergence, pass "main" to rebase onto main.
+
     Returns:
         BranchSyncResult with outcome details
     """
@@ -1727,7 +1954,12 @@ def sync_branch_history(
                     details=f"Failed to checkout branch '{branch}': {str(e)}",
                     needs_manual_resolution=True,
                 )
-        
+
+        # Special case: rebasing onto a specific branch (e.g., main)
+        # This is used for behind-main divergence fix
+        if onto and onto != f"origin/{branch}":
+            return _rebase_branch_onto(repo, branch, onto, force)
+
         # Fetch latest from origin
         try:
             repo.git.fetch('origin', branch)
@@ -2168,6 +2400,26 @@ def validate_branch_pairing(
         elif divergence.needs_fetch:
             # No remote tracking info
             warnings.append(divergence.details)
+
+        # Also check for behind-main divergence (threads behind main, code not)
+        # This is a separate check from local vs origin divergence
+        behind_main = _detect_behind_main_divergence(
+            code_repo_obj, threads_repo_obj, code_branch, threads_branch
+        )
+        if behind_main:
+            mismatches.append(BranchMismatch(
+                type="branch_history_diverged",
+                code=code_branch,
+                threads=threads_branch,
+                severity="error",
+                recovery=(
+                    f"Threads branch is {behind_main.commits_behind} commits behind main "
+                    f"but code branch is up-to-date. "
+                    f"Run: watercooler_v1_sync_branch_state with operation='recover' to rebase "
+                    f"threads branch onto main."
+                )
+            ))
+            warnings.append(behind_main.details)
 
     # Determine validity
     has_errors = any(m.severity == "error" for m in mismatches)

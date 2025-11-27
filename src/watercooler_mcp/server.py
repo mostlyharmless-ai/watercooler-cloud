@@ -54,6 +54,7 @@ from .git_sync import (
     sync_branch_history,
     BranchSyncResult,
     BranchDivergenceInfo,
+    _find_main_branch,
 )
 
 # Workaround for Windows stdio hang: Force auto-flush on every stdout write
@@ -197,12 +198,37 @@ def _attempt_auto_fix_divergence(
         BranchPairingError: If auto-fix fails and requires manual intervention
     """
     _diag("Detected branch history divergence, attempting auto-fix via rebase")
+
+    # Check if this is a "behind-main" divergence (threads behind main but code not)
+    # vs a local-vs-origin divergence. They require different fix strategies.
+    behind_main_mismatch = None
+    for mismatch in validation_result.mismatches:
+        if (mismatch.type == "branch_history_diverged" and
+                "behind main" in mismatch.recovery.lower()):
+            behind_main_mismatch = mismatch
+            break
+
+    # Determine the target for rebase
+    onto_branch: Optional[str] = None
+    if behind_main_mismatch:
+        # Need to rebase onto main, not origin/branch
+        try:
+            threads_repo = Repo(context.threads_dir, search_parent_directories=True)
+            onto_branch = _find_main_branch(threads_repo)
+            if onto_branch:
+                _diag(f"Behind-main divergence detected, will rebase onto {onto_branch}")
+            else:
+                _diag("Behind-main divergence detected but couldn't find main branch")
+        except Exception as e:
+            _diag(f"Error finding main branch: {e}")
+
     try:
         sync_result = sync_branch_history(
             threads_repo_path=context.threads_dir,
             branch=validation_result.threads_branch or context.code_branch,
             strategy="rebase",
             force=True,  # Uses --force-with-lease for safety
+            onto=onto_branch,  # None for origin/branch, "main" for behind-main fix
         )
 
         if not sync_result.success:

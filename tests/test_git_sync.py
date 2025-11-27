@@ -11,6 +11,10 @@ from watercooler_mcp.git_sync import (
     GitCommandError,
     GitSyncError,
     GitSyncManager,
+    _find_main_branch,
+    _detect_behind_main_divergence,
+    _rebase_branch_onto,
+    BranchSyncResult,
 )
 
 
@@ -523,3 +527,228 @@ def test_validate_branch_pairing_with_history_check(tmp_path):
     assert not result.valid
     assert any(m.type == "branch_history_diverged" for m in result.mismatches)
     assert len(result.warnings) > 0  # Should have divergence details in warnings
+
+
+# === Tests for _find_main_branch ===
+
+def test_find_main_branch_with_main(tmp_path):
+    """Test _find_main_branch finds 'main' branch."""
+    repo = Repo.init(tmp_path / "repo")
+    repo.config_writer().set_value("user", "email", "test@example.com").release()
+    repo.config_writer().set_value("user", "name", "Tester").release()
+    touch(tmp_path / "repo" / "README.md", "test")
+    repo.index.add(["README.md"])
+    repo.index.commit("initial")
+    repo.git.branch("-M", "main")
+
+    result = _find_main_branch(repo)
+    assert result == "main"
+
+
+def test_find_main_branch_with_master(tmp_path):
+    """Test _find_main_branch finds 'master' branch when main doesn't exist."""
+    repo = Repo.init(tmp_path / "repo")
+    repo.config_writer().set_value("user", "email", "test@example.com").release()
+    repo.config_writer().set_value("user", "name", "Tester").release()
+    touch(tmp_path / "repo" / "README.md", "test")
+    repo.index.add(["README.md"])
+    repo.index.commit("initial")
+    # Default branch is typically 'master' after first commit if not renamed
+    # But modern git may default to 'main', so let's explicitly set it
+    repo.git.branch("-M", "master")
+
+    result = _find_main_branch(repo)
+    assert result == "master"
+
+
+def test_find_main_branch_returns_none_when_missing(tmp_path):
+    """Test _find_main_branch returns None when neither main nor master exists."""
+    repo = Repo.init(tmp_path / "repo")
+    repo.config_writer().set_value("user", "email", "test@example.com").release()
+    repo.config_writer().set_value("user", "name", "Tester").release()
+    touch(tmp_path / "repo" / "README.md", "test")
+    repo.index.add(["README.md"])
+    repo.index.commit("initial")
+    # Rename to something else
+    repo.git.branch("-M", "develop")
+
+    result = _find_main_branch(repo)
+    assert result is None
+
+
+# === Tests for _detect_behind_main_divergence ===
+
+def test_detect_behind_main_divergence_when_threads_behind(tmp_path):
+    """Test detection when threads/staging is behind threads/main but code is up-to-date."""
+    # Setup code repo with main and staging branches
+    code_path = tmp_path / "code"
+    code_repo = Repo.init(code_path)
+    code_repo.config_writer().set_value("user", "email", "test@example.com").release()
+    code_repo.config_writer().set_value("user", "name", "Tester").release()
+    touch(code_path / "code.py", "initial")
+    code_repo.index.add(["code.py"])
+    code_repo.index.commit("initial code")
+    code_repo.git.branch("-M", "main")
+
+    # Create staging branch from main
+    code_repo.git.checkout("-b", "staging")
+    touch(code_path / "feature.py", "feature")
+    code_repo.index.add(["feature.py"])
+    code_repo.index.commit("staging commit")
+
+    # Now code/staging is ahead of code/main, so code is NOT behind main
+
+    # Setup threads repo
+    threads_path = tmp_path / "threads"
+    threads_repo = Repo.init(threads_path)
+    threads_repo.config_writer().set_value("user", "email", "test@example.com").release()
+    threads_repo.config_writer().set_value("user", "name", "Tester").release()
+    touch(threads_path / "thread1.md", "initial thread")
+    threads_repo.index.add(["thread1.md"])
+    threads_repo.index.commit("initial thread")
+    threads_repo.git.branch("-M", "main")
+
+    # Add commit to main
+    touch(threads_path / "thread2.md", "new thread on main")
+    threads_repo.index.add(["thread2.md"])
+    threads_repo.index.commit("new thread on main")
+
+    # Create staging from an older commit (before thread2)
+    threads_repo.git.checkout("-b", "staging", "HEAD~1")
+
+    # Now threads/staging is behind threads/main by 1 commit
+
+    result = _detect_behind_main_divergence(
+        code_repo, threads_repo, "staging", "staging"
+    )
+
+    assert result is not None
+    assert result.diverged is True
+    assert result.commits_behind == 1
+    assert result.needs_rebase is True
+
+
+def test_detect_behind_main_divergence_returns_none_when_synced(tmp_path):
+    """Test that detection returns None when both repos are synced."""
+    # Setup code repo
+    code_path = tmp_path / "code"
+    code_repo = Repo.init(code_path)
+    code_repo.config_writer().set_value("user", "email", "test@example.com").release()
+    code_repo.config_writer().set_value("user", "name", "Tester").release()
+    touch(code_path / "code.py", "initial")
+    code_repo.index.add(["code.py"])
+    code_repo.index.commit("initial code")
+    code_repo.git.branch("-M", "main")
+    code_repo.git.checkout("-b", "staging")
+
+    # Setup threads repo - both branches at same commit
+    threads_path = tmp_path / "threads"
+    threads_repo = Repo.init(threads_path)
+    threads_repo.config_writer().set_value("user", "email", "test@example.com").release()
+    threads_repo.config_writer().set_value("user", "name", "Tester").release()
+    touch(threads_path / "thread1.md", "initial thread")
+    threads_repo.index.add(["thread1.md"])
+    threads_repo.index.commit("initial thread")
+    threads_repo.git.branch("-M", "main")
+    threads_repo.git.checkout("-b", "staging")
+
+    result = _detect_behind_main_divergence(
+        code_repo, threads_repo, "staging", "staging"
+    )
+
+    assert result is None
+
+
+def test_detect_behind_main_divergence_returns_none_on_main_branch(tmp_path):
+    """Test that detection returns None when already on main branch."""
+    code_path = tmp_path / "code"
+    code_repo = Repo.init(code_path)
+    code_repo.config_writer().set_value("user", "email", "test@example.com").release()
+    code_repo.config_writer().set_value("user", "name", "Tester").release()
+    touch(code_path / "code.py", "initial")
+    code_repo.index.add(["code.py"])
+    code_repo.index.commit("initial code")
+    code_repo.git.branch("-M", "main")
+
+    threads_path = tmp_path / "threads"
+    threads_repo = Repo.init(threads_path)
+    threads_repo.config_writer().set_value("user", "email", "test@example.com").release()
+    threads_repo.config_writer().set_value("user", "name", "Tester").release()
+    touch(threads_path / "thread1.md", "initial thread")
+    threads_repo.index.add(["thread1.md"])
+    threads_repo.index.commit("initial thread")
+    threads_repo.git.branch("-M", "main")
+
+    # On main branch - should return None
+    result = _detect_behind_main_divergence(
+        code_repo, threads_repo, "main", "main"
+    )
+
+    assert result is None
+
+
+# === Tests for _rebase_branch_onto ===
+
+def test_rebase_branch_onto_already_up_to_date(tmp_path):
+    """Test rebase when branch is already up-to-date."""
+    repo_path = tmp_path / "repo"
+    repo = Repo.init(repo_path)
+    repo.config_writer().set_value("user", "email", "test@example.com").release()
+    repo.config_writer().set_value("user", "name", "Tester").release()
+    touch(repo_path / "file.txt", "content")
+    repo.index.add(["file.txt"])
+    repo.index.commit("initial")
+    repo.git.branch("-M", "main")
+    repo.git.checkout("-b", "staging")
+
+    # staging is at same point as main, no rebase needed
+    result = _rebase_branch_onto(repo, "staging", "main", force=False)
+
+    assert result.success is True
+    assert result.action_taken == "no_action"
+    assert "already up-to-date" in result.details
+
+
+def test_rebase_branch_onto_success(tmp_path):
+    """Test successful rebase of branch onto main."""
+    repo_path = tmp_path / "repo"
+    remote_path = tmp_path / "remote.git"
+
+    # Create bare remote
+    init_remote_repo(remote_path)
+
+    # Clone and setup
+    repo = Repo.clone_from(remote_path.as_posix(), repo_path)
+    repo.config_writer().set_value("user", "email", "test@example.com").release()
+    repo.config_writer().set_value("user", "name", "Tester").release()
+
+    # Create initial commit on main
+    touch(repo_path / "file.txt", "initial")
+    repo.index.add(["file.txt"])
+    repo.index.commit("initial")
+    repo.git.branch("-M", "main")
+    repo.remotes.origin.push("main:main")
+
+    # Create staging branch
+    repo.git.checkout("-b", "staging")
+    touch(repo_path / "staging.txt", "staging work")
+    repo.index.add(["staging.txt"])
+    repo.index.commit("staging commit")
+    repo.remotes.origin.push("staging:staging")
+
+    # Go back to main and add a commit
+    repo.git.checkout("main")
+    touch(repo_path / "main_update.txt", "main update")
+    repo.index.add(["main_update.txt"])
+    repo.index.commit("main update")
+    repo.remotes.origin.push("main")
+
+    # Now staging is behind main by 1 commit
+    # Rebase staging onto main
+    repo.git.checkout("staging")  # ensure on staging
+    result = _rebase_branch_onto(repo, "staging", "main", force=True)
+
+    assert result.success is True
+    assert result.action_taken == "rebased"
+    assert result.commits_preserved == 1  # Our staging commit
+    assert "Force-pushed" in result.details
