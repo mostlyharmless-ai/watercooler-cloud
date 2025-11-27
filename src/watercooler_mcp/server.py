@@ -46,6 +46,7 @@ from .config import (
 from .git_sync import (
     GitPushError,
     BranchPairingError,
+    BranchMismatch,
     validate_branch_pairing,
     GitSyncManager,
     _diag,
@@ -190,12 +191,18 @@ def _validate_and_sync_branches(
     (e.g., after rebase or force-push in the code repo). When divergence
     is detected, it automatically rebases the threads branch to match.
 
+    Side effects:
+        - May rebase threads branch to match code branch history
+        - May push to remote with --force-with-lease if divergence detected
+        - Blocks operation if conflicts occur during auto-fix
+
     Args:
         context: Thread context with code and threads repo info
         skip_validation: If True, skip strict validation (used for recovery operations)
 
     Raises:
-        BranchPairingError: If branch validation fails and auto-fix is not possible
+        BranchPairingError: If branch validation fails and auto-fix is not possible,
+                           or if auto-fix encounters conflicts requiring manual resolution
     """
     sync = get_git_sync_manager_from_context(context)
     if not sync:
@@ -212,7 +219,7 @@ def _validate_and_sync_branches(
             )
             if not validation_result.valid:
                 # Check if this is a history divergence we can auto-fix
-                history_mismatch = next(
+                history_mismatch: Optional[BranchMismatch] = next(
                     (m for m in validation_result.mismatches if m.type == "branch_history_diverged"),
                     None
                 )
@@ -273,7 +280,8 @@ def _validate_and_sync_branches(
                         ]
                         raise BranchPairingError("\n".join(error_parts))
 
-                # Not a history divergence, or auto-fix didn't fully resolve - report error
+                # Handle non-history validation failures, or if auto-fix succeeded but
+                # revalidation still fails (edge case where other mismatches remain)
                 if not validation_result.valid:
                     error_parts = [
                         "Branch pairing validation failed:",
