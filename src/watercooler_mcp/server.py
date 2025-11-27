@@ -182,21 +182,25 @@ def _validate_and_sync_branches(
     skip_validation: bool = False,
 ) -> None:
     """Validate branch pairing and sync branches if needed.
-    
+
     This helper is used by both read and write operations to ensure
     the threads repo is on the correct branch before any operation.
-    
+
+    Includes automatic detection and repair of branch history divergence
+    (e.g., after rebase or force-push in the code repo). When divergence
+    is detected, it automatically rebases the threads branch to match.
+
     Args:
         context: Thread context with code and threads repo info
         skip_validation: If True, skip strict validation (used for recovery operations)
-        
+
     Raises:
-        BranchPairingError: If branch validation fails and skip_validation=False
+        BranchPairingError: If branch validation fails and auto-fix is not possible
     """
     sync = get_git_sync_manager_from_context(context)
     if not sync:
         return
-        
+
     # Validate branch pairing before any operation
     if not skip_validation and context.code_root and context.threads_dir:
         try:
@@ -204,32 +208,96 @@ def _validate_and_sync_branches(
                 code_repo=context.code_root,
                 threads_repo=context.threads_dir,
                 strict=True,
+                check_history=True,  # Enable divergence detection
             )
             if not validation_result.valid:
-                # Build error message with recovery steps
-                error_parts = [
-                    "Branch pairing validation failed:",
-                    f"  Code branch: {validation_result.code_branch or '(detached/unknown)'}",
-                    f"  Threads branch: {validation_result.threads_branch or '(detached/unknown)'}",
-                ]
-                if validation_result.mismatches:
-                    error_parts.append("\nMismatches:")
-                    for mismatch in validation_result.mismatches:
-                        error_parts.append(f"  - {mismatch.type}: {mismatch.recovery}")
-                if validation_result.warnings:
-                    error_parts.append("\nWarnings:")
-                    for warning in validation_result.warnings:
-                        error_parts.append(f"  - {warning}")
-                error_parts.append(
-                    "\nRun: watercooler_v1_sync_branch_state with operation='checkout' to sync branches"
+                # Check if this is a history divergence we can auto-fix
+                history_mismatch = next(
+                    (m for m in validation_result.mismatches if m.type == "history_divergence"),
+                    None
                 )
-                raise BranchPairingError("\n".join(error_parts))
+
+                if history_mismatch:
+                    # Attempt auto-fix via rebase
+                    _diag(f"Detected branch history divergence, attempting auto-fix via rebase")
+                    try:
+                        sync_result = sync_branch_history(
+                            code_repo=context.code_root,
+                            threads_repo=context.threads_dir,
+                            branch=validation_result.threads_branch or context.code_branch,
+                            strategy="rebase",
+                            force_push=True,  # Push the fix to remote
+                        )
+                        if sync_result.success:
+                            _diag(f"Auto-fixed branch divergence: {sync_result.message}")
+                            # Re-validate to confirm fix worked
+                            revalidation = validate_branch_pairing(
+                                code_repo=context.code_root,
+                                threads_repo=context.threads_dir,
+                                strict=True,
+                                check_history=True,
+                            )
+                            if revalidation.valid:
+                                _diag("Branch pairing now valid after auto-fix")
+                                # Continue - don't raise error
+                            else:
+                                # Auto-fix didn't fully resolve - report remaining issues
+                                _diag(f"Auto-fix completed but validation still failing: {revalidation.warnings}")
+                                # Fall through to error reporting below
+                                validation_result = revalidation
+                        else:
+                            # Auto-fix failed - report original issue with fix failure
+                            _diag(f"Auto-fix failed: {sync_result.message}")
+                            error_parts = [
+                                "Branch history divergence detected and auto-fix failed:",
+                                f"  Code branch: {validation_result.code_branch or '(detached/unknown)'}",
+                                f"  Threads branch: {validation_result.threads_branch or '(detached/unknown)'}",
+                                f"  Fix attempt: {sync_result.message}",
+                            ]
+                            if sync_result.conflicts:
+                                error_parts.append(f"  Conflicts: {', '.join(sync_result.conflicts)}")
+                            error_parts.append(
+                                "\nManual recovery: watercooler_v1_sync_branch_state with operation='recover'"
+                            )
+                            raise BranchPairingError("\n".join(error_parts))
+                    except BranchPairingError:
+                        raise
+                    except Exception as fix_error:
+                        _diag(f"Auto-fix exception: {fix_error}")
+                        error_parts = [
+                            "Branch history divergence detected, auto-fix failed:",
+                            f"  Code branch: {validation_result.code_branch or '(detached/unknown)'}",
+                            f"  Threads branch: {validation_result.threads_branch or '(detached/unknown)'}",
+                            f"  Error: {fix_error}",
+                            "\nManual recovery: watercooler_v1_sync_branch_state with operation='recover'"
+                        ]
+                        raise BranchPairingError("\n".join(error_parts))
+
+                # Not a history divergence, or auto-fix didn't fully resolve - report error
+                if not validation_result.valid:
+                    error_parts = [
+                        "Branch pairing validation failed:",
+                        f"  Code branch: {validation_result.code_branch or '(detached/unknown)'}",
+                        f"  Threads branch: {validation_result.threads_branch or '(detached/unknown)'}",
+                    ]
+                    if validation_result.mismatches:
+                        error_parts.append("\nMismatches:")
+                        for mismatch in validation_result.mismatches:
+                            error_parts.append(f"  - {mismatch.type}: {mismatch.recovery}")
+                    if validation_result.warnings:
+                        error_parts.append("\nWarnings:")
+                        for warning in validation_result.warnings:
+                            error_parts.append(f"  - {warning}")
+                    error_parts.append(
+                        "\nRun: watercooler_v1_sync_branch_state with operation='checkout' to sync branches"
+                    )
+                    raise BranchPairingError("\n".join(error_parts))
         except BranchPairingError:
             raise
         except Exception as e:
             # Log but don't block on validation errors (e.g., repo not initialized)
             _diag(f"Branch validation warning: {e}")
-    
+
     # Attempt to sync branches (catch exceptions to avoid blocking legitimate operations)
     branch = context.code_branch
     if branch and _should_auto_branch():
