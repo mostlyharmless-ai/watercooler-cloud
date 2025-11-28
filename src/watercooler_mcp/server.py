@@ -380,14 +380,6 @@ def _validate_and_sync_branches(
             # Log but don't block on validation errors (e.g., repo not initialized)
             log_debug(f"Branch validation warning: {e}")
 
-    # Attempt to sync branches (catch exceptions to avoid blocking legitimate operations)
-    branch = context.code_branch
-    if branch and _should_auto_branch():
-        try:
-            sync.ensure_branch(branch)
-        except Exception:
-            pass
-
 
 def _refresh_threads(context: ThreadContext, skip_validation: bool = False) -> None:
     """Refresh threads repo by validating branch pairing and pulling latest changes.
