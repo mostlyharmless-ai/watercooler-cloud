@@ -50,12 +50,12 @@ from .git_sync import (
     BranchPairingResult,
     validate_branch_pairing,
     GitSyncManager,
-    _diag,
     sync_branch_history,
     BranchSyncResult,
     BranchDivergenceInfo,
     _find_main_branch,
 )
+from .observability import log_debug, log_action, log_warning, log_error
 
 # Workaround for Windows stdio hang: Force auto-flush on every stdout write
 # On Windows, FastMCP's stdio transport gets stuck after subprocess operations
@@ -135,7 +135,7 @@ def _should_auto_branch() -> bool:
 
 
 def _require_context(code_path: str) -> tuple[str | None, ThreadContext | None]:
-    _diag(f"_require_context: entry with code_path={code_path!r}")
+    log_debug(f"_require_context: entry with code_path={code_path!r}")
     if not code_path:
         return (
             "code_path required: pass the code repository root (e.g., '.') so the server can resolve the correct threads repo/branch.",
@@ -157,13 +157,13 @@ def _require_context(code_path: str) -> tuple[str | None, ThreadContext | None]:
         except Exception:
             pass
     try:
-        _diag(f"_require_context: calling resolve_thread_context({code_path!r})")
+        log_debug(f"_require_context: calling resolve_thread_context({code_path!r})")
         context = resolve_thread_context(Path(code_path))
-        _diag(f"_require_context: resolve_thread_context returned")
+        log_debug(f"_require_context: resolve_thread_context returned")
     except Exception as exc:
-        _diag(f"_require_context: exception from resolve_thread_context: {exc}")
+        log_debug(f"_require_context: exception from resolve_thread_context: {exc}")
         return (f"Error resolving code context: {exc}", None)
-    _diag(f"_require_context: exit, returning context")
+    log_debug(f"_require_context: exit, returning context")
     return (None, context)
 
 
@@ -197,7 +197,7 @@ def _attempt_auto_fix_divergence(
     Raises:
         BranchPairingError: If auto-fix fails and requires manual intervention
     """
-    _diag("Detected branch history divergence, attempting auto-fix via rebase")
+    log_debug("Detected branch history divergence, attempting auto-fix via rebase")
 
     # Check if this is a "behind-main" divergence (threads behind main but code not)
     # vs a local-vs-origin divergence. They require different fix strategies.
@@ -216,11 +216,11 @@ def _attempt_auto_fix_divergence(
             threads_repo = Repo(context.threads_dir, search_parent_directories=True)
             onto_branch = _find_main_branch(threads_repo)
             if onto_branch:
-                _diag(f"Behind-main divergence detected, will rebase onto {onto_branch}")
+                log_debug(f"Behind-main divergence detected, will rebase onto {onto_branch}")
             else:
-                _diag("Behind-main divergence detected but couldn't find main branch")
+                log_debug("Behind-main divergence detected but couldn't find main branch")
         except Exception as e:
-            _diag(f"Error finding main branch: {e}")
+            log_debug(f"Error finding main branch: {e}")
 
     try:
         sync_result = sync_branch_history(
@@ -232,7 +232,7 @@ def _attempt_auto_fix_divergence(
         )
 
         if not sync_result.success:
-            _diag(f"Auto-fix failed: {sync_result.details}")
+            log_debug(f"Auto-fix failed: {sync_result.details}")
             error_parts = [
                 "Branch history divergence detected and auto-fix failed:",
                 f"  Code branch: {validation_result.code_branch or '(detached/unknown)'}",
@@ -246,7 +246,7 @@ def _attempt_auto_fix_divergence(
             )
             raise BranchPairingError("\n".join(error_parts))
 
-        _diag(f"Auto-fixed branch divergence: {sync_result.details}")
+        log_debug(f"Auto-fixed branch divergence: {sync_result.details}")
 
         # Re-validate to confirm fix worked
         revalidation = validate_branch_pairing(
@@ -257,17 +257,17 @@ def _attempt_auto_fix_divergence(
         )
 
         if revalidation.valid:
-            _diag("Branch pairing now valid after auto-fix")
+            log_debug("Branch pairing now valid after auto-fix")
             return revalidation
         else:
-            _diag(f"Auto-fix completed but validation still failing: {revalidation.warnings}")
+            log_debug(f"Auto-fix completed but validation still failing: {revalidation.warnings}")
             # Return the updated result so caller can report remaining issues
             return revalidation
 
     except BranchPairingError:
         raise
     except Exception as fix_error:
-        _diag(f"Auto-fix exception: {fix_error}")
+        log_debug(f"Auto-fix exception: {fix_error}")
         error_parts = [
             "Branch history divergence detected, auto-fix failed:",
             f"  Code branch: {validation_result.code_branch or '(detached/unknown)'}",
@@ -352,7 +352,7 @@ def _validate_and_sync_branches(
             raise
         except Exception as e:
             # Log but don't block on validation errors (e.g., repo not initialized)
-            _diag(f"Branch validation warning: {e}")
+            log_debug(f"Branch validation warning: {e}")
 
     # Attempt to sync branches (catch exceptions to avoid blocking legitimate operations)
     branch = context.code_branch
@@ -1636,24 +1636,24 @@ def force_sync(
     Returns:
         Status information or confirmation of sync operation
     """
-    _diag(f"TOOL_ENTRY: watercooler_v1_sync(code_path={code_path!r}, action={action!r})")
+    log_debug(f"TOOL_ENTRY: watercooler_v1_sync(code_path={code_path!r}, action={action!r})")
     try:
-        _diag("TOOL_STEP: calling _require_context")
+        log_debug("TOOL_STEP: calling _require_context")
         error, context = _require_context(code_path)
-        _diag(f"TOOL_STEP: _require_context returned (error={error!r}, context={'present' if context else 'None'})")
+        log_debug(f"TOOL_STEP: _require_context returned (error={error!r}, context={'present' if context else 'None'})")
         if error:
             return error
         if context is None:
             return "Error: Unable to resolve code context for the provided code_path."
 
-        _diag("TOOL_STEP: calling get_git_sync_manager_from_context")
+        log_debug("TOOL_STEP: calling get_git_sync_manager_from_context")
         sync = get_git_sync_manager_from_context(context)
-        _diag(f"TOOL_STEP: get_git_sync_manager returned {'present' if sync else 'None'}")
+        log_debug(f"TOOL_STEP: get_git_sync_manager returned {'present' if sync else 'None'}")
         if not sync:
             return "Async sync unavailable: no git-enabled threads repository for this context."
 
         action_normalized = (action or "now").strip().lower()
-        _diag(f"TOOL_STEP: action_normalized={action_normalized!r}")
+        log_debug(f"TOOL_STEP: action_normalized={action_normalized!r}")
 
         def _format_status(info: dict) -> str:
             if info.get("mode") != "async":
@@ -1687,12 +1687,12 @@ def force_sync(
             return "\n".join(lines)
 
         if action_normalized in {"status", "inspect"}:
-            _diag("TOOL_STEP: calling sync.get_async_status()")
+            log_debug("TOOL_STEP: calling sync.get_async_status()")
             status = sync.get_async_status()
-            _diag(f"TOOL_STEP: get_async_status returned {len(status)} keys")
+            log_debug(f"TOOL_STEP: get_async_status returned {len(status)} keys")
             result = _format_status(status)
-            _diag(f"TOOL_STEP: formatted status, length={len(result)}")
-            _diag("TOOL_EXIT: returning status result")
+            log_debug(f"TOOL_STEP: formatted status, length={len(result)}")
+            log_debug("TOOL_EXIT: returning status result")
             return result
 
         if action_normalized not in {"now", "flush"}:

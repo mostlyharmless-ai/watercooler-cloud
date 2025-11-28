@@ -41,14 +41,8 @@ except ImportError:
 import git
 from git import Repo, GitCommandError, InvalidGitRepositoryError
 
-# Windows stdio hang diagnostic instrumentation
-_DIAGNOSTICS_ENABLED = os.getenv("WATERCOOLER_DIAGNOSTICS", "").lower() in ("1", "true", "yes")
-
-def _diag(message: str):
-    """Log diagnostic message to stderr (doesn't interfere with MCP stdio protocol)."""
-    if _DIAGNOSTICS_ENABLED:
-        timestamp = datetime.now().isoformat()
-        print(f"[DIAG {timestamp}] {message}", file=sys.stderr, flush=True)
+# Unified logging (replaces old _diag system)
+from .observability import log_debug, log_action, log_warning, log_error
 
 try:  # pragma: no cover - fallback for direct module import (tests)
     from .provisioning import ProvisioningError, provision_threads_repo
@@ -581,14 +575,14 @@ class GitSyncManager:
 
             # Use GitPython to clone (in-process, no subprocess)
             # Configure environment for the clone operation
-            _diag(f"GIT_OP_START: clone {self.repo_url}")
+            log_debug(f"GIT_OP_START: clone {self.repo_url}")
             with git.Git().custom_environment(**self._env):
                 Repo.clone_from(
                     self.repo_url,
                     self.local_path,
                     env=self._env
                 )
-            _diag(f"GIT_OP_END: clone {self.repo_url}")
+            log_debug(f"GIT_OP_END: clone {self.repo_url}")
             self._log(f"Clone completed successfully")
         except GitCommandError as e:
             # Check if we should attempt provisioning
@@ -761,11 +755,11 @@ class GitSyncManager:
             origin = repo.remote('origin')
 
             # Use GitPython to list remote refs (equivalent to git ls-remote)
-            _diag("GIT_OP_START: ls-remote (via origin.refs)")
+            log_debug("GIT_OP_START: ls-remote (via origin.refs)")
             with git.Git().custom_environment(**self._env):
                 refs = origin.refs
                 self._remote_empty = len(refs) == 0
-            _diag(f"GIT_OP_END: ls-remote (found {len(refs)} refs)")
+            log_debug(f"GIT_OP_END: ls-remote (found {len(refs)} refs)")
             return True
         except GitCommandError as error:
             self._remote_empty = False
@@ -981,16 +975,16 @@ class GitSyncManager:
         self._log("Pulling with rebase and autostash")
         try:
             repo = self._repo
-            _diag("GIT_OP_START: fetch origin")
+            log_debug("GIT_OP_START: fetch origin")
             with git.Git().custom_environment(**self._env):
                 # Fetch first
                 repo.remote('origin').fetch()
-            _diag("GIT_OP_END: fetch origin")
-            _diag("GIT_OP_START: pull --rebase --autostash")
+            log_debug("GIT_OP_END: fetch origin")
+            log_debug("GIT_OP_START: pull --rebase --autostash")
             with git.Git().custom_environment(**self._env):
                 # Pull with rebase
                 repo.git.pull('--rebase', '--autostash', env=self._env)
-            _diag("GIT_OP_END: pull --rebase --autostash")
+            log_debug("GIT_OP_END: pull --rebase --autostash")
             self._log("Pull completed successfully")
             return True
         except GitCommandError as e:
@@ -1019,7 +1013,7 @@ class GitSyncManager:
                     if tracking is not None:
                         remote_name = tracking.remote_name or remote_name
                         remote_branch = tracking.remote_head or remote_branch
-                    _diag(
+                    log_debug(
                         f"GIT_OP_RETRY: pull --rebase --autostash {remote_name} {remote_branch}"
                     )
                     with git.Git().custom_environment(**self._env):
@@ -1083,22 +1077,22 @@ class GitSyncManager:
         self._log(f"Committing: {message[:60]}...")
         try:
             repo = self._repo
-            _diag("GIT_OP_START: add -A")
+            log_debug("GIT_OP_START: add -A")
             with git.Git().custom_environment(**self._env):
                 # Stage all changes within local_path
                 repo.git.add('-A')
-            _diag("GIT_OP_END: add -A")
+            log_debug("GIT_OP_END: add -A")
 
             # Check if there are changes to commit
             if not repo.is_dirty(untracked_files=True):
                 self._log("No changes to commit")
                 return False
 
-            _diag(f"GIT_OP_START: commit -m '{message[:40]}'")
+            log_debug(f"GIT_OP_START: commit -m '{message[:40]}'")
             with git.Git().custom_environment(**self._env):
                 # Commit changes
                 repo.git.commit('-m', message, env=self._env)
-            _diag(f"GIT_OP_END: commit")
+            log_debug(f"GIT_OP_END: commit")
             self._log("Commit completed successfully")
         except GitCommandError as e:
             raise GitSyncError(f"Failed to commit: {e}") from e
@@ -1129,10 +1123,10 @@ class GitSyncManager:
             self._log(f"Pushing (attempt {attempt+1}/{max_retries})")
             try:
                 repo = self._repo
-                _diag(f"GIT_OP_START: push (attempt {attempt+1})")
+                log_debug(f"GIT_OP_START: push (attempt {attempt+1})")
                 with git.Git().custom_environment(**self._env):
                     repo.remote('origin').push(env=self._env)
-                _diag(f"GIT_OP_END: push (attempt {attempt+1})")
+                log_debug(f"GIT_OP_END: push (attempt {attempt+1})")
                 self._log("Push completed successfully")
                 return True
 
@@ -1222,28 +1216,28 @@ class GitSyncManager:
 
             if exists:
                 # Checkout existing local branch
-                _diag(f"GIT_OP_START: checkout {branch}")
+                log_debug(f"GIT_OP_START: checkout {branch}")
                 with git.Git().custom_environment(**self._env):
                     repo.git.checkout(branch, env=self._env)
-                _diag(f"GIT_OP_END: checkout {branch}")
+                log_debug(f"GIT_OP_END: checkout {branch}")
             else:
                 if remote_has_branch:
                     # Fetch and checkout remote branch
-                    _diag(f"GIT_OP_START: fetch {branch}")
+                    log_debug(f"GIT_OP_START: fetch {branch}")
                     with git.Git().custom_environment(**self._env):
                         origin = repo.remote('origin')
                         origin.fetch(refspec=f"{branch}:refs/heads/{branch}", env=self._env)
-                    _diag(f"GIT_OP_END: fetch {branch}")
-                    _diag(f"GIT_OP_START: checkout {branch}")
+                    log_debug(f"GIT_OP_END: fetch {branch}")
+                    log_debug(f"GIT_OP_START: checkout {branch}")
                     with git.Git().custom_environment(**self._env):
                         repo.git.checkout(branch, env=self._env)
-                    _diag(f"GIT_OP_END: checkout {branch}")
+                    log_debug(f"GIT_OP_END: checkout {branch}")
                 else:
                     # Create new branch
-                    _diag(f"GIT_OP_START: checkout -b {branch}")
+                    log_debug(f"GIT_OP_START: checkout -b {branch}")
                     with git.Git().custom_environment(**self._env):
                         repo.git.checkout('-b', branch, env=self._env)
-                    _diag(f"GIT_OP_END: checkout -b {branch}")
+                    log_debug(f"GIT_OP_END: checkout -b {branch}")
 
             # Ensure upstream is set when remote branch exists
             try:
@@ -1555,7 +1549,7 @@ def _find_main_branch(repo: Repo) -> Optional[str]:
             repo.commit(name)
             return name
         except Exception as e:
-            _diag(f"Branch '{name}' not found: {e}")
+            log_debug(f"Branch '{name}' not found: {e}")
             continue
     return None
 
@@ -1586,16 +1580,16 @@ def _detect_behind_main_divergence(
     threads_main = _find_main_branch(threads_repo_obj)
 
     if not code_main or not threads_main:
-        _diag(f"[PARITY] Early exit: main branch not found (code_main={code_main}, threads_main={threads_main})")
+        log_debug(f"[PARITY] Early exit: main branch not found (code_main={code_main}, threads_main={threads_main})")
         return None
 
     if code_branch == code_main or threads_branch == threads_main:
         # Already on main, no need to check
-        _diag(f"[PARITY] Early exit: already on main (code_branch={code_branch}, threads_branch={threads_branch})")
+        log_debug(f"[PARITY] Early exit: already on main (code_branch={code_branch}, threads_branch={threads_branch})")
         return None
 
     try:
-        _diag(f"[PARITY] Checking branches: code={code_branch}, threads={threads_branch}, "
+        log_debug(f"[PARITY] Checking branches: code={code_branch}, threads={threads_branch}, "
               f"code_main={code_main}, threads_main={threads_main}")
 
         # Check: is code/branch behind code/main?
@@ -1622,18 +1616,18 @@ def _detect_behind_main_divergence(
         code_commit_synced = len(code_behind_main) == 0
         code_synced = code_content_synced or code_commit_synced
 
-        _diag(f"[PARITY] CODE: behind={len(code_behind_main)}, ahead={len(code_ahead_main)}, "
+        log_debug(f"[PARITY] CODE: behind={len(code_behind_main)}, ahead={len(code_ahead_main)}, "
               f"tree_main={code_tree_main[:8]}, tree_branch={code_tree_branch[:8]}, "
               f"content_synced={code_content_synced}, commit_synced={code_commit_synced}")
-        _diag(f"[PARITY] THREADS: behind={len(threads_behind_main)}, ahead={len(threads_ahead_main)}")
-        _diag(f"[PARITY] DECISION: code_synced={code_synced}, threads_behind={len(threads_behind_main)}, "
+        log_debug(f"[PARITY] THREADS: behind={len(threads_behind_main)}, ahead={len(threads_ahead_main)}")
+        log_debug(f"[PARITY] DECISION: code_synced={code_synced}, threads_behind={len(threads_behind_main)}, "
               f"will_trigger={code_synced and len(threads_behind_main) > 0}")
 
         # Disparity: code is synced with main (content or commits) but threads is not
         # This means code was rebased/merged onto main but threads was not
         if code_synced and len(threads_behind_main) > 0:
             sync_reason = "content-equivalent" if code_content_synced else "0 commits behind"
-            _diag(f"[PARITY] *** DISPARITY DETECTED *** threads_behind={len(threads_behind_main)}, "
+            log_debug(f"[PARITY] *** DISPARITY DETECTED *** threads_behind={len(threads_behind_main)}, "
                   f"reason={sync_reason} - returning BranchDivergenceInfo")
             return BranchDivergenceInfo(
                 diverged=True,
@@ -1651,13 +1645,13 @@ def _detect_behind_main_divergence(
                 )
             )
 
-        _diag(f"[PARITY] No disparity detected - returning None")
+        log_debug(f"[PARITY] No disparity detected - returning None")
         return None
 
     except Exception as e:
-        _diag(f"[PARITY] Error checking behind-main divergence: {e}")
+        log_debug(f"[PARITY] Error checking behind-main divergence: {e}")
         import traceback
-        _diag(f"[PARITY] Traceback: {traceback.format_exc()}")
+        log_debug(f"[PARITY] Traceback: {traceback.format_exc()}")
         return None
 
 
@@ -1835,10 +1829,10 @@ def _rebase_branch_onto(
         # This is critical - we need fresh data for accurate commit counting
         # and to rebase onto the latest origin/main
         try:
-            _diag(f"Fetching origin before rebase onto {onto}")
+            log_debug(f"Fetching origin before rebase onto {onto}")
             repo.git.fetch('origin')
         except Exception as e:
-            _diag(f"Warning: Could not fetch origin: {e}")
+            log_debug(f"Warning: Could not fetch origin: {e}")
             # Continue anyway - we might have recent enough refs
 
         # Use origin/{onto} for the rebase target to ensure we're rebasing
@@ -1849,7 +1843,7 @@ def _rebase_branch_onto(
             repo.commit(rebase_target)
         except Exception:
             # Fall back to local branch if remote doesn't exist
-            _diag(f"Remote ref '{rebase_target}' not found, using local '{onto}'")
+            log_debug(f"Remote ref '{rebase_target}' not found, using local '{onto}'")
             rebase_target = onto
 
         # Count commits that will be rebased (using the rebase target)
@@ -1873,7 +1867,7 @@ def _rebase_branch_onto(
                 repo.git.stash('push', '-m', 'Auto-stash for rebase onto main')
                 stash_created = True
             except Exception as e:
-                _diag(f"Warning: Could not stash changes: {e}")
+                log_debug(f"Warning: Could not stash changes: {e}")
 
         # Ensure we're on the target branch before rebasing
         try:
@@ -1883,16 +1877,16 @@ def _rebase_branch_onto(
             original_branch = None
 
         if original_branch != branch:
-            _diag(f"Switching from '{original_branch}' to '{branch}' for rebase")
+            log_debug(f"Switching from '{original_branch}' to '{branch}' for rebase")
             try:
                 repo.git.checkout(branch)
             except Exception as e:
-                _diag(f"Failed to checkout branch '{branch}': {e}")
+                log_debug(f"Failed to checkout branch '{branch}': {e}")
                 if stash_created:
                     try:
                         repo.git.stash('pop')
                     except Exception as pop_e:
-                        _diag(f"Warning: Could not pop stash: {pop_e}")
+                        log_debug(f"Warning: Could not pop stash: {pop_e}")
                 return BranchSyncResult(
                     success=False,
                     action_taken="error",
@@ -1904,16 +1898,16 @@ def _rebase_branch_onto(
 
         try:
             # Rebase onto target (using origin/{onto} for latest remote state)
-            _diag(f"GIT_OP_START: rebase {branch} onto {rebase_target}")
+            log_debug(f"GIT_OP_START: rebase {branch} onto {rebase_target}")
             repo.git.rebase(rebase_target)
-            _diag(f"GIT_OP_END: rebase {branch} onto {rebase_target}")
+            log_debug(f"GIT_OP_END: rebase {branch} onto {rebase_target}")
 
             # Pop stash if needed
             if stash_created:
                 try:
                     repo.git.stash('pop')
                 except Exception as e:
-                    _diag(f"Warning: Could not pop stash after rebase: {e}")
+                    log_debug(f"Warning: Could not pop stash after rebase: {e}")
 
             # Force push (with lease for safety)
             if force:
@@ -1938,14 +1932,14 @@ def _rebase_branch_onto(
             try:
                 repo.git.rebase('--abort')
             except Exception as abort_e:
-                _diag(f"Warning: Could not abort rebase: {abort_e}")
+                log_debug(f"Warning: Could not abort rebase: {abort_e}")
 
             # Pop stash if we stashed
             if stash_created:
                 try:
                     repo.git.stash('pop')
                 except Exception as pop_e:
-                    _diag(f"Warning: Could not pop stash after rebase failure: {pop_e}")
+                    log_debug(f"Warning: Could not pop stash after rebase failure: {pop_e}")
 
             return BranchSyncResult(
                 success=False,

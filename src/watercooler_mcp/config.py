@@ -14,7 +14,8 @@ except ImportError:  # pragma: no cover - Python <3.8 fallback
 
 from watercooler.agents import _canonical_agent, _load_agents_registry
 
-from .git_sync import GitSyncManager, _diag
+from .git_sync import GitSyncManager
+from .observability import log_debug
 
 # GitPython for subprocess-free git discovery (fixes Windows stdio hang)
 from git import Repo, InvalidGitRepositoryError, GitCommandError
@@ -111,7 +112,7 @@ def _normalize_code_root(code_root: Optional[Path]) -> Optional[Path]:
 
 def _run_git(args: list[str], cwd: Path) -> Optional[str]:
     cmd = " ".join(args)
-    _diag(f"CONFIG_GIT_START: git {cmd} (cwd={cwd})")
+    log_debug(f"CONFIG_GIT_START: git {cmd} (cwd={cwd})")
     try:
         result = subprocess.run(
             ["git", *args],
@@ -120,10 +121,10 @@ def _run_git(args: list[str], cwd: Path) -> Optional[str]:
             capture_output=True,
             text=True,
         )
-        _diag(f"CONFIG_GIT_END: git {cmd} (returned {len(result.stdout)} chars)")
+        log_debug(f"CONFIG_GIT_END: git {cmd} (returned {len(result.stdout)} chars)")
         return result.stdout.strip()
     except (subprocess.CalledProcessError, FileNotFoundError) as e:
-        _diag(f"CONFIG_GIT_FAIL: git {cmd} (error: {type(e).__name__})")
+        log_debug(f"CONFIG_GIT_FAIL: git {cmd} (error: {type(e).__name__})")
         return None
 
 
@@ -134,7 +135,7 @@ def _discover_git(code_root: Optional[Path]) -> _GitDetails:
     if not code_root.exists():
         return _GitDetails(None, None, None, None)
 
-    _diag(f"CONFIG: Discovering git info for {code_root}")
+    log_debug(f"CONFIG: Discovering git info for {code_root}")
 
     try:
         # Use GitPython to discover git info (no subprocess)
@@ -167,14 +168,14 @@ def _discover_git(code_root: Optional[Path]) -> _GitDetails:
         if root is not None:
             root = _resolve_path(root)
 
-        _diag(f"CONFIG: Git discovery complete (root={root}, branch={branch})")
+        log_debug(f"CONFIG: Git discovery complete (root={root}, branch={branch})")
         return _GitDetails(root=root, branch=branch, commit=commit, remote=remote)
 
     except InvalidGitRepositoryError:
-        _diag(f"CONFIG: Not a git repository: {code_root}")
+        log_debug(f"CONFIG: Not a git repository: {code_root}")
         return _GitDetails(None, None, None, None)
     except Exception as e:
-        _diag(f"CONFIG: Git discovery error: {e}")
+        log_debug(f"CONFIG: Git discovery error: {e}")
         return _GitDetails(None, None, None, None)
 
 
