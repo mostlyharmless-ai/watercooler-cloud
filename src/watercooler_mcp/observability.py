@@ -58,9 +58,11 @@ def _get_log_file_path() -> Optional[Path]:
     if os.getenv(ENV_LOG_DISABLE_FILE, "").lower() in ("1", "true", "yes"):
         return None
 
-    # Lazy initialization of session start timestamp
+    # Thread-safe lazy initialization of session start timestamp
     if _session_start is None:
-        _session_start = datetime.now(timezone.utc).strftime("%Y-%m-%d_%H%M%S")
+        with _logger_lock:
+            if _session_start is None:  # Double-check pattern
+                _session_start = datetime.now(timezone.utc).strftime("%Y-%m-%d_%H%M%S")
 
     log_dir = Path(os.getenv(ENV_LOG_DIR, DEFAULT_LOG_DIR))
     try:
