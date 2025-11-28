@@ -31,6 +31,7 @@ DEFAULT_BACKUP_COUNT = 5
 # Thread-safe initialization state
 _logger_initialized = False
 _logger_lock = threading.Lock()
+_session_lock = threading.Lock()  # Separate lock for session timestamp to avoid deadlock
 _session_start: Optional[str] = None  # Lazy initialization to avoid import-time side effects
 
 
@@ -59,8 +60,9 @@ def _get_log_file_path() -> Optional[Path]:
         return None
 
     # Thread-safe lazy initialization of session start timestamp
+    # Uses separate lock to avoid deadlock when called from _get_logger()
     if _session_start is None:
-        with _logger_lock:
+        with _session_lock:
             if _session_start is None:  # Double-check pattern
                 _session_start = datetime.now(timezone.utc).strftime("%Y-%m-%d_%H%M%S")
 
