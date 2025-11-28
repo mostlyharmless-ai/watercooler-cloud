@@ -1603,9 +1603,22 @@ def _detect_behind_main_divergence(
             f"{threads_branch}..{threads_main}"
         ))
 
-        # The problem: code is NOT behind main, but threads IS behind main
-        # This means code was rebased onto main but threads was not
-        if len(code_behind_main) == 0 and len(threads_behind_main) > 0:
+        # Check if code is content-synced with main using tree hash comparison (O(1))
+        # This handles squash merges where commits differ but content is same
+        code_tree_main = code_repo_obj.commit(code_main).tree.hexsha
+        code_tree_branch = code_repo_obj.commit(code_branch).tree.hexsha
+        code_content_synced = (code_tree_main == code_tree_branch)
+        code_commit_synced = len(code_behind_main) == 0
+        code_synced = code_content_synced or code_commit_synced
+
+        _diag(f"Branch parity check: code_behind={len(code_behind_main)}, "
+              f"threads_behind={len(threads_behind_main)}, "
+              f"code_content_synced={code_content_synced}, code_synced={code_synced}")
+
+        # Disparity: code is synced with main (content or commits) but threads is not
+        # This means code was rebased/merged onto main but threads was not
+        if code_synced and len(threads_behind_main) > 0:
+            sync_reason = "content-equivalent" if code_content_synced else "0 commits behind"
             return BranchDivergenceInfo(
                 diverged=True,
                 commits_ahead=0,
@@ -1615,10 +1628,10 @@ def _detect_behind_main_divergence(
                 needs_fetch=False,
                 details=(
                     f"Threads branch '{threads_branch}' is {len(threads_behind_main)} commits behind "
-                    f"'{threads_main}', but code branch '{code_branch}' is fully up-to-date with "
-                    f"'{code_main}'. This typically happens when code branch was rebased onto main "
-                    f"but threads branch was not. Recommended: rebase threads/{threads_branch} onto "
-                    f"threads/{threads_main}"
+                    f"'{threads_main}', but code branch '{code_branch}' is synced with "
+                    f"'{code_main}' ({sync_reason}). This typically happens when code branch was "
+                    f"rebased/merged onto main but threads branch was not. "
+                    f"Recommended: rebase threads/{threads_branch} onto threads/{threads_main}"
                 )
             )
 
