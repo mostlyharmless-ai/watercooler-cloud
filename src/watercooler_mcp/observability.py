@@ -5,7 +5,7 @@ import logging
 import os
 import time
 from contextlib import contextmanager
-from datetime import datetime
+from datetime import datetime, timezone
 from logging.handlers import RotatingFileHandler
 from pathlib import Path
 from typing import Any, Dict, Optional
@@ -27,7 +27,7 @@ DEFAULT_MAX_BYTES = 10 * 1024 * 1024  # 10 MB
 DEFAULT_BACKUP_COUNT = 5
 
 _logger_initialized = False
-_session_start = datetime.utcnow().strftime("%Y-%m-%d_%H%M%S")
+_session_start = datetime.now(timezone.utc).strftime("%Y-%m-%d_%H%M%S")
 
 
 def _get_log_level() -> int:
@@ -39,13 +39,20 @@ def _get_log_level() -> int:
 def _get_log_file_path() -> Optional[Path]:
     """Get the log file path, creating directories if needed.
 
-    Returns None if file logging is disabled via WATERCOOLER_LOG_DISABLE_FILE=1.
+    Returns None if file logging is disabled via WATERCOOLER_LOG_DISABLE_FILE=1,
+    or if the log directory cannot be created (falls back to stderr-only).
     """
     if os.getenv(ENV_LOG_DISABLE_FILE, "").lower() in ("1", "true", "yes"):
         return None
 
     log_dir = Path(os.getenv(ENV_LOG_DIR, DEFAULT_LOG_DIR))
-    log_dir.mkdir(parents=True, exist_ok=True)
+    try:
+        log_dir.mkdir(parents=True, exist_ok=True)
+    except (OSError, PermissionError) as e:
+        # Fall back to stderr-only logging if directory creation fails
+        import sys
+        print(f"Warning: Could not create log directory {log_dir}: {e}", file=sys.stderr)
+        return None
 
     # Session-based filename: watercooler_2024-01-15_143022.log
     log_file = log_dir / f"watercooler_{_session_start}.log"
@@ -128,7 +135,7 @@ def log_action(
         **fields: Additional fields to include
     """
     payload: Dict[str, Any] = {
-        "ts": datetime.utcnow().isoformat() + "Z",
+        "ts": datetime.now(timezone.utc).isoformat().replace("+00:00", "Z"),
         "action": action,
         "outcome": outcome,
     }
