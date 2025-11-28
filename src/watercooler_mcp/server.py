@@ -55,7 +55,7 @@ from .git_sync import (
     BranchDivergenceInfo,
     _find_main_branch,
 )
-from .observability import log_debug, log_action, log_warning, log_error
+from .observability import log_debug, log_action, log_warning, log_error, timeit
 
 # Workaround for Windows stdio hang: Force auto-flush on every stdout write
 # On Windows, FastMCP's stdio transport gets stuck after subprocess operations
@@ -86,24 +86,39 @@ _TRANSPORT = os.getenv("WATERCOOLER_MCP_TRANSPORT", "stdio").lower()
 mcp = FastMCP(name="Watercooler Cloud")
 
 
-# Instrument FastMCP tool execution to debug hanging responses
+# Instrument FastMCP tool execution for observability
 try:
     from fastmcp.tools.tool import FunctionTool  # type: ignore
 
     _orig_run = FunctionTool.run
 
     async def _instrumented_run(self, arguments):  # type: ignore
-        result = await _orig_run(self, arguments)
+        tool_name = getattr(self, 'name', '<unknown>')
+        input_chars = len(json.dumps(arguments)) if arguments else 0
+        start_time = time.perf_counter()
+        outcome = "ok"
         try:
-            _log_context(None, f"FunctionTool.run completed for {getattr(self, 'name', '<unknown>')}")
-            # Workaround: Force stdout flush on Windows after tool execution
-            # This may help clear stdio blockage before FastMCP writes response
-            if sys.platform == "win32":
-                sys.stdout.flush()
-                sys.stderr.flush()
+            result = await _orig_run(self, arguments)
+            return result
         except Exception:
-            pass
-        return result
+            outcome = "error"
+            raise
+        finally:
+            duration_ms = (time.perf_counter() - start_time) * 1000.0
+            try:
+                log_action(
+                    "mcp.tool",
+                    tool_name=tool_name,
+                    input_chars=input_chars,
+                    duration_ms=duration_ms,
+                    outcome=outcome,
+                )
+                # Workaround: Force stdout flush on Windows after tool execution
+                if sys.platform == "win32":
+                    sys.stdout.flush()
+                    sys.stderr.flush()
+            except Exception:
+                pass
 
     FunctionTool.run = _instrumented_run  # type: ignore
 except Exception:
@@ -111,23 +126,6 @@ except Exception:
 
 
 T = TypeVar("T")
-
-
-_MCP_LOG_ENABLED = os.getenv("WATERCOOLER_MCP_LOG", "0").lower() not in {"0", "false", "off"}
-
-
-def _log_context(ctx: Optional[ThreadContext], message: str) -> None:
-    if not _MCP_LOG_ENABLED:
-        return
-    try:
-        base = Path(ctx.threads_dir) if ctx else Path.cwd()
-        log_path = base.parent / ".watercooler-mcp.log"
-        log_path.parent.mkdir(parents=True, exist_ok=True)
-        timestamp = time.strftime("%Y-%m-%dT%H:%M:%S")
-        with log_path.open("a", encoding="utf-8") as fh:
-            fh.write(f"{timestamp} {message}\n")
-    except Exception:
-        pass
 
 
 def _should_auto_branch() -> bool:
@@ -818,9 +816,9 @@ def list_threads(
             return ToolResult(content=[TextContent(type="text", text=error)])
         if context is None:
             return ToolResult(content=[TextContent(type="text", text="Error: Unable to resolve code context for the provided code_path.")])
-        _log_context(context, f"list_threads start code_path={code_path!r} open_only={open_only}")
+        log_debug(f"list_threads start code_path={code_path!r} open_only={open_only}")
         if context and _dynamic_context_missing(context):
-            _log_context(context, "list_threads dynamic context missing")
+            log_debug("list_threads dynamic context missing")
             return ToolResult(content=[TextContent(type="text", text=(
                 "Dynamic threads repo was not resolved from your git context.\n"
                 "Run from inside your code repo or set WATERCOOLER_CODE_REPO/WATERCOOLER_GIT_REPO on the MCP server.\n"
@@ -829,24 +827,24 @@ def list_threads(
             ))])
 
         agent = get_agent_name(ctx.client_id)
-        _log_context(context, "list_threads refreshing git state")
+        log_debug("list_threads refreshing git state")
         git_start = time.time()
         _refresh_threads(context)
         git_elapsed = time.time() - git_start
-        _log_context(context, f"list_threads git refreshed in {git_elapsed:.2f}s")
+        log_debug(f"list_threads git refreshed in {git_elapsed:.2f}s")
         threads_dir = context.threads_dir
 
         # Create threads directory if it doesn't exist
         if not threads_dir.exists():
             threads_dir.mkdir(parents=True, exist_ok=True)
-            _log_context(context, "list_threads created empty threads directory")
+            log_debug("list_threads created empty threads directory")
             return ToolResult(content=[TextContent(type="text", text=f"No threads found. Threads directory created at: {threads_dir}\n\nCreate your first thread with watercooler_v1_say.")])
 
         # Get thread list from commands module
         scan_start = time.time()
         threads = commands.list_threads(threads_dir=threads_dir, open_only=open_only)
         scan_elapsed = time.time() - scan_start
-        _log_context(context, f"list_threads scanned {len(threads)} threads in {scan_elapsed:.2f}s")
+        log_debug(f"list_threads scanned {len(threads)} threads in {scan_elapsed:.2f}s")
 
         sync = get_git_sync_manager_from_context(context)
         pending_topics: set[str] = set()
@@ -874,7 +872,7 @@ def list_threads(
 
         if not threads:
             status_filter = "open " if open_only is True else ("closed " if open_only is False else "")
-            _log_context(context, f"list_threads no {status_filter or ''}threads found")
+            log_debug(f"list_threads no {status_filter or ''}threads found")
             return ToolResult(content=[TextContent(type="text", text=f"No {status_filter}threads found in: {threads_dir}")])
 
         # Format output
@@ -902,7 +900,7 @@ def list_threads(
             else:
                 waiting.append((title, status, ball, updated, topic, has_ball))
         classify_elapsed = time.time() - classify_start
-        _log_context(context, f"list_threads classified threads in {classify_elapsed:.2f}s (your_turn={len(your_turn)} waiting={len(waiting)} new={len(new_entries)})")
+        log_debug(f"list_threads classified threads in {classify_elapsed:.2f}s (your_turn={len(your_turn)} waiting={len(waiting)} new={len(new_entries)})")
 
         # Your turn section
         render_start = time.time()
@@ -938,22 +936,19 @@ def list_threads(
 
         response = "\n".join(output)
         render_elapsed = time.time() - render_start
-        _log_context(context, f"list_threads rendered markdown sections in {render_elapsed:.2f}s")
+        log_debug(f"list_threads rendered markdown sections in {render_elapsed:.2f}s")
         duration = time.time() - start_ts
-        _log_context(
-            context,
-            (
-                "list_threads formatted response in "
-                f"{duration:.2f}s (total={len(threads)} new={len(new_entries)} "
-                f"your_turn={len(your_turn)} waiting={len(waiting)} "
-                f"chars={len(response)})"
-            ),
+        log_debug(
+            f"list_threads formatted response in "
+            f"{duration:.2f}s (total={len(threads)} new={len(new_entries)} "
+            f"your_turn={len(your_turn)} waiting={len(waiting)} "
+            f"chars={len(response)})"
         )
-        _log_context(context, "list_threads returning response")
+        log_debug("list_threads returning response")
         return ToolResult(content=[TextContent(type="text", text=response)])
 
     except Exception as e:
-        _log_context(None, f"list_threads error: {e}")
+        log_error(f"list_threads error: {e}")
         return ToolResult(content=[TextContent(type="text", text=f"Error listing threads: {str(e)}")])
 
 
