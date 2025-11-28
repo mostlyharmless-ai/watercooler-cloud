@@ -285,11 +285,15 @@ def _validate_and_sync_branches(
     This helper is used by both read and write operations to ensure
     the threads repo is on the correct branch before any operation.
 
-    Includes automatic detection and repair of branch history divergence
-    (e.g., after rebase or force-push in the code repo). When divergence
-    is detected, it automatically rebases the threads branch to match.
+    Includes automatic detection and repair of:
+    1. Branch name mismatch: Checks out threads repo to match code repo branch
+    2. Branch history divergence: Rebases threads branch after code repo rebase/force-push
+
+    When auto-fix is enabled (WATERCOOLER_AUTO_BRANCH=1, default), these issues
+    are resolved automatically. If auto-fix fails, raises BranchPairingError.
 
     Side effects:
+        - May checkout threads repo to different branch
         - May rebase threads branch to match code branch history
         - May push to remote with --force-with-lease if divergence detected
         - Blocks operation if conflicts occur during auto-fix
@@ -325,17 +329,18 @@ def _validate_and_sync_branches(
                 if branch_mismatch and context.code_branch and _should_auto_branch():
                     log_debug(f"Branch name mismatch detected, auto-fixing via checkout to {context.code_branch}")
                     try:
-                        sync = get_git_sync_manager_from_context(context)
-                        if sync:
-                            sync.ensure_branch(context.code_branch)
-                            # Re-validate after branch checkout
-                            validation_result = validate_branch_pairing(
-                                code_repo=context.code_root,
-                                threads_repo=context.threads_dir,
-                                strict=True,
-                                check_history=True,
-                            )
-                            log_debug(f"Branch pairing after auto-fix: valid={validation_result.valid}")
+                        sync.ensure_branch(context.code_branch)
+                        # Re-validate after branch checkout
+                        validation_result = validate_branch_pairing(
+                            code_repo=context.code_root,
+                            threads_repo=context.threads_dir,
+                            strict=True,
+                            check_history=True,
+                        )
+                        if validation_result.valid:
+                            log_debug(f"Branch name mismatch auto-fixed: checked out to {context.code_branch}")
+                        else:
+                            log_debug(f"Branch checkout completed but validation still failing: {validation_result.warnings}")
                     except Exception as e:
                         log_debug(f"Auto-fix branch checkout failed: {e}")
 
