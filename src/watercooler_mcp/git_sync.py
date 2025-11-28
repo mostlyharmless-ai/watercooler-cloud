@@ -1668,6 +1668,55 @@ def _detect_behind_main_divergence(
                 )
             )
 
+        # Ahead-of-main disparity: code has parity but threads/staging is ahead of threads/main
+        # This happens when code/staging was merged to code/main but threads/staging wasn't
+        # Fix: merge threads/staging into threads/main to achieve parity
+        if code_synced and len(threads_ahead_main) > 0 and len(threads_behind_main) == 0:
+            sync_reason = "content-equivalent" if code_content_synced else "0 commits behind"
+            log_debug(f"[PARITY] *** AHEAD-OF-MAIN DISPARITY *** threads_ahead={len(threads_ahead_main)}, "
+                  f"reason={sync_reason} - merging threads/{threads_branch} into threads/{threads_main}")
+
+            # Direct fix: merge staging into main
+            try:
+                original_branch = threads_repo_obj.active_branch.name
+                log_debug(f"[PARITY] Checking out {threads_main}")
+                threads_repo_obj.git.checkout(threads_main)
+
+                log_debug(f"[PARITY] Merging {threads_branch} into {threads_main}")
+                threads_repo_obj.git.merge(threads_branch, "--no-edit")
+
+                log_debug(f"[PARITY] Pushing {threads_main} to origin")
+                threads_repo_obj.git.push("origin", threads_main)
+
+                log_debug(f"[PARITY] Checking out {original_branch}")
+                threads_repo_obj.git.checkout(original_branch)
+
+                log_debug(f"[PARITY] Successfully merged threads/{threads_branch} into threads/{threads_main}")
+                # Return None - parity achieved, no further action needed
+                return None
+            except Exception as merge_err:
+                log_debug(f"[PARITY] Failed to merge threads/{threads_branch} into threads/{threads_main}: {merge_err}")
+                # Try to recover to original branch
+                try:
+                    threads_repo_obj.git.checkout(original_branch)
+                except Exception:
+                    pass
+                # Return info so caller knows there's an issue
+                return BranchDivergenceInfo(
+                    diverged=True,
+                    commits_ahead=len(threads_ahead_main),
+                    commits_behind=0,
+                    common_ancestor=None,
+                    needs_rebase=False,
+                    needs_fetch=False,
+                    details=(
+                        f"Threads branch '{threads_branch}' is {len(threads_ahead_main)} commits ahead of "
+                        f"'{threads_main}', but code branch '{code_branch}' is synced with "
+                        f"'{code_main}' ({sync_reason}). Auto-merge failed: {merge_err}. "
+                        f"Manual fix: merge threads/{threads_branch} into threads/{threads_main}"
+                    )
+                )
+
         log_debug(f"[PARITY] No disparity detected - returning None")
         return None
 
