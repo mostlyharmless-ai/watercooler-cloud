@@ -1586,21 +1586,32 @@ def _detect_behind_main_divergence(
     threads_main = _find_main_branch(threads_repo_obj)
 
     if not code_main or not threads_main:
+        _diag(f"[PARITY] Early exit: main branch not found (code_main={code_main}, threads_main={threads_main})")
         return None
 
     if code_branch == code_main or threads_branch == threads_main:
         # Already on main, no need to check
+        _diag(f"[PARITY] Early exit: already on main (code_branch={code_branch}, threads_branch={threads_branch})")
         return None
 
     try:
+        _diag(f"[PARITY] Checking branches: code={code_branch}, threads={threads_branch}, "
+              f"code_main={code_main}, threads_main={threads_main}")
+
         # Check: is code/branch behind code/main?
         code_behind_main = list(code_repo_obj.iter_commits(
             f"{code_branch}..{code_main}"
+        ))
+        code_ahead_main = list(code_repo_obj.iter_commits(
+            f"{code_main}..{code_branch}"
         ))
 
         # Check: is threads/branch behind threads/main?
         threads_behind_main = list(threads_repo_obj.iter_commits(
             f"{threads_branch}..{threads_main}"
+        ))
+        threads_ahead_main = list(threads_repo_obj.iter_commits(
+            f"{threads_main}..{threads_branch}"
         ))
 
         # Check if code is content-synced with main using tree hash comparison (O(1))
@@ -1611,14 +1622,19 @@ def _detect_behind_main_divergence(
         code_commit_synced = len(code_behind_main) == 0
         code_synced = code_content_synced or code_commit_synced
 
-        _diag(f"Branch parity check: code_behind={len(code_behind_main)}, "
-              f"threads_behind={len(threads_behind_main)}, "
-              f"code_content_synced={code_content_synced}, code_synced={code_synced}")
+        _diag(f"[PARITY] CODE: behind={len(code_behind_main)}, ahead={len(code_ahead_main)}, "
+              f"tree_main={code_tree_main[:8]}, tree_branch={code_tree_branch[:8]}, "
+              f"content_synced={code_content_synced}, commit_synced={code_commit_synced}")
+        _diag(f"[PARITY] THREADS: behind={len(threads_behind_main)}, ahead={len(threads_ahead_main)}")
+        _diag(f"[PARITY] DECISION: code_synced={code_synced}, threads_behind={len(threads_behind_main)}, "
+              f"will_trigger={code_synced and len(threads_behind_main) > 0}")
 
         # Disparity: code is synced with main (content or commits) but threads is not
         # This means code was rebased/merged onto main but threads was not
         if code_synced and len(threads_behind_main) > 0:
             sync_reason = "content-equivalent" if code_content_synced else "0 commits behind"
+            _diag(f"[PARITY] *** DISPARITY DETECTED *** threads_behind={len(threads_behind_main)}, "
+                  f"reason={sync_reason} - returning BranchDivergenceInfo")
             return BranchDivergenceInfo(
                 diverged=True,
                 commits_ahead=0,
@@ -1635,10 +1651,13 @@ def _detect_behind_main_divergence(
                 )
             )
 
+        _diag(f"[PARITY] No disparity detected - returning None")
         return None
 
     except Exception as e:
-        _diag(f"Error checking behind-main divergence: {e}")
+        _diag(f"[PARITY] Error checking behind-main divergence: {e}")
+        import traceback
+        _diag(f"[PARITY] Traceback: {traceback.format_exc()}")
         return None
 
 
