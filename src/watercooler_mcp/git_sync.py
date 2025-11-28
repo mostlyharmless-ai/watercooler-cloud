@@ -1566,6 +1566,10 @@ def _detect_behind_main_divergence(
     but threads/staging was NOT rebased onto threads/main, leaving threads
     missing commits that exist in threads/main.
 
+    Uses origin/main for comparisons when available to ensure accurate detection
+    even when local main is stale. Falls back to local main if origin/main
+    doesn't exist (e.g., in tests without remotes configured).
+
     Args:
         code_repo_obj: GitPython Repo object for code repository
         threads_repo_obj: GitPython Repo object for threads repository
@@ -1573,7 +1577,9 @@ def _detect_behind_main_divergence(
         threads_branch: Name of the threads branch (e.g., 'staging')
 
     Returns:
-        BranchDivergenceInfo if divergence detected, None otherwise
+        BranchDivergenceInfo if divergence detected, None otherwise.
+        Returns None if main branches not found, already on main, or
+        no divergence detected.
     """
     # Don't check if we're already on main
     code_main = _find_main_branch(code_repo_obj)
@@ -1589,28 +1595,45 @@ def _detect_behind_main_divergence(
         return None
 
     try:
-        log_debug(f"[PARITY] Checking branches: code={code_branch}, threads={threads_branch}, "
-              f"code_main={code_main}, threads_main={threads_main}")
+        # Use origin/main for comparison to ensure we have the latest remote state
+        # Local main may be stale if not recently fetched
+        # Fall back to local main if origin/main doesn't exist (e.g., in tests)
+        def _get_main_ref(repo: Repo, main_branch: str, repo_name: str) -> str:
+            """Get origin/main if it exists, otherwise fall back to local main."""
+            origin_ref = f"origin/{main_branch}"
+            try:
+                repo.commit(origin_ref)
+                log_debug(f"[PARITY] {repo_name}: using remote ref {origin_ref}")
+                return origin_ref
+            except Exception:
+                log_debug(f"[PARITY] {repo_name}: origin/{main_branch} not found, using local {main_branch}")
+                return main_branch
 
-        # Check: is code/branch behind code/main?
+        code_main_ref = _get_main_ref(code_repo_obj, code_main, "code")
+        threads_main_ref = _get_main_ref(threads_repo_obj, threads_main, "threads")
+
+        log_debug(f"[PARITY] Checking branches: code={code_branch}, threads={threads_branch}, "
+              f"code_main={code_main_ref}, threads_main={threads_main_ref}")
+
+        # Check: is code/branch behind main?
         code_behind_main = list(code_repo_obj.iter_commits(
-            f"{code_branch}..{code_main}"
+            f"{code_branch}..{code_main_ref}"
         ))
         code_ahead_main = list(code_repo_obj.iter_commits(
-            f"{code_main}..{code_branch}"
+            f"{code_main_ref}..{code_branch}"
         ))
 
-        # Check: is threads/branch behind threads/main?
+        # Check: is threads/branch behind main?
         threads_behind_main = list(threads_repo_obj.iter_commits(
-            f"{threads_branch}..{threads_main}"
+            f"{threads_branch}..{threads_main_ref}"
         ))
         threads_ahead_main = list(threads_repo_obj.iter_commits(
-            f"{threads_main}..{threads_branch}"
+            f"{threads_main_ref}..{threads_branch}"
         ))
 
         # Check if code is content-synced with main using tree hash comparison (O(1))
         # This handles squash merges where commits differ but content is same
-        code_tree_main = code_repo_obj.commit(code_main).tree.hexsha
+        code_tree_main = code_repo_obj.commit(code_main_ref).tree.hexsha
         code_tree_branch = code_repo_obj.commit(code_branch).tree.hexsha
         code_content_synced = (code_tree_main == code_tree_branch)
         code_commit_synced = len(code_behind_main) == 0
