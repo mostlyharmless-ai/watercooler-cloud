@@ -3,6 +3,8 @@ from __future__ import annotations
 import json
 import logging
 import os
+import sys
+import threading
 import time
 from contextlib import contextmanager
 from datetime import datetime, timezone
@@ -26,14 +28,23 @@ DEFAULT_LOG_LEVEL = "INFO"
 DEFAULT_MAX_BYTES = 10 * 1024 * 1024  # 10 MB
 DEFAULT_BACKUP_COUNT = 5
 
+# Thread-safe initialization state
 _logger_initialized = False
-_session_start = datetime.now(timezone.utc).strftime("%Y-%m-%d_%H%M%S")
+_logger_lock = threading.Lock()
+_session_start: Optional[str] = None  # Lazy initialization to avoid import-time side effects
 
 
 def _get_log_level() -> int:
-    """Get log level from environment, defaulting to INFO."""
+    """Get log level from environment, defaulting to INFO.
+
+    Warns to stderr if an invalid log level is specified.
+    """
     level_name = os.getenv(ENV_LOG_LEVEL, DEFAULT_LOG_LEVEL).upper()
-    return getattr(logging, level_name, logging.INFO)
+    level = getattr(logging, level_name, None)
+    if level is None:
+        print(f"Warning: Invalid log level '{level_name}', using INFO", file=sys.stderr)
+        return logging.INFO
+    return level
 
 
 def _get_log_file_path() -> Optional[Path]:
@@ -42,15 +53,20 @@ def _get_log_file_path() -> Optional[Path]:
     Returns None if file logging is disabled via WATERCOOLER_LOG_DISABLE_FILE=1,
     or if the log directory cannot be created (falls back to stderr-only).
     """
+    global _session_start
+
     if os.getenv(ENV_LOG_DISABLE_FILE, "").lower() in ("1", "true", "yes"):
         return None
+
+    # Lazy initialization of session start timestamp
+    if _session_start is None:
+        _session_start = datetime.now(timezone.utc).strftime("%Y-%m-%d_%H%M%S")
 
     log_dir = Path(os.getenv(ENV_LOG_DIR, DEFAULT_LOG_DIR))
     try:
         log_dir.mkdir(parents=True, exist_ok=True)
     except (OSError, PermissionError) as e:
         # Fall back to stderr-only logging if directory creation fails
-        import sys
         print(f"Warning: Could not create log directory {log_dir}: {e}", file=sys.stderr)
         return None
 
@@ -75,38 +91,48 @@ def _get_logger() -> logging.Logger:
     logger = logging.getLogger(LOGGER_NAME)
 
     if not _logger_initialized:
-        _logger_initialized = True
-        logger.handlers.clear()  # Remove any existing handlers
+        with _logger_lock:
+            # Double-check pattern for thread safety
+            if not _logger_initialized:
+                _logger_initialized = True
+                logger.handlers.clear()  # Remove any existing handlers
 
-        log_level = _get_log_level()
-        logger.setLevel(log_level)
+                log_level = _get_log_level()
+                logger.setLevel(log_level)
 
-        # Human-readable formatter
-        formatter = logging.Formatter(
-            "[%(levelname)s %(asctime)s] %(message)s",
-            datefmt="%Y-%m-%dT%H:%M:%S"
-        )
+                # Human-readable formatter
+                formatter = logging.Formatter(
+                    "[%(levelname)s %(asctime)s] %(message)s",
+                    datefmt="%Y-%m-%dT%H:%M:%S"
+                )
 
-        # File handler (enabled by default)
-        log_file = _get_log_file_path()
-        if log_file:
-            max_bytes = int(os.getenv(ENV_LOG_MAX_BYTES, DEFAULT_MAX_BYTES))
-            backup_count = int(os.getenv(ENV_LOG_BACKUP_COUNT, DEFAULT_BACKUP_COUNT))
+                # File handler (enabled by default)
+                log_file = _get_log_file_path()
+                if log_file:
+                    # Safe parsing of environment variables with fallback to defaults
+                    try:
+                        max_bytes = int(os.getenv(ENV_LOG_MAX_BYTES, str(DEFAULT_MAX_BYTES)))
+                    except ValueError:
+                        max_bytes = DEFAULT_MAX_BYTES
+                    try:
+                        backup_count = int(os.getenv(ENV_LOG_BACKUP_COUNT, str(DEFAULT_BACKUP_COUNT)))
+                    except ValueError:
+                        backup_count = DEFAULT_BACKUP_COUNT
 
-            file_handler = RotatingFileHandler(
-                str(log_file),
-                maxBytes=max_bytes,
-                backupCount=backup_count,
-            )
-            file_handler.setFormatter(formatter)
-            file_handler.setLevel(log_level)
-            logger.addHandler(file_handler)
+                    file_handler = RotatingFileHandler(
+                        str(log_file),
+                        maxBytes=max_bytes,
+                        backupCount=backup_count,
+                    )
+                    file_handler.setFormatter(formatter)
+                    file_handler.setLevel(log_level)
+                    logger.addHandler(file_handler)
 
-        # Also log to stderr for visibility (only warnings and above by default)
-        stream_handler = logging.StreamHandler()
-        stream_handler.setFormatter(formatter)
-        stream_handler.setLevel(max(log_level, logging.WARNING))
-        logger.addHandler(stream_handler)
+                # Also log to stderr for visibility (only warnings and above by default)
+                stream_handler = logging.StreamHandler()
+                stream_handler.setFormatter(formatter)
+                stream_handler.setLevel(max(log_level, logging.WARNING))
+                logger.addHandler(stream_handler)
 
     return logger
 
