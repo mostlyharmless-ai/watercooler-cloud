@@ -687,6 +687,87 @@ def test_detect_behind_main_divergence_returns_none_on_main_branch(tmp_path):
     assert result is None
 
 
+def test_detect_behind_main_divergence_with_squash_merge(tmp_path):
+    """Test detection handles squash merges (different commits, same tree content).
+
+    This tests the scenario where:
+    - code/staging has commits that were squash-merged to code/main
+    - code/staging and code/main have identical tree content but different commit history
+    - threads/staging is behind threads/main
+    - Detection should still trigger because code is content-synced with main
+    """
+    # Setup code repo
+    code_path = tmp_path / "code"
+    code_repo = Repo.init(code_path)
+    code_repo.config_writer().set_value("user", "email", "test@example.com").release()
+    code_repo.config_writer().set_value("user", "name", "Tester").release()
+
+    # Initial commit on main
+    touch(code_path / "file.txt", "initial")
+    code_repo.index.add(["file.txt"])
+    code_repo.index.commit("initial")
+    code_repo.git.branch("-M", "main")
+
+    # Create staging branch and add commits
+    code_repo.git.checkout("-b", "staging")
+    touch(code_path / "feature.txt", "feature content")
+    code_repo.index.add(["feature.txt"])
+    code_repo.index.commit("Add feature")
+
+    # Squash merge staging into main
+    code_repo.git.checkout("main")
+    code_repo.git.merge("staging", "--squash")
+    code_repo.index.commit("Squash merge staging")
+
+    # Go back to staging - now staging and main have same content but different commits
+    code_repo.git.checkout("staging")
+
+    # Verify: staging has commits main doesn't have (it's "ahead" by commits)
+    code_staging_ahead = list(code_repo.iter_commits("main..staging"))
+    assert len(code_staging_ahead) > 0, "staging should have commits main doesn't"
+
+    # But tree content should be identical
+    main_tree = code_repo.commit("main").tree.hexsha
+    staging_tree = code_repo.commit("staging").tree.hexsha
+    assert main_tree == staging_tree, "Trees should match after squash merge"
+
+    # Setup threads repo where staging IS behind main
+    threads_path = tmp_path / "threads"
+    threads_repo = Repo.init(threads_path)
+    threads_repo.config_writer().set_value("user", "email", "test@example.com").release()
+    threads_repo.config_writer().set_value("user", "name", "Tester").release()
+
+    touch(threads_path / "thread.md", "thread content")
+    threads_repo.index.add(["thread.md"])
+    threads_repo.index.commit("initial thread")
+    threads_repo.git.branch("-M", "main")
+
+    # Create staging at this point
+    threads_repo.git.checkout("-b", "staging")
+
+    # Add commit to threads/main (simulating prior PR closure entry)
+    threads_repo.git.checkout("main")
+    touch(threads_path / "closure.md", "closure entry")
+    threads_repo.index.add(["closure.md"])
+    threads_repo.index.commit("PR closure entry")
+
+    # Go back to staging - now threads/staging is behind threads/main
+    threads_repo.git.checkout("staging")
+
+    # Test: detection should find disparity because code is content-synced
+    result = _detect_behind_main_divergence(
+        code_repo, threads_repo, "staging", "staging"
+    )
+
+    # Should detect divergence even though code/staging has commits main doesn't
+    # because the tree content is identical (squash merge)
+    assert result is not None, "Should detect disparity with squash merge scenario"
+    assert result.diverged is True
+    assert result.commits_behind > 0
+    assert result.needs_rebase is True
+    assert "content-equivalent" in result.details, "Should indicate content-equivalent sync"
+
+
 # === Tests for _rebase_branch_onto ===
 
 def test_rebase_branch_onto_already_up_to_date(tmp_path):

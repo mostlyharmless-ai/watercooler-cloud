@@ -1603,10 +1603,11 @@ def _detect_behind_main_divergence(
             f"{threads_branch}..{threads_main}"
         ))
 
-        # Check if code is content-synced with main
+        # Check if code is content-synced with main using tree hash comparison (O(1))
         # This handles squash merges where commits differ but content is same
-        code_diff = code_repo_obj.git.diff(f"{code_main}..{code_branch}")
-        code_content_synced = len(code_diff.strip()) == 0
+        code_tree_main = code_repo_obj.commit(code_main).tree.hexsha
+        code_tree_branch = code_repo_obj.commit(code_branch).tree.hexsha
+        code_content_synced = (code_tree_main == code_tree_branch)
         code_commit_synced = len(code_behind_main) == 0
         code_synced = code_content_synced or code_commit_synced
 
