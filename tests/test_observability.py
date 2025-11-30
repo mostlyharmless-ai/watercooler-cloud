@@ -24,21 +24,17 @@ timeit = obs.timeit
 LOGGER_NAME = obs.LOGGER_NAME
 _get_log_level = obs._get_log_level
 _get_log_file_path = obs._get_log_file_path
+_reset_logging_state = obs._reset_logging_state
 
 
 @pytest.fixture(autouse=True)
 def reset_logger():
     """Reset logger state between tests."""
-    # Clear handlers and reset initialized state before each test
-    logger = logging.getLogger(LOGGER_NAME)
-    logger.handlers.clear()
-    obs._logger_initialized = False
-    obs._session_start = None
+    # Use the module's reset function to clear all cached state
+    _reset_logging_state()
     yield
     # Clean up after test
-    logger.handlers.clear()
-    obs._logger_initialized = False
-    obs._session_start = None
+    _reset_logging_state()
 
 
 def test_log_action_emits_json(caplog):
@@ -159,6 +155,8 @@ def test_log_level_from_env(monkeypatch):
     level = _get_log_level()
     assert level == logging.DEBUG
 
+    # Reset cached config before changing env var (config is cached on first read)
+    _reset_logging_state()
     monkeypatch.setenv("WATERCOOLER_LOG_LEVEL", "WARNING")
     level = _get_log_level()
     assert level == logging.WARNING
