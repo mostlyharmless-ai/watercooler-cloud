@@ -1,0 +1,298 @@
+# =============================================================================
+# Watercooler Configuration
+# =============================================================================
+#
+# Copy this file to:
+#   - ~/.watercooler/config.toml      (user defaults)
+#   - <project>/.watercooler/config.toml  (project overrides)
+#
+# Project settings override user settings on a per-key basis.
+# Environment variables override both (see mapping below).
+#
+# All settings shown here are defaults - uncomment and modify as needed.
+# =============================================================================
+
+# Config schema version (do not change)
+version = 1
+
+
+# =============================================================================
+# COMMON SETTINGS
+# Shared between MCP server and Dashboard
+# =============================================================================
+[common]
+
+# Threads repo URL pattern
+# Placeholders: {org} = GitHub org, {repo} = code repo name, {namespace} = full path
+# Env: WATERCOOLER_THREADS_PATTERN
+# threads_pattern = "git@github.com:{org}/{repo}-threads.git"
+
+# Simple suffix mode (alternative to pattern)
+# threads_suffix = "-threads"
+
+# Templates directory (empty = use bundled templates)
+# Env: WATERCOOLER_TEMPLATES
+# templates_dir = ""
+
+
+# =============================================================================
+# MCP SERVER SETTINGS
+# Configuration for watercooler-cloud MCP server
+# =============================================================================
+[mcp]
+
+# Transport mode: "stdio" (default) or "http"
+# Env: WATERCOOLER_MCP_TRANSPORT
+# transport = "stdio"
+
+# HTTP server settings (only used when transport = "http")
+# Env: WATERCOOLER_MCP_HOST, WATERCOOLER_MCP_PORT
+# host = "127.0.0.1"
+# port = 3000
+
+# Default agent name (when not detected from client)
+# Env: WATERCOOLER_AGENT
+# default_agent = "Agent"
+
+# User tag appended to agent name (e.g., "(caleb)")
+# Env: WATERCOOLER_AGENT_TAG
+# agent_tag = ""
+
+# Auto-create matching threads branches when code branch is new
+# Env: WATERCOOLER_AUTO_BRANCH
+# auto_branch = true
+
+# Auto-provision (create) threads repos if missing
+# Env: WATERCOOLER_AUTO_PROVISION
+# auto_provision = true
+
+# Explicit threads directory (empty = auto-discover from code repo)
+# Env: WATERCOOLER_DIR
+# threads_dir = ""
+
+# Base directory for threads repos (empty = parent of code repo)
+# Env: WATERCOOLER_THREADS_BASE
+# threads_base = ""
+
+
+# -----------------------------------------------------------------------------
+# Agent-Specific Overrides
+# Each agent platform can have custom settings
+# -----------------------------------------------------------------------------
+[mcp.agents.claude-code]
+name = "Claude Code"
+default_spec = "implementer-code"
+
+[mcp.agents.cursor]
+name = "Cursor"
+default_spec = "implementer-code"
+
+[mcp.agents.codex]
+name = "Codex"
+default_spec = "planner-architecture"
+
+[mcp.agents.gemini]
+name = "Gemini"
+default_spec = "general-purpose"
+
+# Add custom agents:
+# [mcp.agents.my-custom-agent]
+# name = "My Agent"
+# default_spec = "implementer-code"
+
+
+# -----------------------------------------------------------------------------
+# Git Settings
+# Author info and SSH configuration for threads commits
+# -----------------------------------------------------------------------------
+[mcp.git]
+
+# Git commit author (empty = use agent name)
+# Env: WATERCOOLER_GIT_AUTHOR
+# author = ""
+
+# Git commit email
+# Env: WATERCOOLER_GIT_EMAIL
+# email = "mcp@watercooler.dev"
+
+# Path to SSH private key (empty = use system default)
+# Env: WATERCOOLER_GIT_SSH_KEY
+# ssh_key = ""
+
+
+# -----------------------------------------------------------------------------
+# Sync Settings
+# Git sync behavior and batching
+# -----------------------------------------------------------------------------
+[mcp.sync]
+
+# Enable async git operations
+# Env: WATERCOOLER_ASYNC_SYNC
+# async = true
+
+# Seconds to batch commits before pushing
+# Env: WATERCOOLER_BATCH_WINDOW
+# batch_window = 5.0
+
+# Maximum delay before forcing push (seconds)
+# max_delay = 30.0
+
+# Maximum entries per batch commit
+# max_batch_size = 50
+
+# Maximum retry attempts for failed operations
+# Env: WATERCOOLER_SYNC_MAX_RETRIES
+# max_retries = 5
+
+# Maximum backoff delay in seconds
+# Env: WATERCOOLER_SYNC_MAX_BACKOFF
+# max_backoff = 300.0
+
+# Background sync interval (seconds)
+# Env: WATERCOOLER_SYNC_INTERVAL
+# interval = 30.0
+
+# Seconds before considering sync stale
+# stale_threshold = 60.0
+
+
+# -----------------------------------------------------------------------------
+# Logging Settings
+# -----------------------------------------------------------------------------
+[mcp.logging]
+
+# Log level: DEBUG, INFO, WARNING, ERROR
+# Env: WATERCOOLER_LOG_LEVEL
+# level = "INFO"
+
+# Log directory (empty = ~/.watercooler/logs)
+# Env: WATERCOOLER_LOG_DIR
+# dir = ""
+
+# Maximum log file size in bytes (default 10MB)
+# Env: WATERCOOLER_LOG_MAX_BYTES
+# max_bytes = 10485760
+
+# Number of backup log files to keep
+# Env: WATERCOOLER_LOG_BACKUP_COUNT
+# backup_count = 5
+
+# Disable file logging (stderr only)
+# Env: WATERCOOLER_LOG_DISABLE_FILE
+# disable_file = false
+
+
+# =============================================================================
+# DASHBOARD SETTINGS
+# Configuration for watercooler-site dashboard
+# =============================================================================
+[dashboard]
+
+# Pre-select this repo on dashboard load
+# default_repo = ""
+
+# Default branch for new selections
+# default_branch = "main"
+
+# Polling intervals (seconds) based on tab visibility
+# poll_interval_active = 15    # Tab is focused
+# poll_interval_moderate = 30  # Tab is visible but not focused
+# poll_interval_idle = 60      # Tab is hidden/backgrounded
+
+# UI preferences
+# expand_threads_by_default = false
+# show_closed_threads = false
+
+
+# =============================================================================
+# PROTOCOL VALIDATION
+# Enforce Watercooler conventions and catch drift early
+# =============================================================================
+[validation]
+
+# When to validate
+# Env: WATERCOOLER_VALIDATE_ON_WRITE
+# on_write = true
+# on_commit = true
+
+# Fail on violation (true = error, false = warn only)
+# Env: WATERCOOLER_FAIL_ON_VIOLATION
+# fail_on_violation = false
+
+# What to validate
+# check_branch_pairing = true
+# check_commit_footers = true
+# check_entry_format = true
+# check_status_values = true
+
+
+# -----------------------------------------------------------------------------
+# Entry Format Validation
+# -----------------------------------------------------------------------------
+[validation.entry]
+
+# Require agent/role/type metadata in entries
+# require_metadata = true
+
+# Valid entry roles
+# allowed_roles = ["planner", "critic", "implementer", "tester", "pm", "scribe"]
+
+# Valid entry types
+# allowed_types = ["Note", "Plan", "Decision", "PR", "Closure"]
+
+# Require Spec: field in entry body
+# require_spec_field = true
+
+
+# -----------------------------------------------------------------------------
+# Commit Footer Validation
+# -----------------------------------------------------------------------------
+[validation.commit]
+
+# Require commit footers in threads commits
+# require_footers = true
+
+# Required footer fields
+# required_footer_fields = [
+#     "Code-Repo",
+#     "Code-Branch",
+#     "Code-Commit",
+#     "Watercooler-Entry-ID",
+# ]
+
+
+# =============================================================================
+# ENVIRONMENT VARIABLE REFERENCE
+# =============================================================================
+#
+# Config Key                     Environment Variable
+# ---------------------------    --------------------------------
+# common.threads_pattern         WATERCOOLER_THREADS_PATTERN
+# common.templates_dir           WATERCOOLER_TEMPLATES
+# mcp.transport                  WATERCOOLER_MCP_TRANSPORT
+# mcp.host                       WATERCOOLER_MCP_HOST
+# mcp.port                       WATERCOOLER_MCP_PORT
+# mcp.default_agent              WATERCOOLER_AGENT
+# mcp.agent_tag                  WATERCOOLER_AGENT_TAG
+# mcp.auto_branch                WATERCOOLER_AUTO_BRANCH
+# mcp.auto_provision             WATERCOOLER_AUTO_PROVISION
+# mcp.threads_dir                WATERCOOLER_DIR
+# mcp.threads_base               WATERCOOLER_THREADS_BASE
+# mcp.git.author                 WATERCOOLER_GIT_AUTHOR
+# mcp.git.email                  WATERCOOLER_GIT_EMAIL
+# mcp.git.ssh_key                WATERCOOLER_GIT_SSH_KEY
+# mcp.sync.async                 WATERCOOLER_ASYNC_SYNC
+# mcp.sync.batch_window          WATERCOOLER_BATCH_WINDOW
+# mcp.sync.interval              WATERCOOLER_SYNC_INTERVAL
+# mcp.sync.max_retries           WATERCOOLER_SYNC_MAX_RETRIES
+# mcp.sync.max_backoff           WATERCOOLER_SYNC_MAX_BACKOFF
+# mcp.logging.level              WATERCOOLER_LOG_LEVEL
+# mcp.logging.dir                WATERCOOLER_LOG_DIR
+# mcp.logging.max_bytes          WATERCOOLER_LOG_MAX_BYTES
+# mcp.logging.backup_count       WATERCOOLER_LOG_BACKUP_COUNT
+# mcp.logging.disable_file       WATERCOOLER_LOG_DISABLE_FILE
+# validation.on_write            WATERCOOLER_VALIDATE_ON_WRITE
+# validation.fail_on_violation   WATERCOOLER_FAIL_ON_VIOLATION
+#
+# Priority (highest first): CLI args > Env vars > Project config > User config > Defaults
+# =============================================================================

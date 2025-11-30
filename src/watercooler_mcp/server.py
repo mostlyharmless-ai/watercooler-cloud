@@ -2486,13 +2486,15 @@ def recover_branch_state(
 
 def main():
     """Entry point for watercooler-mcp command."""
-    # Get transport configuration
-    transport = os.getenv("WATERCOOLER_MCP_TRANSPORT", "stdio").lower()
+    # Get transport configuration from unified config system
+    from .config import get_mcp_transport_config
+
+    transport_config = get_mcp_transport_config()
+    transport = transport_config["transport"]
 
     if transport == "http":
-        # HTTP transport configuration
-        host = os.getenv("WATERCOOLER_MCP_HOST", "127.0.0.1")
-        port = int(os.getenv("WATERCOOLER_MCP_PORT", "3000"))
+        host = transport_config["host"]
+        port = transport_config["port"]
 
         print(f"Starting Watercooler MCP Server on http://{host}:{port}", file=sys.stderr)
         print(f"Health check: http://{host}:{port}/health", file=sys.stderr)

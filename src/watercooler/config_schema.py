@@ -1,0 +1,384 @@
+"""Configuration schema for Watercooler.
+
+Defines all configuration options with types, defaults, and validation.
+Uses Pydantic for schema enforcement and clear error messages.
+"""
+
+from __future__ import annotations
+
+from pathlib import Path
+from typing import Dict, List, Literal, Optional
+
+from pydantic import BaseModel, Field, field_validator
+
+
+class CommonConfig(BaseModel):
+    """Shared settings for both MCP and Dashboard."""
+
+    # Threads repo naming pattern
+    # Placeholders: {org}, {repo}, {namespace}
+    threads_pattern: str = Field(
+        default="git@github.com:{org}/{repo}-threads.git",
+        description="URL pattern for threads repos. Placeholders: {org}, {repo}, {namespace}",
+    )
+    threads_suffix: str = Field(
+        default="-threads",
+        description="Suffix appended to code repo name for threads repo",
+    )
+    templates_dir: str = Field(
+        default="",
+        description="Path to templates directory (empty = use bundled)",
+    )
+
+
+class AgentConfig(BaseModel):
+    """Configuration for a specific agent platform."""
+
+    name: str = Field(description="Display name for this agent")
+    default_spec: str = Field(
+        default="general-purpose",
+        description="Default specialization for this agent",
+    )
+
+
+class GitConfig(BaseModel):
+    """Git-related MCP settings."""
+
+    author: str = Field(
+        default="",
+        description="Git commit author (empty = use agent name)",
+    )
+    email: str = Field(
+        default="mcp@watercooler.dev",
+        description="Git commit email",
+    )
+    ssh_key: str = Field(
+        default="",
+        description="Path to SSH private key (empty = use default)",
+    )
+
+
+class SyncConfig(BaseModel):
+    """Git sync behavior settings."""
+
+    async_sync: bool = Field(
+        default=True,
+        alias="async",
+        description="Enable async git operations",
+    )
+    batch_window: float = Field(
+        default=5.0,
+        ge=0,
+        description="Seconds to batch commits before push",
+    )
+    max_delay: float = Field(
+        default=30.0,
+        ge=0,
+        description="Maximum delay before forcing push",
+    )
+    max_batch_size: int = Field(
+        default=50,
+        ge=1,
+        description="Maximum entries per batch commit",
+    )
+    max_retries: int = Field(
+        default=5,
+        ge=0,
+        description="Maximum retry attempts for failed operations",
+    )
+    max_backoff: float = Field(
+        default=300.0,
+        ge=0,
+        description="Maximum backoff delay in seconds",
+    )
+    interval: float = Field(
+        default=30.0,
+        ge=1,
+        description="Background sync interval in seconds",
+    )
+    stale_threshold: float = Field(
+        default=60.0,
+        ge=0,
+        description="Seconds before considering sync stale",
+    )
+
+    class Config:
+        populate_by_name = True
+
+
+class LoggingConfig(BaseModel):
+    """Logging configuration."""
+
+    level: Literal["DEBUG", "INFO", "WARNING", "ERROR"] = Field(
+        default="INFO",
+        description="Log level",
+    )
+    dir: str = Field(
+        default="",
+        description="Log directory (empty = ~/.watercooler/logs)",
+    )
+    max_bytes: int = Field(
+        default=10485760,  # 10MB
+        ge=0,
+        description="Maximum log file size in bytes",
+    )
+    backup_count: int = Field(
+        default=5,
+        ge=0,
+        description="Number of backup log files to keep",
+    )
+    disable_file: bool = Field(
+        default=False,
+        description="Disable file logging (stderr only)",
+    )
+
+
+class McpConfig(BaseModel):
+    """MCP server configuration."""
+
+    # Transport
+    transport: Literal["stdio", "http"] = Field(
+        default="stdio",
+        description="MCP transport mode",
+    )
+    host: str = Field(
+        default="127.0.0.1",
+        description="HTTP server host (http transport only)",
+    )
+    port: int = Field(
+        default=3000,
+        ge=1,
+        le=65535,
+        description="HTTP server port (http transport only)",
+    )
+
+    # Agent identity
+    default_agent: str = Field(
+        default="Agent",
+        description="Default agent name when not detected",
+    )
+    agent_tag: str = Field(
+        default="",
+        description="User tag appended to agent name",
+    )
+
+    # Behavior
+    auto_branch: bool = Field(
+        default=True,
+        description="Auto-create matching threads branches",
+    )
+    auto_provision: bool = Field(
+        default=True,
+        description="Auto-create threads repos if missing",
+    )
+
+    # Paths
+    threads_dir: str = Field(
+        default="",
+        description="Explicit threads directory (empty = auto-discover)",
+    )
+    threads_base: str = Field(
+        default="",
+        description="Base directory for threads repos",
+    )
+
+    # Nested configs
+    git: GitConfig = Field(default_factory=GitConfig)
+    sync: SyncConfig = Field(default_factory=SyncConfig)
+    logging: LoggingConfig = Field(default_factory=LoggingConfig)
+
+    # Agent-specific overrides (keyed by platform slug)
+    agents: Dict[str, AgentConfig] = Field(
+        default_factory=lambda: {
+            "claude-code": AgentConfig(name="Claude Code", default_spec="implementer-code"),
+            "cursor": AgentConfig(name="Cursor", default_spec="implementer-code"),
+            "codex": AgentConfig(name="Codex", default_spec="planner-architecture"),
+            "gemini": AgentConfig(name="Gemini", default_spec="general-purpose"),
+        },
+        description="Agent-specific configuration overrides",
+    )
+
+
+class DashboardConfig(BaseModel):
+    """Dashboard (watercooler-site) configuration."""
+
+    default_repo: str = Field(
+        default="",
+        description="Pre-select this repo on dashboard load",
+    )
+    default_branch: str = Field(
+        default="main",
+        description="Default branch for new selections",
+    )
+    poll_interval_active: int = Field(
+        default=15,
+        ge=5,
+        description="Polling interval when tab is active (seconds)",
+    )
+    poll_interval_moderate: int = Field(
+        default=30,
+        ge=10,
+        description="Polling interval when tab is visible but inactive",
+    )
+    poll_interval_idle: int = Field(
+        default=60,
+        ge=15,
+        description="Polling interval when tab is hidden",
+    )
+    expand_threads_by_default: bool = Field(
+        default=False,
+        description="Expand all threads on load",
+    )
+    show_closed_threads: bool = Field(
+        default=False,
+        description="Show closed threads by default",
+    )
+
+
+class EntryValidationConfig(BaseModel):
+    """Entry format validation rules."""
+
+    require_metadata: bool = Field(
+        default=True,
+        description="Require agent/role/type metadata in entries",
+    )
+    allowed_roles: List[str] = Field(
+        default=["planner", "critic", "implementer", "tester", "pm", "scribe"],
+        description="Valid entry roles",
+    )
+    allowed_types: List[str] = Field(
+        default=["Note", "Plan", "Decision", "PR", "Closure"],
+        description="Valid entry types",
+    )
+    require_spec_field: bool = Field(
+        default=True,
+        description="Require Spec: field in entry body",
+    )
+
+
+class CommitValidationConfig(BaseModel):
+    """Commit footer validation rules."""
+
+    require_footers: bool = Field(
+        default=True,
+        description="Require commit footers in threads commits",
+    )
+    required_footer_fields: List[str] = Field(
+        default=[
+            "Code-Repo",
+            "Code-Branch",
+            "Code-Commit",
+            "Watercooler-Entry-ID",
+        ],
+        description="Required footer fields",
+    )
+
+
+class ValidationConfig(BaseModel):
+    """Protocol validation configuration."""
+
+    on_write: bool = Field(
+        default=True,
+        description="Validate on write operations",
+    )
+    on_commit: bool = Field(
+        default=True,
+        description="Validate on commit",
+    )
+    fail_on_violation: bool = Field(
+        default=False,
+        description="Fail on violation (vs warn)",
+    )
+    check_branch_pairing: bool = Field(
+        default=True,
+        description="Validate branch pairing",
+    )
+    check_commit_footers: bool = Field(
+        default=True,
+        description="Validate commit footers",
+    )
+    check_entry_format: bool = Field(
+        default=True,
+        description="Validate entry format",
+    )
+    check_status_values: bool = Field(
+        default=True,
+        description="Validate status values",
+    )
+
+    entry: EntryValidationConfig = Field(default_factory=EntryValidationConfig)
+    commit: CommitValidationConfig = Field(default_factory=CommitValidationConfig)
+
+
+class WatercoolerConfig(BaseModel):
+    """Root configuration model."""
+
+    version: int = Field(
+        default=1,
+        ge=1,
+        description="Config schema version",
+    )
+
+    common: CommonConfig = Field(default_factory=CommonConfig)
+    mcp: McpConfig = Field(default_factory=McpConfig)
+    dashboard: DashboardConfig = Field(default_factory=DashboardConfig)
+    validation: ValidationConfig = Field(default_factory=ValidationConfig)
+
+    @classmethod
+    def default(cls) -> "WatercoolerConfig":
+        """Create config with all defaults."""
+        return cls()
+
+    def get_agent_config(self, platform_slug: str) -> Optional[AgentConfig]:
+        """Get agent-specific config by platform slug.
+
+        Args:
+            platform_slug: Platform identifier (e.g., "claude-code", "cursor")
+
+        Returns:
+            AgentConfig if found, None otherwise
+        """
+        # Normalize slug
+        slug = platform_slug.lower().replace(" ", "-").replace("_", "-")
+        return self.mcp.agents.get(slug)
+
+    def resolve_agent_name(
+        self,
+        agent_func: Optional[str] = None,
+        env_agent: Optional[str] = None,
+        platform_slug: Optional[str] = None,
+    ) -> str:
+        """Resolve agent name using priority order.
+
+        Priority (highest first):
+        1. agent_func parameter (e.g., "Claude Code:sonnet-4:implementer")
+        2. Environment variable (WATERCOOLER_AGENT)
+        3. Platform-specific config
+        4. Default agent
+
+        Args:
+            agent_func: Per-call agent function string
+            env_agent: WATERCOOLER_AGENT environment value
+            platform_slug: Detected platform identifier
+
+        Returns:
+            Resolved agent name
+        """
+        # 1. agent_func takes priority
+        if agent_func:
+            parts = agent_func.split(":")
+            if parts:
+                return parts[0]
+
+        # 2. Environment variable
+        if env_agent:
+            return env_agent
+
+        # 3. Platform-specific config
+        if platform_slug:
+            agent_config = self.get_agent_config(platform_slug)
+            if agent_config:
+                return agent_config.name
+
+        # 4. Default
+        return self.mcp.default_agent
