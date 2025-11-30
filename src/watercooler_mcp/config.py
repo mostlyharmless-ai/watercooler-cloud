@@ -311,11 +311,22 @@ def resolve_thread_context(code_root: Optional[Path] = None) -> ThreadContext:
         namespace, repo = _split_namespace_repo(code_repo)
         pattern = os.getenv("WATERCOOLER_THREADS_PATTERN")
         if not pattern:
-            default_pattern = "https://github.com/{org}/{repo}-threads.git"
-            remote = code_remote or ""
-            if remote.startswith("git@") or remote.startswith("ssh://"):
-                default_pattern = "git@github.com:{org}/{repo}-threads.git"
-            pattern = default_pattern
+            # Get default pattern from config system
+            try:
+                config = get_watercooler_config()
+                config_pattern = config.common.threads_pattern
+            except Exception:
+                config_pattern = None
+
+            if config_pattern:
+                pattern = config_pattern
+            else:
+                # Fallback: infer pattern from code remote protocol
+                remote = code_remote or ""
+                if remote.startswith("git@") or remote.startswith("ssh://"):
+                    pattern = "git@github.com:{org}/{repo}-threads.git"
+                else:
+                    pattern = "https://github.com/{org}/{repo}-threads.git"
         format_kwargs = {
             "repo": repo,
             "namespace": namespace or "",
@@ -380,10 +391,28 @@ def _get_cache_key(threads_dir: Path, repo_url: str) -> Tuple[str, str]:
 
 
 def _get_git_identity() -> Tuple[str, str]:
+    """Get git author name and email for commits.
+
+    Resolution order:
+    1. WATERCOOLER_GIT_AUTHOR / WATERCOOLER_GIT_EMAIL env vars
+    2. WATERCOOLER_AGENT env var (for author)
+    3. Config file values (mcp.git.author / mcp.git.email)
+    4. Hardcoded fallbacks (only if config unavailable)
+    """
+    # Try to get defaults from config system
+    try:
+        config = get_watercooler_config()
+        default_author = config.mcp.git.author or config.mcp.default_agent
+        default_email = config.mcp.git.email
+    except Exception:
+        # Config not available, use hardcoded fallbacks
+        default_author = "Watercooler MCP"
+        default_email = "mcp@watercooler.dev"
+
     author = os.getenv("WATERCOOLER_GIT_AUTHOR")
     if not author:
-        author = os.getenv("WATERCOOLER_AGENT", "Watercooler MCP")
-    email = os.getenv("WATERCOOLER_GIT_EMAIL", "mcp@watercooler.dev")
+        author = os.getenv("WATERCOOLER_AGENT", default_author)
+    email = os.getenv("WATERCOOLER_GIT_EMAIL", default_email)
     return author, email
 
 
