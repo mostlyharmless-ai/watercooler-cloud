@@ -1,6 +1,14 @@
 """Credentials management for Watercooler.
 
 Handles loading, migration, and secure storage of credentials.
+
+Note on dependencies:
+    This module uses external dependencies (pydantic, tomllib/tomli, tomlkit) which
+    differs from the stdlib-only policy for the core watercooler library. This is
+    intentional - credentials management is an optional enhancement for users who
+    prefer file-based credential storage over environment variables.
+
+    For pure stdlib usage, set GITHUB_TOKEN or GH_TOKEN environment variables directly.
 """
 
 from __future__ import annotations
@@ -85,8 +93,16 @@ def _secure_file_permissions(path: Path) -> None:
     if os.name == "posix":
         try:
             os.chmod(path, stat.S_IRUSR | stat.S_IWUSR)  # 0o600
-        except OSError:
-            pass
+        except OSError as e:
+            warnings.warn(
+                f"Could not set secure permissions on {path}: {e}. "
+                "Credentials file may be readable by other users.",
+                UserWarning,
+            )
+
+
+# Maximum file size for JSON migration (1MB - credentials should be small)
+_MAX_JSON_SIZE_BYTES = 1 * 1024 * 1024
 
 
 def _migrate_json_to_toml(json_path: Path, toml_path: Path) -> bool:
@@ -108,6 +124,16 @@ def _migrate_json_to_toml(json_path: Path, toml_path: Path) -> bool:
         return False
 
     try:
+        # Check file size to prevent OOM from maliciously large files
+        file_size = json_path.stat().st_size
+        if file_size > _MAX_JSON_SIZE_BYTES:
+            warnings.warn(
+                f"Credentials file too large ({file_size} bytes). "
+                f"Maximum allowed: {_MAX_JSON_SIZE_BYTES} bytes. Skipping migration.",
+                UserWarning,
+            )
+            return False
+
         # Read JSON
         with open(json_path, "r") as f:
             data = json.load(f)

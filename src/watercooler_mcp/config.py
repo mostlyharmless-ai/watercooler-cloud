@@ -5,7 +5,7 @@ import subprocess
 import threading
 from dataclasses import dataclass
 from pathlib import Path
-from typing import Dict, Optional, Tuple
+from typing import Any, Dict, Optional, Tuple
 
 try:
     from importlib import metadata as importlib_metadata  # type: ignore
@@ -591,7 +591,7 @@ def reload_config(project_path: Optional[Path] = None) -> "WatercoolerConfig":
     return get_watercooler_config(project_path)
 
 
-def get_mcp_transport_config() -> Dict[str, any]:
+def get_mcp_transport_config() -> Dict[str, Any]:
     """Get MCP transport configuration.
 
     Returns dict with keys: transport, host, port
@@ -606,7 +606,7 @@ def get_mcp_transport_config() -> Dict[str, any]:
     }
 
 
-def get_sync_config() -> Dict[str, any]:
+def get_sync_config() -> Dict[str, Any]:
     """Get git sync configuration.
 
     Returns dict with sync settings.
@@ -651,7 +651,7 @@ def get_sync_config() -> Dict[str, any]:
     }
 
 
-def get_logging_config() -> Dict[str, any]:
+def get_logging_config() -> Dict[str, Any]:
     """Get logging configuration.
 
     Returns dict with logging settings.

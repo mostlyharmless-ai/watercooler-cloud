@@ -1,6 +1,20 @@
 """Configuration loading and merging for Watercooler.
 
 Handles TOML loading, config discovery, deep merging, and environment overlay.
+
+Note on dependencies:
+    This module uses external dependencies (tomllib/tomli, pydantic) which differs
+    from the stdlib-only policy for the core watercooler library. This is intentional:
+
+    1. tomllib is stdlib in Python 3.11+, tomli is the backport for 3.10
+    2. The config system is an optional enhancement - core thread operations
+       (init, say, ack, etc.) work without loading config files
+    3. Pydantic provides schema validation with clear error messages, essential
+       for complex nested configuration
+    4. These dependencies are already required by the MCP server component,
+       so they add no additional burden for MCP users
+
+    For pure stdlib usage, skip config files and use environment variables directly.
 """
 
 from __future__ import annotations
@@ -172,26 +186,6 @@ def _env_to_config_key(env_var: str) -> tuple[list[str], str]:
     return ENV_MAPPING.get(env_var, ([], env_var))
 
 
-def _parse_env_value(value: str, current_type: type) -> Any:
-    """Parse environment variable value to appropriate type.
-
-    Args:
-        value: String value from environment
-        current_type: Expected type from config schema
-
-    Returns:
-        Parsed value
-    """
-    if current_type == bool:
-        return value.lower() in ("1", "true", "yes", "on")
-    elif current_type == int:
-        return int(value)
-    elif current_type == float:
-        return float(value)
-    else:
-        return value
-
-
 def _apply_env_overlay(config_dict: Dict[str, Any]) -> Dict[str, Any]:
     """Apply environment variable overrides to config dict.
 
@@ -360,8 +354,11 @@ def get_config(project_path: Optional[Path] = None, force_reload: bool = False) 
     """
     global _cached_config, _cached_project_path
 
-    # Normalize path for comparison
-    normalized_path = project_path.resolve() if project_path else None
+    # Normalize path for comparison (treat empty Path as None)
+    if project_path and str(project_path):
+        normalized_path = project_path.resolve()
+    else:
+        normalized_path = None
 
     if (
         force_reload
