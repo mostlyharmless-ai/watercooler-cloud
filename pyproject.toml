@@ -51,6 +51,10 @@ http = [
     "fastapi>=0.100",
     "uvicorn[standard]>=0.20",
 ]
+graph = [
+    "tiktoken>=0.5",
+    "httpx>=0.25",
+]
 
 [tool.setuptools.packages.find]
 where = ["src"]

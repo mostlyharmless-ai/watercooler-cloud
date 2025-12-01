@@ -164,6 +164,28 @@ def main(argv: list[str] | None = None) -> None:
     p_sync.add_argument("--status", action="store_true", help="Show pending queue status without flushing")
     p_sync.add_argument("--now", action="store_true", help="Force an immediate push of pending commits")
 
+    # Memory graph commands
+    p_memory = sub.add_parser("memory", help="Memory graph operations")
+    memory_sub = p_memory.add_subparsers(dest="memory_cmd")
+
+    p_memory_build = memory_sub.add_parser("build", help="Build memory graph from threads")
+    p_memory_build.add_argument("--threads-dir", help="Threads directory (default: ./watercooler)")
+    p_memory_build.add_argument("--output", "-o", help="Output file path for graph JSON")
+    p_memory_build.add_argument("--no-summaries", action="store_true", help="Skip summary generation")
+    p_memory_build.add_argument("--no-embeddings", action="store_true", help="Skip embedding generation")
+    p_memory_build.add_argument("--branch", help="Git branch context")
+
+    p_memory_export = memory_sub.add_parser("export", help="Export graph to external format")
+    p_memory_export.add_argument("--graph", help="Input graph JSON (builds from threads if not provided)")
+    p_memory_export.add_argument("--threads-dir", help="Threads directory (if building)")
+    p_memory_export.add_argument("--format", choices=["leanrag", "json"], default="leanrag", help="Export format")
+    p_memory_export.add_argument("--output", "-o", required=True, help="Output path (directory for leanrag, file for json)")
+    p_memory_export.add_argument("--no-embeddings", action="store_true", help="Exclude embeddings from export")
+
+    p_memory_stats = memory_sub.add_parser("stats", help="Show graph statistics")
+    p_memory_stats.add_argument("--graph", help="Graph JSON file (builds from threads if not provided)")
+    p_memory_stats.add_argument("--threads-dir", help="Threads directory (if building)")
+
     args = ap.parse_args(argv)
 
     if not args.cmd:
@@ -652,6 +674,130 @@ def main(argv: list[str] | None = None) -> None:
                 print("--strict: Treating warnings as errors.", file=sys.stderr)
                 sys.exit(1)
 
+            sys.exit(0)
+
+    if args.cmd == "memory":
+        from pathlib import Path
+        from .config import resolve_threads_dir
+
+        if not args.memory_cmd:
+            print("Usage: watercooler memory {build|export|stats}")
+            sys.exit(0)
+
+        if args.memory_cmd == "build":
+            from .memory_graph.graph import MemoryGraph, GraphConfig
+
+            threads_dir = resolve_threads_dir(args.threads_dir)
+            if not threads_dir.exists():
+                print(f"❌ Threads directory not found: {threads_dir}", file=sys.stderr)
+                sys.exit(1)
+
+            config = GraphConfig(
+                generate_summaries=not args.no_summaries,
+                generate_embeddings=not args.no_embeddings,
+            )
+
+            print(f"Building memory graph from {threads_dir}...")
+            graph = MemoryGraph(config)
+
+            try:
+                graph.build(threads_dir, branch_context=args.branch)
+            except ImportError as e:
+                print(f"⚠ Missing dependency: {e}", file=sys.stderr)
+                print("Install with: pip install 'watercooler-cloud[graph]'", file=sys.stderr)
+                # Continue with partial build
+            except Exception as e:
+                print(f"❌ Build error: {e}", file=sys.stderr)
+                sys.exit(1)
+
+            stats = graph.stats()
+            print(f"✅ Built graph: {stats['threads']} threads, {stats['entries']} entries, {stats['chunks']} chunks")
+
+            if args.output:
+                output_path = Path(args.output)
+                graph.save(output_path)
+                print(f"   Saved to: {output_path}")
+
+            sys.exit(0)
+
+        if args.memory_cmd == "export":
+            from .memory_graph.graph import MemoryGraph, GraphConfig
+            from .memory_graph.leanrag_export import export_to_leanrag
+
+            # Load or build graph
+            if args.graph:
+                graph_path = Path(args.graph)
+                if not graph_path.exists():
+                    print(f"❌ Graph file not found: {graph_path}", file=sys.stderr)
+                    sys.exit(1)
+                graph = MemoryGraph.load(graph_path)
+            else:
+                threads_dir = resolve_threads_dir(args.threads_dir)
+                if not threads_dir.exists():
+                    print(f"❌ Threads directory not found: {threads_dir}", file=sys.stderr)
+                    sys.exit(1)
+
+                print(f"Building graph from {threads_dir}...")
+                config = GraphConfig(
+                    generate_summaries=True,
+                    generate_embeddings=not args.no_embeddings,
+                )
+                graph = MemoryGraph(config)
+                try:
+                    graph.build(threads_dir)
+                except ImportError as e:
+                    print(f"⚠ Missing dependency: {e}", file=sys.stderr)
+                except Exception as e:
+                    print(f"❌ Build error: {e}", file=sys.stderr)
+                    sys.exit(1)
+
+            output_path = Path(args.output)
+
+            if args.format == "leanrag":
+                manifest = export_to_leanrag(
+                    graph, output_path, include_embeddings=not args.no_embeddings
+                )
+                print(f"✅ Exported to LeanRAG format: {output_path}")
+                print(f"   {manifest['statistics']['documents']} documents, {manifest['statistics']['chunks']} chunks")
+            else:
+                graph.save(output_path)
+                print(f"✅ Saved graph JSON: {output_path}")
+
+            sys.exit(0)
+
+        if args.memory_cmd == "stats":
+            from .memory_graph.graph import MemoryGraph, GraphConfig
+
+            # Load or build graph
+            if args.graph:
+                graph_path = Path(args.graph)
+                if not graph_path.exists():
+                    print(f"❌ Graph file not found: {graph_path}", file=sys.stderr)
+                    sys.exit(1)
+                graph = MemoryGraph.load(graph_path)
+            else:
+                threads_dir = resolve_threads_dir(args.threads_dir)
+                if not threads_dir.exists():
+                    print(f"❌ Threads directory not found: {threads_dir}", file=sys.stderr)
+                    sys.exit(1)
+
+                config = GraphConfig(
+                    generate_summaries=False,
+                    generate_embeddings=False,
+                )
+                graph = MemoryGraph(config)
+                graph.build(threads_dir)
+
+            stats = graph.stats()
+            print("Memory Graph Statistics:")
+            print(f"  Threads:              {stats['threads']}")
+            print(f"  Entries:              {stats['entries']}")
+            print(f"  Chunks:               {stats['chunks']}")
+            print(f"  Edges:                {stats['edges']}")
+            print(f"  Hyperedges:           {stats['hyperedges']}")
+            print(f"  Entries w/summaries:  {stats['entries_with_summaries']}")
+            print(f"  Entries w/embeddings: {stats['entries_with_embeddings']}")
+            print(f"  Chunks w/embeddings:  {stats['chunks_with_embeddings']}")
             sys.exit(0)
 
     # default: other commands not yet implemented in L1

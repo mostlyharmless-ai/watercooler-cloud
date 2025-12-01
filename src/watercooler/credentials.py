@@ -68,11 +68,21 @@ class DashboardCredentials(BaseModel):
     )
 
 
+class DeepSeekCredentials(BaseModel):
+    """DeepSeek API credentials for LLM summarization."""
+
+    api_key: str = Field(
+        default="",
+        description="DeepSeek API key",
+    )
+
+
 class Credentials(BaseModel):
     """All Watercooler credentials."""
 
     github: GitHubCredentials = Field(default_factory=GitHubCredentials)
     dashboard: DashboardCredentials = Field(default_factory=DashboardCredentials)
+    deepseek: DeepSeekCredentials = Field(default_factory=DeepSeekCredentials)
 
 
 def _get_user_credentials_path() -> Path:
@@ -329,4 +339,96 @@ def get_ssh_key_path() -> Optional[Path]:
     if creds.github.ssh_key:
         return Path(creds.github.ssh_key).expanduser()
 
+    return None
+
+
+def _get_user_config_path() -> Path:
+    """Get path to user config file."""
+    return Path.home() / USER_CONFIG_DIR / "config.toml"
+
+
+def _load_config() -> Dict[str, Any]:
+    """Load config from config.toml file."""
+    config_path = _get_user_config_path()
+    if not config_path.exists():
+        return {}
+
+    if tomllib is None:
+        return {}
+
+    try:
+        with open(config_path, "rb") as f:
+            return tomllib.load(f)
+    except Exception:
+        return {}
+
+
+def get_memory_graph_config() -> Dict[str, Any]:
+    """Get memory_graph section from config.toml.
+
+    Returns:
+        Dict with llm, embedding, and chunking settings.
+    """
+    config = _load_config()
+    return config.get("memory_graph", {})
+
+
+def get_deepseek_api_key() -> Optional[str]:
+    """Get DeepSeek API key from credentials or environment.
+
+    Priority: Environment > Credentials file
+    """
+    # Check environment first
+    env_key = os.getenv("DEEPSEEK_API_KEY")
+    if env_key:
+        return env_key
+
+    # Load from credentials
+    creds = load_credentials()
+    return creds.deepseek.api_key or None
+
+
+def get_deepseek_api_base() -> str:
+    """Get DeepSeek API base URL from config or environment.
+
+    Priority: Environment > config.toml > Default
+    """
+    # Check environment first
+    env_base = os.getenv("LLM_API_BASE")
+    if env_base:
+        return env_base
+
+    # Load from config.toml
+    mg_config = get_memory_graph_config()
+    llm_config = mg_config.get("llm", {})
+    return llm_config.get("api_base", "https://api.deepseek.com/v1")
+
+
+def get_embedding_api_base() -> str:
+    """Get embedding API base URL from config or environment.
+
+    Priority: Environment > config.toml > Default
+    """
+    # Check environment first
+    env_base = os.getenv("EMBEDDING_API_BASE")
+    if env_base:
+        return env_base
+
+    # Load from config.toml
+    mg_config = get_memory_graph_config()
+    emb_config = mg_config.get("embedding", {})
+    return emb_config.get("api_base", "http://localhost:8081/v1")
+
+
+def get_embedding_api_key() -> Optional[str]:
+    """Get embedding API key from credentials or environment.
+
+    Priority: Environment > Credentials file
+    """
+    # Check environment first
+    env_key = os.getenv("EMBEDDING_API_KEY")
+    if env_key:
+        return env_key
+
+    # Embedding typically doesn't need API key for local servers
     return None
