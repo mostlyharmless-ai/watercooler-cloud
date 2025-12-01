@@ -6,6 +6,7 @@ Uses Pydantic for schema enforcement and clear error messages.
 
 from __future__ import annotations
 
+import warnings
 from pathlib import Path
 from typing import Dict, List, Literal, Optional
 
@@ -29,6 +30,24 @@ class CommonConfig(BaseModel):
         default="",
         description="Path to templates directory (empty = use bundled)",
     )
+
+    @field_validator("templates_dir")
+    @classmethod
+    def validate_templates_dir(cls, v: str) -> str:
+        """Warn if templates directory doesn't exist."""
+        if v:
+            path = Path(v).expanduser()
+            if not path.exists():
+                warnings.warn(
+                    f"Templates directory does not exist: {v}",
+                    UserWarning,
+                )
+            elif not path.is_dir():
+                warnings.warn(
+                    f"Templates path is not a directory: {v}",
+                    UserWarning,
+                )
+        return v
 
 
 class AgentConfig(BaseModel):
@@ -56,6 +75,24 @@ class GitConfig(BaseModel):
         default="",
         description="Path to SSH private key (empty = use default)",
     )
+
+    @field_validator("ssh_key")
+    @classmethod
+    def validate_ssh_key(cls, v: str) -> str:
+        """Warn if SSH key path doesn't exist."""
+        if v:
+            path = Path(v).expanduser()
+            if not path.exists():
+                warnings.warn(
+                    f"SSH key path does not exist: {v}",
+                    UserWarning,
+                )
+            elif not path.is_file():
+                warnings.warn(
+                    f"SSH key path is not a file: {v}",
+                    UserWarning,
+                )
+        return v
 
 
 class SyncConfig(BaseModel):
@@ -131,6 +168,19 @@ class LoggingConfig(BaseModel):
         default=False,
         description="Disable file logging (stderr only)",
     )
+
+    @field_validator("dir")
+    @classmethod
+    def validate_log_dir(cls, v: str) -> str:
+        """Warn if log directory doesn't exist (will be created on use)."""
+        if v:
+            path = Path(v).expanduser()
+            if path.exists() and not path.is_dir():
+                warnings.warn(
+                    f"Log path exists but is not a directory: {v}",
+                    UserWarning,
+                )
+        return v
 
 
 class McpConfig(BaseModel):

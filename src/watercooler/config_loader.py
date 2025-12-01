@@ -21,6 +21,8 @@ from __future__ import annotations
 
 import os
 import sys
+import threading
+import warnings
 from pathlib import Path
 from typing import Any, Dict, Optional
 
@@ -273,9 +275,12 @@ def load_config(
         try:
             user_config = _load_toml(user_config_path)
             config_dict = _deep_merge(config_dict, user_config)
-        except ConfigError:
+        except ConfigError as e:
             # User config is optional, warn but continue
-            pass
+            warnings.warn(
+                f"Skipping invalid user config at {user_config_path}: {e}",
+                UserWarning,
+            )
 
     # 2. Project config
     project_config_dir = _get_project_config_dir(project_path)
@@ -337,13 +342,17 @@ def ensure_config_dir(user: bool = True, project_path: Optional[Path] = None) ->
     return config_dir
 
 
-# Global cached config
+# Global cached config (thread-safe)
 _cached_config: Optional[WatercoolerConfig] = None
 _cached_project_path: Optional[Path] = None
+_config_lock = threading.Lock()
 
 
 def get_config(project_path: Optional[Path] = None, force_reload: bool = False) -> WatercoolerConfig:
     """Get cached config, loading if necessary.
+
+    Thread-safe: Uses a lock to prevent race conditions when multiple
+    threads access the config cache concurrently.
 
     Args:
         project_path: Project directory for config discovery
@@ -360,19 +369,21 @@ def get_config(project_path: Optional[Path] = None, force_reload: bool = False) 
     else:
         normalized_path = None
 
-    if (
-        force_reload
-        or _cached_config is None
-        or _cached_project_path != normalized_path
-    ):
-        _cached_config = load_config(project_path)
-        _cached_project_path = normalized_path
+    with _config_lock:
+        if (
+            force_reload
+            or _cached_config is None
+            or _cached_project_path != normalized_path
+        ):
+            _cached_config = load_config(project_path)
+            _cached_project_path = normalized_path
 
-    return _cached_config
+        return _cached_config
 
 
 def clear_config_cache() -> None:
-    """Clear cached config."""
+    """Clear cached config (thread-safe)."""
     global _cached_config, _cached_project_path
-    _cached_config = None
-    _cached_project_path = None
+    with _config_lock:
+        _cached_config = None
+        _cached_project_path = None

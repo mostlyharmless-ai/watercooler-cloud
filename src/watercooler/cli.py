@@ -563,57 +563,38 @@ def main(argv: list[str] | None = None) -> None:
             if args.as_json:
                 print(json_module.dumps(config.model_dump(), indent=2))
             else:
-                # Pretty print config sections
-                print("# Watercooler Configuration (resolved)")
-                print()
-                print(f"version = {config.version}")
-                print()
+                # Use tomlkit for proper TOML output that stays in sync with schema
+                try:
+                    import tomlkit
+                    doc = tomlkit.document()
+                    doc.add(tomlkit.comment(" Watercooler Configuration (resolved)"))
+                    doc.add(tomlkit.nl())
 
-                print("[common]")
-                print(f"threads_pattern = \"{config.common.threads_pattern}\"")
-                print(f"threads_suffix = \"{config.common.threads_suffix}\"")
-                if config.common.templates_dir:
-                    print(f"templates_dir = \"{config.common.templates_dir}\"")
-                print()
+                    # Convert Pydantic model to dict, using by_alias for 'async' field
+                    config_dict = config.model_dump(by_alias=True)
+                    for section, values in config_dict.items():
+                        if isinstance(values, dict):
+                            table = tomlkit.table()
+                            for key, val in values.items():
+                                if isinstance(val, dict):
+                                    # Nested table (e.g., mcp.git, mcp.sync)
+                                    subtable = tomlkit.table()
+                                    for subkey, subval in val.items():
+                                        subtable.add(subkey, subval)
+                                    table.add(key, subtable)
+                                else:
+                                    table.add(key, val)
+                            doc.add(section, table)
+                        else:
+                            doc.add(section, values)
 
-                print("[mcp]")
-                print(f"transport = \"{config.mcp.transport}\"")
-                print(f"default_agent = \"{config.mcp.default_agent}\"")
-                if config.mcp.agent_tag:
-                    print(f"agent_tag = \"{config.mcp.agent_tag}\"")
-                print(f"auto_branch = {str(config.mcp.auto_branch).lower()}")
-                print(f"auto_provision = {str(config.mcp.auto_provision).lower()}")
-                print()
-
-                print("[mcp.git]")
-                if config.mcp.git.author:
-                    print(f"author = \"{config.mcp.git.author}\"")
-                print(f"email = \"{config.mcp.git.email}\"")
-                if config.mcp.git.ssh_key:
-                    print(f"ssh_key = \"{config.mcp.git.ssh_key}\"")
-                print()
-
-                print("[mcp.sync]")
-                print(f"async = {str(config.mcp.sync.async_sync).lower()}")
-                print(f"batch_window = {config.mcp.sync.batch_window}")
-                print(f"interval = {config.mcp.sync.interval}")
-                print()
-
-                print("[mcp.logging]")
-                print(f"level = \"{config.mcp.logging.level}\"")
-                print(f"disable_file = {str(config.mcp.logging.disable_file).lower()}")
-                print()
-
-                if config.mcp.agents:
-                    for slug, agent in config.mcp.agents.items():
-                        print(f"[mcp.agents.{slug}]")
-                        print(f"name = \"{agent.name}\"")
-                        print(f"default_spec = \"{agent.default_spec}\"")
-                        print()
-
-                print("[validation]")
-                print(f"on_write = {str(config.validation.on_write).lower()}")
-                print(f"fail_on_violation = {str(config.validation.fail_on_violation).lower()}")
+                    print(tomlkit.dumps(doc))
+                except ImportError:
+                    # Fallback if tomlkit not installed
+                    print("# Watercooler Configuration (resolved)")
+                    print("# Note: Install tomlkit for proper TOML formatting")
+                    print()
+                    print(json_module.dumps(config.model_dump(), indent=2))
 
             sys.exit(0)
 
