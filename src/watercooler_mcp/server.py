@@ -2484,15 +2484,56 @@ def recover_branch_state(
 # Server Entry Point
 # ============================================================================
 
+def _check_first_run() -> None:
+    """Check if this is first run and suggest config initialization."""
+    try:
+        from watercooler.config_loader import get_config_paths
+
+        paths = get_config_paths()
+        user_config = paths.get("user_config")
+        project_config = paths.get("project_config")
+
+        # Check if any config file exists
+        has_config = (
+            (user_config and user_config.exists()) or
+            (project_config and project_config.exists())
+        )
+
+        if not has_config:
+            print(
+                "\n"
+                "━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━\n"
+                "ℹ️  No watercooler config found.\n"
+                "\n"
+                "   To customize settings, create a config file:\n"
+                "\n"
+                "     watercooler config init --user     # ~/.watercooler/config.toml\n"
+                "     watercooler config init --project  # .watercooler/config.toml\n"
+                "\n"
+                "   Using defaults for now. This message won't appear again\n"
+                "   once a config file exists.\n"
+                "━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━\n",
+                file=sys.stderr
+            )
+    except Exception:
+        # Don't let config check errors break server startup
+        pass
+
+
 def main():
     """Entry point for watercooler-mcp command."""
-    # Get transport configuration
-    transport = os.getenv("WATERCOOLER_MCP_TRANSPORT", "stdio").lower()
+    # Check for first-run and suggest config initialization
+    _check_first_run()
+
+    # Get transport configuration from unified config system
+    from .config import get_mcp_transport_config
+
+    transport_config = get_mcp_transport_config()
+    transport = transport_config["transport"]
 
     if transport == "http":
-        # HTTP transport configuration
-        host = os.getenv("WATERCOOLER_MCP_HOST", "127.0.0.1")
-        port = int(os.getenv("WATERCOOLER_MCP_PORT", "3000"))
+        host = transport_config["host"]
+        port = transport_config["port"]
 
         print(f"Starting Watercooler MCP Server on http://{host}:{port}", file=sys.stderr)
         print(f"Health check: http://{host}:{port}/health", file=sys.stderr)

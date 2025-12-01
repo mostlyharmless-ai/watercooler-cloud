@@ -70,7 +70,8 @@ def test_resolve_thread_context_git_pattern(tmp_path, monkeypatch):
 
     expected_dir = (threads_base / "mostly" / "test-threads").resolve()
     assert context.threads_dir == expected_dir
-    assert context.threads_repo_url == "https://github.com/mostly/test-threads.git"
+    # URL is normalized to SSH format for git operations
+    assert context.threads_repo_url == "git@github.com:mostly/test-threads.git"
     assert context.code_repo == "mostly/test"
     assert context.code_branch in {"master", "main"}
 

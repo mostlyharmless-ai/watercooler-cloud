@@ -5,7 +5,7 @@ import subprocess
 import threading
 from dataclasses import dataclass
 from pathlib import Path
-from typing import Dict, Optional, Tuple
+from typing import Any, Dict, Optional, Tuple
 
 try:
     from importlib import metadata as importlib_metadata  # type: ignore
@@ -311,11 +311,22 @@ def resolve_thread_context(code_root: Optional[Path] = None) -> ThreadContext:
         namespace, repo = _split_namespace_repo(code_repo)
         pattern = os.getenv("WATERCOOLER_THREADS_PATTERN")
         if not pattern:
-            default_pattern = "https://github.com/{org}/{repo}-threads.git"
-            remote = code_remote or ""
-            if remote.startswith("git@") or remote.startswith("ssh://"):
-                default_pattern = "git@github.com:{org}/{repo}-threads.git"
-            pattern = default_pattern
+            # Get default pattern from config system
+            try:
+                config = get_watercooler_config()
+                config_pattern = config.common.threads_pattern
+            except Exception:
+                config_pattern = None
+
+            if config_pattern:
+                pattern = config_pattern
+            else:
+                # Fallback: infer pattern from code remote protocol
+                remote = code_remote or ""
+                if remote.startswith("git@") or remote.startswith("ssh://"):
+                    pattern = "git@github.com:{org}/{repo}-threads.git"
+                else:
+                    pattern = "https://github.com/{org}/{repo}-threads.git"
         format_kwargs = {
             "repo": repo,
             "namespace": namespace or "",
@@ -380,10 +391,28 @@ def _get_cache_key(threads_dir: Path, repo_url: str) -> Tuple[str, str]:
 
 
 def _get_git_identity() -> Tuple[str, str]:
+    """Get git author name and email for commits.
+
+    Resolution order:
+    1. WATERCOOLER_GIT_AUTHOR / WATERCOOLER_GIT_EMAIL env vars
+    2. WATERCOOLER_AGENT env var (for author)
+    3. Config file values (mcp.git.author / mcp.git.email)
+    4. Hardcoded fallbacks (only if config unavailable)
+    """
+    # Try to get defaults from config system
+    try:
+        config = get_watercooler_config()
+        default_author = config.mcp.git.author or config.mcp.default_agent
+        default_email = config.mcp.git.email
+    except Exception:
+        # Config not available, use hardcoded fallbacks
+        default_author = "Watercooler MCP"
+        default_email = "mcp@watercooler.dev"
+
     author = os.getenv("WATERCOOLER_GIT_AUTHOR")
     if not author:
-        author = os.getenv("WATERCOOLER_AGENT", "Watercooler MCP")
-    email = os.getenv("WATERCOOLER_GIT_EMAIL", "mcp@watercooler.dev")
+        author = os.getenv("WATERCOOLER_AGENT", default_author)
+    email = os.getenv("WATERCOOLER_GIT_EMAIL", default_email)
     return author, email
 
 
@@ -507,3 +536,164 @@ def get_version() -> str:
         except Exception:
             break
     return os.getenv("WATERCOOLER_MCP_VERSION", "0.0.0")
+
+
+# =============================================================================
+# Config System Integration (TOML-based configuration)
+# =============================================================================
+
+# Lazy-loaded config to avoid import-time file I/O
+_loaded_config: Optional["WatercoolerConfig"] = None
+
+
+def get_watercooler_config(project_path: Optional[Path] = None) -> "WatercoolerConfig":
+    """Get the loaded Watercooler configuration.
+
+    Lazy-loads config from TOML files on first access.
+    Uses cached config for subsequent calls.
+
+    Args:
+        project_path: Project directory for config discovery
+
+    Returns:
+        WatercoolerConfig instance
+    """
+    global _loaded_config
+
+    if _loaded_config is None:
+        try:
+            from watercooler.config_loader import load_config
+            _loaded_config = load_config(project_path)
+        except ImportError:
+            # Config system not available, use defaults
+            from watercooler.config_schema import WatercoolerConfig
+            _loaded_config = WatercoolerConfig()
+        except Exception as e:
+            # Config loading failed, use defaults
+            log_debug(f"Config loading failed, using defaults: {e}")
+            from watercooler.config_schema import WatercoolerConfig
+            _loaded_config = WatercoolerConfig()
+
+    return _loaded_config
+
+
+def reload_config(project_path: Optional[Path] = None) -> "WatercoolerConfig":
+    """Force reload of configuration from disk.
+
+    Args:
+        project_path: Project directory for config discovery
+
+    Returns:
+        Freshly loaded WatercoolerConfig instance
+    """
+    global _loaded_config
+    _loaded_config = None
+    return get_watercooler_config(project_path)
+
+
+def get_mcp_transport_config() -> Dict[str, Any]:
+    """Get MCP transport configuration.
+
+    Returns dict with keys: transport, host, port
+    Environment variables override config file values.
+    """
+    config = get_watercooler_config()
+
+    return {
+        "transport": os.getenv("WATERCOOLER_MCP_TRANSPORT", config.mcp.transport),
+        "host": os.getenv("WATERCOOLER_MCP_HOST", config.mcp.host),
+        "port": int(os.getenv("WATERCOOLER_MCP_PORT", str(config.mcp.port))),
+    }
+
+
+def get_sync_config() -> Dict[str, Any]:
+    """Get git sync configuration.
+
+    Returns dict with sync settings.
+    Environment variables override config file values.
+    """
+    config = get_watercooler_config()
+    sync = config.mcp.sync
+
+    def _get_float(env_key: str, default: float) -> float:
+        val = os.getenv(env_key)
+        if val:
+            try:
+                return float(val)
+            except ValueError:
+                pass
+        return default
+
+    def _get_int(env_key: str, default: int) -> int:
+        val = os.getenv(env_key)
+        if val:
+            try:
+                return int(val)
+            except ValueError:
+                pass
+        return default
+
+    def _get_bool(env_key: str, default: bool) -> bool:
+        val = os.getenv(env_key)
+        if val:
+            return val.lower() in ("1", "true", "yes", "on")
+        return default
+
+    return {
+        "async_sync": _get_bool("WATERCOOLER_ASYNC_SYNC", sync.async_sync),
+        "batch_window": _get_float("WATERCOOLER_BATCH_WINDOW", sync.batch_window),
+        "max_delay": sync.max_delay,
+        "max_batch_size": sync.max_batch_size,
+        "max_retries": _get_int("WATERCOOLER_SYNC_MAX_RETRIES", sync.max_retries),
+        "max_backoff": _get_float("WATERCOOLER_SYNC_MAX_BACKOFF", sync.max_backoff),
+        "interval": _get_float("WATERCOOLER_SYNC_INTERVAL", sync.interval),
+        "stale_threshold": sync.stale_threshold,
+    }
+
+
+def get_logging_config() -> Dict[str, Any]:
+    """Get logging configuration.
+
+    Returns dict with logging settings.
+    Environment variables override config file values.
+    """
+    config = get_watercooler_config()
+    logging = config.mcp.logging
+
+    return {
+        "level": os.getenv("WATERCOOLER_LOG_LEVEL", logging.level),
+        "dir": os.getenv("WATERCOOLER_LOG_DIR", logging.dir) or None,
+        "max_bytes": int(os.getenv("WATERCOOLER_LOG_MAX_BYTES", str(logging.max_bytes))),
+        "backup_count": int(os.getenv("WATERCOOLER_LOG_BACKUP_COUNT", str(logging.backup_count))),
+        "disable_file": os.getenv("WATERCOOLER_LOG_DISABLE_FILE", "").lower() in ("1", "true", "yes") or logging.disable_file,
+    }
+
+
+def get_agent_for_platform(platform_slug: Optional[str] = None) -> Dict[str, str]:
+    """Get agent configuration for a platform.
+
+    Args:
+        platform_slug: Platform identifier (e.g., "claude-code", "cursor")
+
+    Returns:
+        Dict with name and default_spec for the agent
+    """
+    config = get_watercooler_config()
+
+    if platform_slug:
+        agent_config = config.get_agent_config(platform_slug)
+        if agent_config:
+            return {
+                "name": agent_config.name,
+                "default_spec": agent_config.default_spec,
+            }
+
+    return {
+        "name": config.mcp.default_agent,
+        "default_spec": "general-purpose",
+    }
+
+
+# Type hint import (deferred to avoid circular imports)
+if False:  # TYPE_CHECKING equivalent
+    from watercooler.config_schema import WatercoolerConfig

@@ -506,15 +506,45 @@ class GitSyncManager:
         return sys.platform == "win32"
 
     def _load_async_config(self) -> dict:
+        """Load async sync configuration from config system with env var overrides."""
+        # Late import to avoid circular dependency (config.py imports GitSyncManager)
+        try:
+            from .config import get_sync_config
+            sync_config = get_sync_config()
+        except Exception:
+            # Fallback if config system unavailable
+            sync_config = {}
+
         return {
-            "batch_window": _parse_float_env("WATERCOOLER_BATCH_WINDOW", 5.0),
-            "max_delay": _parse_float_env("WATERCOOLER_MAX_BATCH_DELAY", 30.0),
-            "max_batch_size": _parse_int_env("WATERCOOLER_MAX_BATCH_SIZE", 50),
-            "max_sync_retries": _parse_int_env("WATERCOOLER_MAX_SYNC_RETRIES", 5),
-            "max_backoff": _parse_float_env("WATERCOOLER_MAX_BACKOFF", 300.0),
+            "batch_window": _parse_float_env(
+                "WATERCOOLER_BATCH_WINDOW",
+                sync_config.get("batch_window", 5.0)
+            ),
+            "max_delay": _parse_float_env(
+                "WATERCOOLER_MAX_BATCH_DELAY",
+                sync_config.get("max_delay", 30.0)
+            ),
+            "max_batch_size": _parse_int_env(
+                "WATERCOOLER_MAX_BATCH_SIZE",
+                sync_config.get("max_batch_size", 50)
+            ),
+            "max_sync_retries": _parse_int_env(
+                "WATERCOOLER_MAX_SYNC_RETRIES",
+                sync_config.get("max_retries", 5)
+            ),
+            "max_backoff": _parse_float_env(
+                "WATERCOOLER_MAX_BACKOFF",
+                sync_config.get("max_backoff", 300.0)
+            ),
             "log_enabled": self._log_enabled,
-            "sync_interval": _parse_float_env("WATERCOOLER_SYNC_INTERVAL", 30.0),
-            "stale_threshold": _parse_float_env("WATERCOOLER_STALE_THRESHOLD", 60.0),
+            "sync_interval": _parse_float_env(
+                "WATERCOOLER_SYNC_INTERVAL",
+                sync_config.get("interval", 30.0)
+            ),
+            "stale_threshold": _parse_float_env(
+                "WATERCOOLER_STALE_THRESHOLD",
+                sync_config.get("stale_threshold", 60.0)
+            ),
         }
 
     def _init_async(self) -> None:
@@ -1100,7 +1130,7 @@ class GitSyncManager:
             raise GitSyncError(f"Failed to commit: {e}") from e
         return True
 
-    def push_pending(self, max_retries: int = 3) -> bool:
+    def push_pending(self, max_retries: int = 5) -> bool:
         """Push local commits to the remote with retry logic."""
         self._last_push_error = None
         if not self._remote_allowed:
@@ -1180,7 +1210,7 @@ class GitSyncManager:
                 return False
         return False
 
-    def commit_and_push(self, message: str, max_retries: int = 3) -> bool:
+    def commit_and_push(self, message: str, max_retries: int = 5) -> bool:
         """Commit changes and push to remote with retry logic."""
         committed = self.commit_local(message)
         if not committed:
@@ -1301,7 +1331,9 @@ class GitSyncManager:
 
         result = operation()
 
-        if not self.commit_and_push(commit_message):
+        # Get max_retries from config (with fallback)
+        max_retries = self._async_config.get("max_sync_retries", 5)
+        if not self.commit_and_push(commit_message, max_retries=max_retries):
             detail = self._last_push_error or "unknown push error"
             raise GitPushError(f"Failed to push changes: {detail}")
 

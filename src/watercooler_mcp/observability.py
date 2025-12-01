@@ -15,14 +15,14 @@ from typing import Any, Dict, Optional
 
 LOGGER_NAME = "watercooler_mcp"
 
-# Environment variables for configuration
+# Environment variables for configuration (env vars override config file)
 ENV_LOG_DIR = "WATERCOOLER_LOG_DIR"
 ENV_LOG_LEVEL = "WATERCOOLER_LOG_LEVEL"
 ENV_LOG_MAX_BYTES = "WATERCOOLER_LOG_MAX_BYTES"
 ENV_LOG_BACKUP_COUNT = "WATERCOOLER_LOG_BACKUP_COUNT"
 ENV_LOG_DISABLE_FILE = "WATERCOOLER_LOG_DISABLE_FILE"
 
-# Defaults
+# Defaults (used when config system unavailable)
 DEFAULT_LOG_DIR = Path.home() / ".watercooler" / "logs"
 DEFAULT_LOG_LEVEL = "INFO"
 DEFAULT_MAX_BYTES = 10 * 1024 * 1024  # 10 MB
@@ -33,14 +33,81 @@ _logger_initialized = False
 _logger_lock = threading.Lock()
 _session_lock = threading.Lock()  # Separate lock for session timestamp to avoid deadlock
 _session_start: Optional[str] = None  # Lazy initialization to avoid import-time side effects
+_cached_logging_config: Optional[Dict[str, Any]] = None  # Cache to avoid repeated config lookups
+
+
+def _reset_logging_state() -> None:
+    """Reset logging state for testing.
+
+    This clears cached config and resets the logger initialization flag,
+    allowing tests to reconfigure logging with different settings.
+
+    WARNING: Only use this in tests - not thread-safe during normal operation.
+    """
+    global _logger_initialized, _cached_logging_config, _session_start
+
+    _cached_logging_config = None
+    _session_start = None
+
+    # Reset logger handlers if already initialized
+    if _logger_initialized:
+        _logger_initialized = False
+        logger = logging.getLogger(LOGGER_NAME)
+        logger.handlers.clear()
+
+
+def _get_logging_config_safe() -> Dict[str, Any]:
+    """Get logging config from config system with fallback to defaults.
+
+    Uses lazy import to avoid circular imports (config.py imports log_debug).
+    Caches result to avoid repeated file I/O.
+
+    Returns:
+        Dict with keys: level, dir, max_bytes, backup_count, disable_file
+    """
+    global _cached_logging_config
+
+    if _cached_logging_config is not None:
+        return _cached_logging_config
+
+    # Try to load from config system (lazy import to avoid circular import)
+    try:
+        from watercooler_mcp.config import get_logging_config
+        _cached_logging_config = get_logging_config()
+    except ImportError:
+        # Config system not available, use defaults with env var overrides
+        _cached_logging_config = {
+            "level": os.getenv(ENV_LOG_LEVEL, DEFAULT_LOG_LEVEL),
+            "dir": os.getenv(ENV_LOG_DIR, ""),
+            "max_bytes": int(os.getenv(ENV_LOG_MAX_BYTES, str(DEFAULT_MAX_BYTES))),
+            "backup_count": int(os.getenv(ENV_LOG_BACKUP_COUNT, str(DEFAULT_BACKUP_COUNT))),
+            "disable_file": os.getenv(ENV_LOG_DISABLE_FILE, "").lower() in ("1", "true", "yes"),
+        }
+    except Exception:
+        # Config loading failed, use defaults with env var overrides
+        _cached_logging_config = {
+            "level": os.getenv(ENV_LOG_LEVEL, DEFAULT_LOG_LEVEL),
+            "dir": os.getenv(ENV_LOG_DIR, ""),
+            "max_bytes": int(os.getenv(ENV_LOG_MAX_BYTES, str(DEFAULT_MAX_BYTES))),
+            "backup_count": int(os.getenv(ENV_LOG_BACKUP_COUNT, str(DEFAULT_BACKUP_COUNT))),
+            "disable_file": os.getenv(ENV_LOG_DISABLE_FILE, "").lower() in ("1", "true", "yes"),
+        }
+
+    return _cached_logging_config
 
 
 def _get_log_level() -> int:
-    """Get log level from environment, defaulting to INFO.
+    """Get log level from config system, with env var override.
+
+    Resolution order:
+    1. WATERCOOLER_LOG_LEVEL environment variable
+    2. Config file (mcp.logging.level)
+    3. Default (INFO)
 
     Warns to stderr if an invalid log level is specified.
     """
-    level_name = os.getenv(ENV_LOG_LEVEL, DEFAULT_LOG_LEVEL).upper()
+    config = _get_logging_config_safe()
+    level_name = config.get("level", DEFAULT_LOG_LEVEL).upper()
     level = getattr(logging, level_name, None)
     if level is None:
         print(f"Warning: Invalid log level '{level_name}', using INFO", file=sys.stderr)
@@ -51,12 +118,20 @@ def _get_log_level() -> int:
 def _get_log_file_path() -> Optional[Path]:
     """Get the log file path, creating directories if needed.
 
-    Returns None if file logging is disabled via WATERCOOLER_LOG_DISABLE_FILE=1,
+    Resolution order for log directory:
+    1. WATERCOOLER_LOG_DIR environment variable
+    2. Config file (mcp.logging.dir)
+    3. Default (~/.watercooler/logs)
+
+    Returns None if file logging is disabled via config or env var,
     or if the log directory cannot be created (falls back to stderr-only).
     """
     global _session_start
 
-    if os.getenv(ENV_LOG_DISABLE_FILE, "").lower() in ("1", "true", "yes"):
+    config = _get_logging_config_safe()
+
+    # Check if file logging is disabled
+    if config.get("disable_file", False):
         return None
 
     # Thread-safe lazy initialization of session start timestamp
@@ -66,7 +141,13 @@ def _get_log_file_path() -> Optional[Path]:
             if _session_start is None:  # Double-check pattern
                 _session_start = datetime.now(timezone.utc).strftime("%Y-%m-%d_%H%M%S")
 
-    log_dir = Path(os.getenv(ENV_LOG_DIR, DEFAULT_LOG_DIR))
+    # Get log directory from config (already has env var override applied)
+    config_dir = config.get("dir", "")
+    if config_dir:
+        log_dir = Path(config_dir).expanduser()
+    else:
+        log_dir = DEFAULT_LOG_DIR
+
     try:
         log_dir.mkdir(parents=True, exist_ok=True)
     except (OSError, PermissionError) as e:
@@ -84,12 +165,14 @@ def _get_logger() -> logging.Logger:
 
     By default, logs to ~/.watercooler/logs/watercooler_<session>.log
 
-    Configuration via environment variables:
+    Configuration via config file (mcp.logging section) or environment variables:
     - WATERCOOLER_LOG_DIR: Directory for log files (default: ~/.watercooler/logs/)
     - WATERCOOLER_LOG_LEVEL: DEBUG, INFO, WARNING, ERROR (default: INFO)
     - WATERCOOLER_LOG_MAX_BYTES: Max log file size before rotation (default: 10MB)
     - WATERCOOLER_LOG_BACKUP_COUNT: Number of backup files to keep (default: 5)
     - WATERCOOLER_LOG_DISABLE_FILE: Set to 1 to disable file logging (stderr only)
+
+    Environment variables override config file values.
     """
     global _logger_initialized
     logger = logging.getLogger(LOGGER_NAME)
@@ -113,15 +196,10 @@ def _get_logger() -> logging.Logger:
                 # File handler (enabled by default)
                 log_file = _get_log_file_path()
                 if log_file:
-                    # Safe parsing of environment variables with fallback to defaults
-                    try:
-                        max_bytes = int(os.getenv(ENV_LOG_MAX_BYTES, str(DEFAULT_MAX_BYTES)))
-                    except ValueError:
-                        max_bytes = DEFAULT_MAX_BYTES
-                    try:
-                        backup_count = int(os.getenv(ENV_LOG_BACKUP_COUNT, str(DEFAULT_BACKUP_COUNT)))
-                    except ValueError:
-                        backup_count = DEFAULT_BACKUP_COUNT
+                    # Get rotation settings from config (already has env var override)
+                    config = _get_logging_config_safe()
+                    max_bytes = config.get("max_bytes", DEFAULT_MAX_BYTES)
+                    backup_count = config.get("backup_count", DEFAULT_BACKUP_COUNT)
 
                     file_handler = RotatingFileHandler(
                         str(log_file),

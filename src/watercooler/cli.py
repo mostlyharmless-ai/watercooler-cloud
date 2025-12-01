@@ -117,6 +117,24 @@ def main(argv: list[str] | None = None) -> None:
     p_install_hooks.add_argument("--hooks-dir", help="Git hooks directory (default: .git/hooks)")
     p_install_hooks.add_argument("--force", action="store_true", help="Overwrite existing hooks")
 
+    # Config commands
+    p_config = sub.add_parser("config", help="Configuration management")
+    config_sub = p_config.add_subparsers(dest="config_cmd")
+
+    p_config_init = config_sub.add_parser("init", help="Initialize config file from template")
+    p_config_init.add_argument("--user", action="store_true", help="Create user config (~/.watercooler/config.toml)")
+    p_config_init.add_argument("--project", action="store_true", help="Create project config (.watercooler/config.toml)")
+    p_config_init.add_argument("--force", action="store_true", help="Overwrite existing config")
+
+    p_config_show = config_sub.add_parser("show", help="Show resolved configuration")
+    p_config_show.add_argument("--project-path", help="Project directory for config discovery")
+    p_config_show.add_argument("--json", dest="as_json", action="store_true", help="Output as JSON")
+    p_config_show.add_argument("--sources", action="store_true", help="Show config source files")
+
+    p_config_validate = config_sub.add_parser("validate", help="Validate configuration files")
+    p_config_validate.add_argument("--project-path", help="Project directory for config discovery")
+    p_config_validate.add_argument("--strict", action="store_true", help="Treat warnings as errors")
+
     p_append = sub.add_parser("append-entry", help="Append a structured entry")
     p_append.add_argument("topic")
     p_append.add_argument("--threads-dir")
@@ -477,6 +495,164 @@ def main(argv: list[str] | None = None) -> None:
         result = install_hooks(code_root=code_root, hooks_dir=hooks_dir, force=args.force)
         print(result)
         sys.exit(0)
+
+    if args.cmd == "config":
+        from pathlib import Path
+        import json as json_module
+        import shutil
+
+        if not args.config_cmd:
+            print("Usage: watercooler config {init|show|validate}")
+            sys.exit(0)
+
+        if args.config_cmd == "init":
+            from .config_loader import ensure_config_dir, CONFIG_FILENAME
+
+            # Get template path
+            template_path = Path(__file__).parent / "templates" / "config.example.toml"
+            if not template_path.exists():
+                print(f"❌ Template not found: {template_path}", file=sys.stderr)
+                sys.exit(1)
+
+            # Determine target (default to user config)
+            if args.project:
+                config_dir = ensure_config_dir(user=False, project_path=Path.cwd())
+                target_path = config_dir / CONFIG_FILENAME
+                location = "project"
+            else:
+                config_dir = ensure_config_dir(user=True)
+                target_path = config_dir / CONFIG_FILENAME
+                location = "user"
+
+            if target_path.exists() and not args.force:
+                print(f"❌ Config already exists: {target_path}", file=sys.stderr)
+                print("Use --force to overwrite.", file=sys.stderr)
+                sys.exit(1)
+
+            shutil.copy(template_path, target_path)
+            print(f"✅ Created {location} config: {target_path}")
+            print(f"   Edit this file to customize Watercooler settings.")
+            sys.exit(0)
+
+        if args.config_cmd == "show":
+            from .config_loader import load_config, get_config_paths, ConfigError
+
+            project_path = Path(args.project_path) if args.project_path else None
+
+            if args.sources:
+                paths = get_config_paths(project_path)
+                print("Config sources (in priority order):")
+                print()
+                for name, path in paths.items():
+                    if path and path.exists():
+                        print(f"  ✓ {name}: {path}")
+                    elif path:
+                        print(f"  ✗ {name}: {path} (not found)")
+                    else:
+                        print(f"  - {name}: (not applicable)")
+                print()
+                print("Environment variables override all file configs.")
+                sys.exit(0)
+
+            try:
+                config = load_config(project_path)
+            except ConfigError as e:
+                print(f"❌ Config error: {e}", file=sys.stderr)
+                sys.exit(1)
+
+            if args.as_json:
+                print(json_module.dumps(config.model_dump(), indent=2))
+            else:
+                # Use tomlkit for proper TOML output that stays in sync with schema
+                try:
+                    import tomlkit
+                    doc = tomlkit.document()
+                    doc.add(tomlkit.comment(" Watercooler Configuration (resolved)"))
+                    doc.add(tomlkit.nl())
+
+                    # Convert Pydantic model to dict, using by_alias for 'async' field
+                    config_dict = config.model_dump(by_alias=True)
+                    for section, values in config_dict.items():
+                        if isinstance(values, dict):
+                            table = tomlkit.table()
+                            for key, val in values.items():
+                                if isinstance(val, dict):
+                                    # Nested table (e.g., mcp.git, mcp.sync)
+                                    subtable = tomlkit.table()
+                                    for subkey, subval in val.items():
+                                        subtable.add(subkey, subval)
+                                    table.add(key, subtable)
+                                else:
+                                    table.add(key, val)
+                            doc.add(section, table)
+                        else:
+                            doc.add(section, values)
+
+                    print(tomlkit.dumps(doc))
+                except ImportError:
+                    # Fallback if tomlkit not installed
+                    print("# Watercooler Configuration (resolved)")
+                    print("# Note: Install tomlkit for proper TOML formatting")
+                    print()
+                    print(json_module.dumps(config.model_dump(), indent=2))
+
+            sys.exit(0)
+
+        if args.config_cmd == "validate":
+            from .config_loader import load_config, get_config_paths, ConfigError
+
+            project_path = Path(args.project_path) if args.project_path else None
+            paths = get_config_paths(project_path)
+
+            errors = []
+            warnings = []
+
+            # Check which configs exist
+            found_any = False
+            for name, path in paths.items():
+                if path and path.exists():
+                    found_any = True
+                    print(f"  ✓ Found: {path}")
+
+            if not found_any:
+                warnings.append("No config files found. Using defaults.")
+
+            # Try to load and validate
+            try:
+                config = load_config(project_path)
+                print()
+                print("✓ Configuration is valid.")
+
+                # Check for potential issues
+                if config.mcp.transport == "http" and config.mcp.port < 1024:
+                    warnings.append(f"Port {config.mcp.port} requires root privileges.")
+
+                if config.validation.fail_on_violation:
+                    warnings.append("fail_on_violation=true: Invalid entries will cause errors.")
+
+            except ConfigError as e:
+                errors.append(str(e))
+
+            # Report
+            if warnings:
+                print()
+                print("Warnings:")
+                for w in warnings:
+                    print(f"  ⚠ {w}")
+
+            if errors:
+                print()
+                print("Errors:", file=sys.stderr)
+                for e in errors:
+                    print(f"  ❌ {e}", file=sys.stderr)
+                sys.exit(1)
+
+            if args.strict and warnings:
+                print()
+                print("--strict: Treating warnings as errors.", file=sys.stderr)
+                sys.exit(1)
+
+            sys.exit(0)
 
     # default: other commands not yet implemented in L1
     print(f"watercooler {args.cmd}: not yet implemented (L1 stub)")
