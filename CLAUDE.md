@@ -22,7 +22,7 @@ watercooler-cloud is a file-based collaboration protocol for agentic coding proj
 
 ## Design Principles
 
-1. **Stdlib-only**: No external runtime dependencies in core library (watercooler package)
+1. **Minimal dependencies in core**: Core thread operations (init, say, ack) use stdlib-only. Config/credentials loading may use standard Python ecosystem tools (pydantic, tomllib/tomli, tomlkit) that are already MCP requirements.
 2. **File-based**: Git-friendly markdown format for threads
 3. **Zero-config**: Works out-of-box for standard layouts
 4. **CLI parity**: Drop-in replacement workflows for existing watercooler.py
