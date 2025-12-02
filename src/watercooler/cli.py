@@ -685,7 +685,7 @@ def main(argv: list[str] | None = None) -> None:
             sys.exit(0)
 
         if args.memory_cmd == "build":
-            from .memory_graph.graph import MemoryGraph, GraphConfig
+            from watercooler_memory import MemoryGraph, GraphConfig
 
             threads_dir = resolve_threads_dir(args.threads_dir)
             if not threads_dir.exists():
@@ -704,7 +704,7 @@ def main(argv: list[str] | None = None) -> None:
                 graph.build(threads_dir, branch_context=args.branch)
             except ImportError as e:
                 print(f"⚠ Missing dependency: {e}", file=sys.stderr)
-                print("Install with: pip install 'watercooler-cloud[graph]'", file=sys.stderr)
+                print("Install with: pip install 'watercooler-cloud[memory]'", file=sys.stderr)
                 # Continue with partial build
             except Exception as e:
                 print(f"❌ Build error: {e}", file=sys.stderr)
@@ -721,8 +721,8 @@ def main(argv: list[str] | None = None) -> None:
             sys.exit(0)
 
         if args.memory_cmd == "export":
-            from .memory_graph.graph import MemoryGraph, GraphConfig
-            from .memory_graph.leanrag_export import export_to_leanrag
+            from watercooler_memory import MemoryGraph, GraphConfig
+            from watercooler_memory.leanrag_export import export_to_leanrag
 
             # Load or build graph
             if args.graph:
@@ -766,7 +766,7 @@ def main(argv: list[str] | None = None) -> None:
             sys.exit(0)
 
         if args.memory_cmd == "stats":
-            from .memory_graph.graph import MemoryGraph, GraphConfig
+            from watercooler_memory import MemoryGraph, GraphConfig
 
             # Load or build graph
             if args.graph:

@@ -19,8 +19,8 @@ from pathlib import Path
 # Add src to path for local dev
 sys.path.insert(0, str(Path(__file__).parent.parent / "src"))
 
-from watercooler.memory_graph import MemoryGraph, GraphConfig
-from watercooler.memory_graph.leanrag_export import export_to_leanrag
+from watercooler_memory import MemoryGraph, GraphConfig
+from watercooler_memory.leanrag_export import export_to_leanrag
 
 
 def main():

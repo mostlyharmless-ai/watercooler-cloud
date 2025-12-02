@@ -1,10 +1,10 @@
-"""Tests for memory_graph module."""
+"""Tests for watercooler_memory module."""
 
 import json
 import pytest
 from pathlib import Path
 
-from watercooler.memory_graph import (
+from watercooler_memory import (
     MemoryGraph,
     GraphConfig,
     ThreadNode,
@@ -16,7 +16,7 @@ from watercooler.memory_graph import (
     chunk_text,
     ChunkerConfig,
 )
-from watercooler.memory_graph.leanrag_export import export_to_leanrag, entry_to_leanrag_document
+from watercooler_memory.leanrag_export import export_to_leanrag, entry_to_leanrag_document
 
 
 @pytest.fixture

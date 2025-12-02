@@ -51,9 +51,10 @@ http = [
     "fastapi>=0.100",
     "uvicorn[standard]>=0.20",
 ]
-graph = [
+memory = [
     "tiktoken>=0.5",
     "httpx>=0.25",
+    "openai>=1.0",
 ]
 
 [tool.setuptools.packages.find]
@@ -62,6 +63,7 @@ where = ["src"]
 [tool.setuptools.package-data]
 watercooler = ["py.typed", "templates/*.md", "templates/*.toml"]
 watercooler_mcp = ["scripts/*"]
+watercooler_memory = ["py.typed"]
 
 [project.scripts]
 watercooler = "watercooler.cli:main"
