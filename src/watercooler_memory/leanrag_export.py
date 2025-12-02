@@ -13,6 +13,7 @@ from typing import Any
 
 from .graph import MemoryGraph
 from .schema import EntryNode, ChunkNode
+from .validation import validate_export, validate_pipeline_chunks
 
 
 def entry_to_leanrag_document(
@@ -63,6 +64,7 @@ def export_to_leanrag(
     graph: MemoryGraph,
     output_dir: Path,
     include_embeddings: bool = True,
+    validate: bool = True,
 ) -> dict[str, Any]:
     """Export graph to LeanRAG format.
 
@@ -75,9 +77,13 @@ def export_to_leanrag(
         graph: The memory graph to export.
         output_dir: Directory to write export files.
         include_embeddings: Whether to include embedding vectors.
+        validate: Whether to validate export against schema (default True).
 
     Returns:
         Export manifest with statistics.
+
+    Raises:
+        ValidationError: If validate=True and export fails validation.
     """
     output_dir.mkdir(parents=True, exist_ok=True)
 
@@ -152,6 +158,10 @@ def export_to_leanrag(
         },
     }
 
+    # Validate export before writing
+    if validate:
+        validate_export(documents, threads, manifest)
+
     # Write files
     (output_dir / "documents.json").write_text(
         json.dumps(documents, indent=2, default=str)
@@ -169,6 +179,7 @@ def export_to_leanrag(
 def export_for_leanrag_pipeline(
     graph: MemoryGraph,
     output_path: Path,
+    validate: bool = True,
 ) -> None:
     """Export in format directly consumable by LeanRAG build_graph pipeline.
 
@@ -178,6 +189,10 @@ def export_for_leanrag_pipeline(
     Args:
         graph: The memory graph to export.
         output_path: Path to output JSON file.
+        validate: Whether to validate chunks against schema (default True).
+
+    Raises:
+        ValidationError: If validate=True and chunks fail validation.
     """
     chunks_for_pipeline: list[dict] = []
 
@@ -218,6 +233,10 @@ def export_for_leanrag_pipeline(
             c["metadata"]["chunk_index"],
         )
     )
+
+    # Validate chunks before writing
+    if validate:
+        validate_pipeline_chunks(chunks_for_pipeline)
 
     output_path.parent.mkdir(parents=True, exist_ok=True)
     output_path.write_text(json.dumps(chunks_for_pipeline, indent=2, default=str))

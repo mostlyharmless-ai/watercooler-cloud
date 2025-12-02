@@ -56,6 +56,20 @@ def _raise_missing_deps() -> None:
     )
 
 
+# Validation module has no external dependencies - always available
+from watercooler_memory.validation import (
+    ValidationError,
+    validate_chunk,
+    validate_document,
+    validate_manifest,
+    validate_export,
+    validate_pipeline_chunks,
+    LEANRAG_CHUNK_SCHEMA,
+    LEANRAG_DOCUMENT_SCHEMA,
+    LEANRAG_MANIFEST_SCHEMA,
+    LEANRAG_PIPELINE_CHUNK_SCHEMA,
+)
+
 if MEMORY_AVAILABLE:
     # Full imports when dependencies are available
     from watercooler_memory.schema import (
@@ -157,6 +171,17 @@ __all__ = [
     "ChunkerConfig",
     # Export
     "export_to_leanrag",
+    # Validation (always available - no external deps)
+    "ValidationError",
+    "validate_chunk",
+    "validate_document",
+    "validate_manifest",
+    "validate_export",
+    "validate_pipeline_chunks",
+    "LEANRAG_CHUNK_SCHEMA",
+    "LEANRAG_DOCUMENT_SCHEMA",
+    "LEANRAG_MANIFEST_SCHEMA",
+    "LEANRAG_PIPELINE_CHUNK_SCHEMA",
     # Cache
     "SummaryCache",
     "EmbeddingCache",
