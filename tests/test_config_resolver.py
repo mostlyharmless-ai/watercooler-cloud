@@ -70,8 +70,8 @@ def test_resolve_thread_context_git_pattern(tmp_path, monkeypatch):
 
     expected_dir = (threads_base / "mostly" / "test-threads").resolve()
     assert context.threads_dir == expected_dir
-    # URL is normalized to SSH format for git operations
-    assert context.threads_repo_url == "git@github.com:mostly/test-threads.git"
+    # Default URL pattern is HTTPS (works without SSH agent)
+    assert context.threads_repo_url == "https://github.com/mostly/test-threads.git"
     assert context.code_repo == "mostly/test"
     assert context.code_branch in {"master", "main"}
 
@@ -109,3 +109,72 @@ def test_resolve_thread_context_infers_repo_from_code_remote(tmp_path, monkeypat
     # Derived URL should mirror the code remote host with -threads suffix
     assert context.threads_repo_url.endswith("acme/example-threads.git")
     assert context.threads_slug == "acme/example-threads"
+
+
+@pytest.mark.skipif(not _git_available(), reason="git not available in test environment")
+def test_ssh_url_uses_https_when_agent_unavailable(tmp_path, monkeypatch):
+    """Test HTTPS fallback when SSH_AUTH_SOCK is unavailable (Codex compatibility)."""
+    # Set up a git repo with SSH remote
+    repo_dir = tmp_path / "code"
+    repo_dir.mkdir()
+    subprocess.run(["git", "init"], cwd=repo_dir, check=True, capture_output=True)
+    subprocess.run(["git", "config", "user.name", "Test"], cwd=repo_dir, check=True, capture_output=True)
+    subprocess.run(["git", "config", "user.email", "test@example.com"], cwd=repo_dir, check=True, capture_output=True)
+    (repo_dir / "README.md").write_text("test")
+    subprocess.run(["git", "add", "."], cwd=repo_dir, check=True, capture_output=True)
+    subprocess.run(["git", "commit", "-m", "Initial"], cwd=repo_dir, check=True, capture_output=True)
+    # Use SSH remote
+    subprocess.run(
+        ["git", "remote", "add", "origin", "git@github.com:acme/ssh-test.git"],
+        cwd=repo_dir,
+        check=True,
+        capture_output=True,
+    )
+
+    # Clear all relevant env vars including SSH_AUTH_SOCK
+    monkeypatch.delenv("WATERCOOLER_DIR", raising=False)
+    monkeypatch.delenv("WATERCOOLER_THREADS_BASE", raising=False)
+    monkeypatch.delenv("WATERCOOLER_THREADS_PATTERN", raising=False)
+    monkeypatch.delenv("WATERCOOLER_GIT_REPO", raising=False)
+    monkeypatch.delenv("WATERCOOLER_CODE_REPO", raising=False)
+    monkeypatch.delenv("SSH_AUTH_SOCK", raising=False)
+
+    context = resolve_thread_context(repo_dir)
+
+    # Without SSH_AUTH_SOCK, should use HTTPS pattern (default config)
+    # This prevents Codex MCP hangs when SSH agent is unavailable
+    assert context.threads_repo_url.startswith("https://")
+
+
+@pytest.mark.skipif(not _git_available(), reason="git not available in test environment")
+def test_ssh_url_uses_ssh_when_agent_available(tmp_path, monkeypatch):
+    """Test SSH is used when SSH_AUTH_SOCK is available and config specifies SSH."""
+    # Set up a git repo with SSH remote
+    repo_dir = tmp_path / "code"
+    repo_dir.mkdir()
+    subprocess.run(["git", "init"], cwd=repo_dir, check=True, capture_output=True)
+    subprocess.run(["git", "config", "user.name", "Test"], cwd=repo_dir, check=True, capture_output=True)
+    subprocess.run(["git", "config", "user.email", "test@example.com"], cwd=repo_dir, check=True, capture_output=True)
+    (repo_dir / "README.md").write_text("test")
+    subprocess.run(["git", "add", "."], cwd=repo_dir, check=True, capture_output=True)
+    subprocess.run(["git", "commit", "-m", "Initial"], cwd=repo_dir, check=True, capture_output=True)
+    subprocess.run(
+        ["git", "remote", "add", "origin", "git@github.com:acme/ssh-test.git"],
+        cwd=repo_dir,
+        check=True,
+        capture_output=True,
+    )
+
+    # Clear relevant env vars but SET SSH_AUTH_SOCK
+    monkeypatch.delenv("WATERCOOLER_DIR", raising=False)
+    monkeypatch.delenv("WATERCOOLER_THREADS_BASE", raising=False)
+    monkeypatch.delenv("WATERCOOLER_GIT_REPO", raising=False)
+    monkeypatch.delenv("WATERCOOLER_CODE_REPO", raising=False)
+    # Explicitly set SSH pattern to test the fallback logic (not default config)
+    monkeypatch.setenv("WATERCOOLER_THREADS_PATTERN", "git@github.com:{org}/{repo}-threads.git")
+    monkeypatch.setenv("SSH_AUTH_SOCK", "/tmp/ssh-agent.sock")
+
+    context = resolve_thread_context(repo_dir)
+
+    # With SSH_AUTH_SOCK and explicit SSH pattern, should use SSH
+    assert context.threads_repo_url.startswith("git@")

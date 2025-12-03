@@ -322,10 +322,14 @@ def resolve_thread_context(code_root: Optional[Path] = None) -> ThreadContext:
                 pattern = config_pattern
             else:
                 # Fallback: infer pattern from code remote protocol
+                # But only use SSH if SSH_AUTH_SOCK is available (prevents Codex hangs)
                 remote = code_remote or ""
-                if remote.startswith("git@") or remote.startswith("ssh://"):
+                ssh_agent_available = bool(os.environ.get("SSH_AUTH_SOCK"))
+                if (remote.startswith("git@") or remote.startswith("ssh://")) and ssh_agent_available:
                     pattern = "git@github.com:{org}/{repo}-threads.git"
                 else:
+                    # Default to HTTPS - works with credential helpers/tokens
+                    # and doesn't hang when SSH agent is unavailable
                     pattern = "https://github.com/{org}/{repo}-threads.git"
         format_kwargs = {
             "repo": repo,

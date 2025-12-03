@@ -294,8 +294,15 @@ class GitSyncManager:
             # No token available, use echo to fail fast
             self._env.setdefault("GIT_ASKPASS", "echo")
 
+        # Configure SSH to fail fast (BatchMode=yes) to prevent hanging on passphrase prompts
+        # This is critical for MCP servers where stdin is not available for interactive input
         if self.ssh_key_path:
-            self._env["GIT_SSH_COMMAND"] = f"ssh -i {self.ssh_key_path} -o IdentitiesOnly=yes"
+            self._env["GIT_SSH_COMMAND"] = (
+                f"ssh -i {self.ssh_key_path} -o IdentitiesOnly=yes -o BatchMode=yes"
+            )
+        elif self.repo_url.startswith("git@") or self.repo_url.startswith("ssh://"):
+            # SSH URL without explicit key - ensure BatchMode to prevent hangs
+            self._env.setdefault("GIT_SSH_COMMAND", "ssh -o BatchMode=yes")
 
         self._log_enabled = os.getenv("WATERCOOLER_SYNC_LOG", "0") not in {"0", "false", "off"}
         self._log_path = self.local_path.parent / ".watercooler-sync.log"
