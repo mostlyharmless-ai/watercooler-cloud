@@ -25,7 +25,9 @@ version = 1
 # Threads repo URL pattern
 # Placeholders: {org} = GitHub org, {repo} = code repo name, {namespace} = full path
 # Env: WATERCOOLER_THREADS_PATTERN
-# threads_pattern = "git@github.com:{org}/{repo}-threads.git"
+# Default is HTTPS (works with credential helpers/tokens without SSH agent):
+# threads_pattern = "https://github.com/{org}/{repo}-threads.git"
+# For SSH, use: threads_pattern = "git@github.com:{org}/{repo}-threads.git"
 
 # Simple suffix mode (alternative to pattern)
 # threads_suffix = "-threads"

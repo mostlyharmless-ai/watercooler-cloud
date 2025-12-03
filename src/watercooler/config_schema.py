@@ -18,8 +18,9 @@ class CommonConfig(BaseModel):
 
     # Threads repo naming pattern
     # Placeholders: {org}, {repo}, {namespace}
+    # HTTPS is the default - works with credential helpers and tokens without SSH agent
     threads_pattern: str = Field(
-        default="git@github.com:{org}/{repo}-threads.git",
+        default="https://github.com/{org}/{repo}-threads.git",
         description="URL pattern for threads repos. Placeholders: {org}, {repo}, {namespace}",
     )
     threads_suffix: str = Field(

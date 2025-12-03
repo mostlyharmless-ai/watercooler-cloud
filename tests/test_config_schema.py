@@ -138,8 +138,8 @@ class TestCommonConfig:
     def test_defaults(self):
         """CommonConfig has sensible defaults."""
         config = CommonConfig()
-        # Default pattern uses SSH format for git operations
-        assert config.threads_pattern == "git@github.com:{org}/{repo}-threads.git"
+        # Default pattern uses HTTPS (works without SSH agent - Codex compatibility)
+        assert config.threads_pattern == "https://github.com/{org}/{repo}-threads.git"
         assert config.threads_suffix == "-threads"
         assert config.templates_dir == ""
 

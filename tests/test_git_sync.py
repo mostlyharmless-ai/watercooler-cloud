@@ -833,3 +833,80 @@ def test_rebase_branch_onto_success(tmp_path):
     assert result.action_taken == "rebased"
     assert result.commits_preserved == 1  # Our staging commit
     assert "Force-pushed" in result.details
+
+
+# =============================================================================
+# SSH BatchMode tests (Codex compatibility)
+# =============================================================================
+
+
+def test_batch_mode_set_for_ssh_url_without_key(tmp_path, monkeypatch):
+    """Test BatchMode=yes is set for SSH URLs to prevent MCP server hangs."""
+    from watercooler_mcp.git_sync import GitSyncManager
+
+    # Create minimal local path
+    local_path = tmp_path / "threads"
+    local_path.mkdir()
+
+    # Clear env to avoid interference
+    monkeypatch.delenv("GIT_SSH_COMMAND", raising=False)
+
+    mgr = GitSyncManager(
+        repo_url="git@github.com:org/repo-threads.git",
+        local_path=local_path,
+        ssh_key_path=None,
+        remote_allowed=False,  # Skip actual git operations
+    )
+
+    # Should have BatchMode=yes in GIT_SSH_COMMAND
+    ssh_cmd = mgr._env.get("GIT_SSH_COMMAND", "")
+    assert "BatchMode=yes" in ssh_cmd, f"Expected BatchMode=yes in: {ssh_cmd}"
+
+
+def test_batch_mode_set_for_ssh_url_with_key(tmp_path, monkeypatch):
+    """Test BatchMode=yes is set when using explicit SSH key."""
+    from watercooler_mcp.git_sync import GitSyncManager
+
+    # Create minimal local path and fake key
+    local_path = tmp_path / "threads"
+    local_path.mkdir()
+    fake_key = tmp_path / "id_rsa"
+    fake_key.write_text("fake key")
+
+    # Clear env to avoid interference
+    monkeypatch.delenv("GIT_SSH_COMMAND", raising=False)
+
+    mgr = GitSyncManager(
+        repo_url="git@github.com:org/repo-threads.git",
+        local_path=local_path,
+        ssh_key_path=fake_key,
+        remote_allowed=False,  # Skip actual git operations
+    )
+
+    # Should have BatchMode=yes in GIT_SSH_COMMAND along with key options
+    ssh_cmd = mgr._env.get("GIT_SSH_COMMAND", "")
+    assert "BatchMode=yes" in ssh_cmd, f"Expected BatchMode=yes in: {ssh_cmd}"
+    assert str(fake_key) in ssh_cmd, f"Expected key path in: {ssh_cmd}"
+    assert "IdentitiesOnly=yes" in ssh_cmd, f"Expected IdentitiesOnly=yes in: {ssh_cmd}"
+
+
+def test_https_url_no_ssh_command(tmp_path, monkeypatch):
+    """Test HTTPS URLs don't set GIT_SSH_COMMAND."""
+    from watercooler_mcp.git_sync import GitSyncManager
+
+    # Create minimal local path
+    local_path = tmp_path / "threads"
+    local_path.mkdir()
+
+    # Clear env to avoid interference
+    monkeypatch.delenv("GIT_SSH_COMMAND", raising=False)
+
+    mgr = GitSyncManager(
+        repo_url="https://github.com/org/repo-threads.git",
+        local_path=local_path,
+        ssh_key_path=None,
+        remote_allowed=False,  # Skip actual git operations
+    )
+
+    # Should NOT have GIT_SSH_COMMAND set for HTTPS
+    assert "GIT_SSH_COMMAND" not in mgr._env or "BatchMode" not in mgr._env.get("GIT_SSH_COMMAND", "")
