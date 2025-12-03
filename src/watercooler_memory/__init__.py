@@ -1,10 +1,11 @@
 """Memory graph module for watercooler threads.
 
 This module provides tools for building a memory graph from watercooler threads,
-enabling semantic search, entity extraction, and integration with LeanRAG.
+enabling structural analysis and export to LeanRAG for semantic search and
+entity extraction.
 
 The graph uses a hierarchical structure:
-  Thread → Entry → Chunk
+  Thread -> Entry -> Chunk
 
 With hyperedges for membership and temporal edges for sequencing.
 
@@ -15,16 +16,23 @@ Usage:
     graph.build(threads_dir)
     graph.save(output_path)
 
+    # Export to LeanRAG for entity extraction and embeddings
+    from watercooler_memory import export_to_leanrag
+    export_to_leanrag(graph, output_dir)
+
 CLI:
     watercooler memory build --threads-dir .watercooler
     watercooler memory export --format leanrag -o ./export
-    watercooler memory stats
 
 Requirements:
     This module requires additional dependencies. Install with:
         pip install 'watercooler-cloud[memory]'
     Or:
         uvx watercooler-cloud[memory]
+
+LLM Features:
+    For embeddings, entity extraction, and summarization, export to
+    LeanRAG format and run the LeanRAG pipeline. See docs/MEMORY.md.
 """
 
 # Check for required dependencies
@@ -34,11 +42,6 @@ try:
     import tiktoken  # noqa: F401
 except ImportError:
     _MISSING_DEPS.append("tiktoken")
-
-try:
-    import httpx  # noqa: F401
-except ImportError:
-    _MISSING_DEPS.append("httpx")
 
 # Flag for feature availability
 MEMORY_AVAILABLE = len(_MISSING_DEPS) == 0
@@ -86,13 +89,6 @@ if MEMORY_AVAILABLE:
     from watercooler_memory.parser import parse_thread_to_nodes, parse_threads_directory
     from watercooler_memory.chunker import chunk_text, chunk_entry, ChunkerConfig
     from watercooler_memory.leanrag_export import export_to_leanrag
-    from watercooler_memory.cache import (
-        SummaryCache,
-        EmbeddingCache,
-        ThreadSummaryCache,
-        cache_stats,
-        clear_cache,
-    )
 else:
     # Stub classes that raise helpful errors when instantiated
     class _StubClass:
@@ -135,17 +131,6 @@ else:
     def export_to_leanrag(*args, **kwargs):
         _raise_missing_deps()
 
-    # Cache stubs
-    SummaryCache = _StubClass  # type: ignore
-    EmbeddingCache = _StubClass  # type: ignore
-    ThreadSummaryCache = _StubClass  # type: ignore
-
-    def cache_stats(*args, **kwargs):
-        _raise_missing_deps()
-
-    def clear_cache(*args, **kwargs):
-        _raise_missing_deps()
-
 
 __all__ = [
     # Availability flag
@@ -182,10 +167,4 @@ __all__ = [
     "LEANRAG_DOCUMENT_SCHEMA",
     "LEANRAG_MANIFEST_SCHEMA",
     "LEANRAG_PIPELINE_CHUNK_SCHEMA",
-    # Cache
-    "SummaryCache",
-    "EmbeddingCache",
-    "ThreadSummaryCache",
-    "cache_stats",
-    "clear_cache",
 ]

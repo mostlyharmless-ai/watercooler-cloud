@@ -204,10 +204,7 @@ class TestMemoryGraph:
 
     def test_build_no_api(self, sample_thread_file):
         """Test building graph without API calls."""
-        config = GraphConfig(
-            generate_summaries=False,
-            generate_embeddings=False,
-        )
+        config = GraphConfig()
         graph = MemoryGraph(config)
         graph.build(sample_thread_file.parent)
 
@@ -218,10 +215,7 @@ class TestMemoryGraph:
 
     def test_to_dict(self, sample_thread_file):
         """Test graph serialization to dict."""
-        config = GraphConfig(
-            generate_summaries=False,
-            generate_embeddings=False,
-        )
+        config = GraphConfig()
         graph = MemoryGraph(config)
         graph.build(sample_thread_file.parent)
 
@@ -234,10 +228,7 @@ class TestMemoryGraph:
 
     def test_save_and_load(self, sample_thread_file, tmp_path):
         """Test saving and loading graph."""
-        config = GraphConfig(
-            generate_summaries=False,
-            generate_embeddings=False,
-        )
+        config = GraphConfig()
         graph = MemoryGraph(config)
         graph.build(sample_thread_file.parent)
 
@@ -287,10 +278,7 @@ class TestLeanRAGExport:
 
     def test_export_to_leanrag(self, sample_thread_file, tmp_path):
         """Test full LeanRAG export."""
-        config = GraphConfig(
-            generate_summaries=False,
-            generate_embeddings=False,
-        )
+        config = GraphConfig()
         graph = MemoryGraph(config)
         graph.build(sample_thread_file.parent)
 
