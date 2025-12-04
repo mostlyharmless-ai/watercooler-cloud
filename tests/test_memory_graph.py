@@ -206,6 +206,7 @@ class TestMemoryGraph:
         """Test building graph without API calls."""
         config = GraphConfig(
             generate_summaries=False,
+            generate_embeddings=False,
         )
         graph = MemoryGraph(config)
         graph.build(sample_thread_file.parent)
@@ -219,6 +220,7 @@ class TestMemoryGraph:
         """Test graph serialization to dict."""
         config = GraphConfig(
             generate_summaries=False,
+            generate_embeddings=False,
         )
         graph = MemoryGraph(config)
         graph.build(sample_thread_file.parent)
@@ -234,6 +236,7 @@ class TestMemoryGraph:
         """Test saving and loading graph."""
         config = GraphConfig(
             generate_summaries=False,
+            generate_embeddings=False,
         )
         graph = MemoryGraph(config)
         graph.build(sample_thread_file.parent)
@@ -286,12 +289,13 @@ class TestLeanRAGExport:
         """Test full LeanRAG export."""
         config = GraphConfig(
             generate_summaries=False,
+            generate_embeddings=False,
         )
         graph = MemoryGraph(config)
         graph.build(sample_thread_file.parent)
 
         export_dir = tmp_path / "leanrag_export"
-        manifest = export_to_leanrag(graph, export_dir)
+        manifest = export_to_leanrag(graph, export_dir, include_embeddings=False)
 
         assert (export_dir / "documents.json").exists()
         assert (export_dir / "threads.json").exists()
