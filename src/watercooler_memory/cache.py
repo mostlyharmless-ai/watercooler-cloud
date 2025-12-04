@@ -36,7 +36,7 @@ class SummaryCache:
 
     def __init__(self, cache_dir: Optional[Path] = None):
         self.cache_dir = cache_dir or _get_cache_dir() / "summaries"
-        self.cache_dir.mkdir(parents=True, exist_ok=True)
+        self.cache_dir.mkdir(parents=True, exist_ok=True, mode=0o700)
 
     def _key_path(self, entry_id: str, body_hash: str) -> Path:
         """Get path for a cache entry."""
@@ -104,7 +104,7 @@ class EmbeddingCache:
 
     def __init__(self, cache_dir: Optional[Path] = None):
         self.cache_dir = cache_dir or _get_cache_dir() / "embeddings"
-        self.cache_dir.mkdir(parents=True, exist_ok=True)
+        self.cache_dir.mkdir(parents=True, exist_ok=True, mode=0o700)
 
     def _key_path(self, text_hash: str) -> Path:
         """Get path for a cache entry."""
@@ -197,7 +197,7 @@ class ThreadSummaryCache:
 
     def __init__(self, cache_dir: Optional[Path] = None):
         self.cache_dir = cache_dir or _get_cache_dir() / "thread_summaries"
-        self.cache_dir.mkdir(parents=True, exist_ok=True)
+        self.cache_dir.mkdir(parents=True, exist_ok=True, mode=0o700)
 
     def _key_path(self, thread_id: str) -> Path:
         """Get path for a cache entry."""

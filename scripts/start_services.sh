@@ -23,7 +23,12 @@ if [ -f "$CONFIG_FILE" ]; then
     # Extract port from api_base URL
     port=$(grep -A5 '\[memory_graph\.embedding\]' "$CONFIG_FILE" | grep api_base | grep -oP ':\K[0-9]+(?=/)')
     if [ -n "$port" ]; then
-        EMBEDDING_PORT="$port"
+        # Validate port is a number in valid range (1-65535)
+        if [[ "$port" =~ ^[0-9]+$ ]] && [ "$port" -ge 1 ] && [ "$port" -le 65535 ]; then
+            EMBEDDING_PORT="$port"
+        else
+            echo "Warning: Invalid port '$port' in config, using default $EMBEDDING_PORT"
+        fi
     fi
 fi
 
