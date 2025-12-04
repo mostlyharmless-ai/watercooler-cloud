@@ -3,6 +3,7 @@
 import asyncio
 import json
 import os
+import re
 import subprocess
 import sys
 from pathlib import Path
@@ -19,6 +20,20 @@ class StageError(Exception):
     """Error during stage execution."""
 
     pass
+
+
+# Patterns for redacting sensitive data in logs
+_SENSITIVE_PATTERNS = [
+    (re.compile(r"(DEEPSEEK_API_KEY|API_KEY|SECRET|PASSWORD|TOKEN)=\S+", re.I), r"\1=[REDACTED]"),
+    (re.compile(r"(sk-|api-|key-)[a-zA-Z0-9]{20,}"), "[REDACTED_KEY]"),
+]
+
+
+def _redact_sensitive(text: str) -> str:
+    """Redact sensitive information from text (API keys, passwords, etc.)."""
+    for pattern, replacement in _SENSITIVE_PATTERNS:
+        text = pattern.sub(replacement, text)
+    return text
 
 
 class StageRunner:
@@ -193,8 +208,9 @@ class ExtractStageRunner(StageRunner):
                 md_content += "---\n\n"
                 md_content += content
 
-                # Write to file (sanitize doc_id for filename)
-                safe_id = doc_id.replace("/", "_").replace("\\", "_")
+                # Write to file (sanitize doc_id for safe filename)
+                # Only allow alphanumeric, dash, underscore, and dot
+                safe_id = re.sub(r"[^\w.-]", "_", doc_id)
                 md_path = md_dir / f"{safe_id}.md"
                 md_path.write_text(md_content)
 
@@ -252,7 +268,7 @@ class ExtractStageRunner(StageRunner):
                             self.logger.debug(line)
 
                 if result.returncode != 0:
-                    self.logger.error(f"LeanRAG pipeline failed: {result.stderr}")
+                    self.logger.error(f"LeanRAG pipeline failed: {_redact_sensitive(result.stderr)}")
                     raise StageError(f"LeanRAG pipeline failed with code {result.returncode}")
 
             except subprocess.TimeoutExpired:
@@ -266,8 +282,13 @@ class ExtractStageRunner(StageRunner):
             raise StageError(f"Entity file not created: {entity_file}")
 
         # Count entities and relations
-        entity_count = sum(1 for _ in open(entity_file))
-        relation_count = sum(1 for _ in open(relation_file)) if relation_file.exists() else 0
+        with open(entity_file) as f:
+            entity_count = sum(1 for _ in f)
+        if relation_file.exists():
+            with open(relation_file) as f:
+                relation_count = sum(1 for _ in f)
+        else:
+            relation_count = 0
 
         self.logger.info(f"Extracted: {entity_count} entities, {relation_count} relations")
 
@@ -362,7 +383,7 @@ class DedupeStageRunner(StageRunner):
                             self.logger.debug(line)
 
                 if result.returncode != 0:
-                    self.logger.error(f"Deduplication failed: {result.stderr}")
+                    self.logger.error(f"Deduplication failed: {_redact_sensitive(result.stderr)}")
                     raise StageError(f"Deduplication failed with code {result.returncode}")
 
             except subprocess.TimeoutExpired:
@@ -374,9 +395,14 @@ class DedupeStageRunner(StageRunner):
             raise StageError(f"Processed entity file not created: {entity_file}")
 
         # Count
-        entity_count = sum(1 for _ in open(entity_file))
+        with open(entity_file) as f:
+            entity_count = sum(1 for _ in f)
         relation_file = processed_dir / "relation.jsonl"
-        relation_count = sum(1 for _ in open(relation_file)) if relation_file.exists() else 0
+        if relation_file.exists():
+            with open(relation_file) as f:
+                relation_count = sum(1 for _ in f)
+        else:
+            relation_count = 0
 
         self.logger.info(f"Deduplicated: {entity_count} entities, {relation_count} relations")
 
@@ -486,6 +512,7 @@ class BuildStageRunner(StageRunner):
                 )
 
                 if result.returncode != 0:
+                    stderr_redacted = _redact_sensitive(result.stderr)
                     if has_essential_outputs:
                         # MySQL or other non-critical step failed, but graph is built
                         self.logger.warning(
@@ -498,7 +525,7 @@ class BuildStageRunner(StageRunner):
                                 "Vector DB (Milvus) was created successfully."
                             )
                     else:
-                        self.logger.error(f"Graph build failed: {result.stderr}")
+                        self.logger.error(f"Graph build failed: {stderr_redacted}")
                         raise StageError(f"Graph build failed with code {result.returncode}")
 
             except subprocess.TimeoutExpired:
@@ -519,8 +546,9 @@ class BuildStageRunner(StageRunner):
                         data = json.loads(line)
                         if isinstance(data, list):
                             all_entities.append(data)
-                    except json.JSONDecodeError:
-                        continue  # Skip non-JSON lines
+                    except json.JSONDecodeError as e:
+                        self.logger.warning(f"Skipping invalid JSON line: {e}")
+                        continue
 
         layers = len(all_entities)
         total_entities = sum(len(layer) for layer in all_entities)

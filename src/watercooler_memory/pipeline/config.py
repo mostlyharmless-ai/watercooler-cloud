@@ -69,7 +69,7 @@ class EmbeddingConfig:
     model: str = field(default_factory=lambda: os.environ.get("GLM_MODEL", "bge_m3"))
     base_url: str = field(default_factory=get_embedding_api_base)
     embedding_dim: int = 1024  # BGE-M3 dimension
-    batch_size: int = field(default_factory=lambda: int(os.environ.get("EMBEDDING_BATCH_SIZE", "8")))
+    batch_size: int = field(default_factory=lambda: max(1, int(os.environ.get("EMBEDDING_BATCH_SIZE", "8"))))
 
     def validate(self) -> list[str]:
         """Validate configuration. Returns list of errors."""
@@ -158,8 +158,8 @@ def load_config_from_env(
         threads_dir=threads_dir or Path(os.environ.get("WC_THREADS_DIR", ".")),
         work_dir=work_dir or Path(os.environ.get("WC_PIPELINE_WORK_DIR", default_cache)),
         leanrag_dir=leanrag_dir or (Path(os.environ["LEANRAG_DIR"]) if "LEANRAG_DIR" in os.environ else None),
-        batch_size=int(os.environ.get("WC_BATCH_SIZE", "10")),
-        max_concurrent=int(os.environ.get("WC_MAX_CONCURRENT", "4")),
+        batch_size=max(1, int(os.environ.get("WC_BATCH_SIZE", "10"))),
+        max_concurrent=max(1, int(os.environ.get("WC_MAX_CONCURRENT", "4"))),
         test_mode=test_mode,
     )
 
