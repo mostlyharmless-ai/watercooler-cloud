@@ -97,7 +97,6 @@ def parse_thread_to_nodes(
                 body=node.body,
                 chunk_ids=node.chunk_ids,
                 summary=node.summary,
-                embedding=node.embedding,
                 sequence_index=node.sequence_index,
                 preceding_entry_id=node.preceding_entry_id,
                 following_entry_id=entry_id_list[i + 1],

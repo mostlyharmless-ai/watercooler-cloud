@@ -1,6 +1,6 @@
 """Disk caching for expensive API operations.
 
-Caches summaries and embeddings to disk so they survive pipeline failures.
+Caches summaries to disk so they survive pipeline failures.
 Results are stored in ~/.watercooler/cache/ by default.
 """
 
@@ -10,7 +10,7 @@ import hashlib
 import json
 import os
 from pathlib import Path
-from typing import Any, Optional
+from typing import Optional
 
 
 # Default cache location
@@ -99,99 +99,6 @@ class SummaryCache:
         }
 
 
-class EmbeddingCache:
-    """Disk cache for embeddings."""
-
-    def __init__(self, cache_dir: Optional[Path] = None):
-        self.cache_dir = cache_dir or _get_cache_dir() / "embeddings"
-        self.cache_dir.mkdir(parents=True, exist_ok=True, mode=0o700)
-
-    def _key_path(self, text_hash: str) -> Path:
-        """Get path for a cache entry."""
-        return self.cache_dir / f"{text_hash}.json"
-
-    def get(self, text: str) -> Optional[list[float]]:
-        """Get cached embedding if it exists.
-
-        Args:
-            text: Text that was embedded.
-
-        Returns:
-            Cached embedding vector or None.
-        """
-        text_hash = _content_hash(text, prefix="emb:")
-        cache_path = self._key_path(text_hash)
-
-        if cache_path.exists():
-            try:
-                data = json.loads(cache_path.read_text())
-                return data.get("embedding")
-            except (json.JSONDecodeError, KeyError):
-                pass
-
-        return None
-
-    def get_batch(self, texts: list[str]) -> tuple[list[Optional[list[float]]], list[int]]:
-        """Get cached embeddings for a batch of texts.
-
-        Args:
-            texts: List of texts.
-
-        Returns:
-            Tuple of (cached_results, missing_indices).
-            cached_results[i] is the embedding or None.
-            missing_indices lists indices that need API calls.
-        """
-        results: list[Optional[list[float]]] = []
-        missing: list[int] = []
-
-        for i, text in enumerate(texts):
-            cached = self.get(text)
-            results.append(cached)
-            if cached is None:
-                missing.append(i)
-
-        return results, missing
-
-    def set(self, text: str, embedding: list[float]) -> None:
-        """Save embedding to cache.
-
-        Args:
-            text: Text that was embedded.
-            embedding: Embedding vector.
-        """
-        text_hash = _content_hash(text, prefix="emb:")
-        cache_path = self._key_path(text_hash)
-
-        data = {
-            "text_hash": text_hash,
-            "text_preview": text[:100],  # Store preview for debugging
-            "embedding": embedding,
-            "dimension": len(embedding),
-        }
-
-        cache_path.write_text(json.dumps(data))
-
-    def set_batch(self, texts: list[str], embeddings: list[list[float]]) -> None:
-        """Save multiple embeddings to cache.
-
-        Args:
-            texts: List of texts.
-            embeddings: List of embedding vectors.
-        """
-        for text, embedding in zip(texts, embeddings):
-            self.set(text, embedding)
-
-    def stats(self) -> dict:
-        """Return cache statistics."""
-        files = list(self.cache_dir.glob("*.json"))
-        return {
-            "count": len(files),
-            "size_bytes": sum(f.stat().st_size for f in files),
-            "path": str(self.cache_dir),
-        }
-
-
 class ThreadSummaryCache:
     """Disk cache for thread-level summaries."""
 
@@ -259,7 +166,7 @@ def clear_cache(cache_type: Optional[str] = None) -> dict:
     """Clear cached data.
 
     Args:
-        cache_type: One of "summaries", "embeddings", "thread_summaries", or None for all.
+        cache_type: One of "summaries", "thread_summaries", or None for all.
 
     Returns:
         Dict with counts of cleared items.
@@ -274,14 +181,6 @@ def clear_cache(cache_type: Optional[str] = None) -> dict:
             for f in files:
                 f.unlink()
             cleared["summaries"] = len(files)
-
-    if cache_type is None or cache_type == "embeddings":
-        emb_dir = base_dir / "embeddings"
-        if emb_dir.exists():
-            files = list(emb_dir.glob("*.json"))
-            for f in files:
-                f.unlink()
-            cleared["embeddings"] = len(files)
 
     if cache_type is None or cache_type == "thread_summaries":
         thread_dir = base_dir / "thread_summaries"
@@ -298,6 +197,5 @@ def cache_stats() -> dict:
     """Get statistics for all caches."""
     return {
         "summaries": SummaryCache().stats(),
-        "embeddings": EmbeddingCache().stats(),
         "thread_summaries": ThreadSummaryCache().stats(),
     }

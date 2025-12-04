@@ -1,7 +1,10 @@
 """Export memory graph to LeanRAG format.
 
-Projects the superset schema to LeanRAG's expected document format,
+Projects the baseline graph to LeanRAG's expected document format,
 preserving temporal metadata for future analysis.
+
+LeanRAG only needs {hash_code, text} from chunks. It extracts entities
+via LLM and generates embeddings on entity descriptions - not on chunks.
 """
 
 from __future__ import annotations
@@ -27,7 +30,8 @@ def entry_to_leanrag_document(
         chunks: List of chunks for this entry.
 
     Returns:
-        LeanRAG-compatible document dict.
+        LeanRAG-compatible document dict with chunks containing
+        hash_code and text (LeanRAG handles entity extraction + embedding).
     """
     return {
         "doc_id": entry.entry_id,
@@ -39,7 +43,6 @@ def entry_to_leanrag_document(
                 "hash_code": chunk.chunk_id,
                 "text": chunk.text,
                 "token_count": chunk.token_count,
-                "embedding": chunk.embedding,
             }
             for chunk in chunks
         ],
@@ -56,14 +59,12 @@ def entry_to_leanrag_document(
             "preceding_entry_id": entry.preceding_entry_id,
             "following_entry_id": entry.following_entry_id,
         },
-        "embedding": entry.embedding,
     }
 
 
 def export_to_leanrag(
     graph: MemoryGraph,
     output_dir: Path,
-    include_embeddings: bool = True,
     validate: bool = True,
 ) -> dict[str, Any]:
     """Export graph to LeanRAG format.
@@ -73,10 +74,12 @@ def export_to_leanrag(
     - threads.json: Thread metadata
     - manifest.json: Export metadata
 
+    Note: Embeddings are not included in the export. LeanRAG extracts
+    entities via LLM and generates embeddings on entity descriptions.
+
     Args:
         graph: The memory graph to export.
         output_dir: Directory to write export files.
-        include_embeddings: Whether to include embedding vectors.
         validate: Whether to validate export against schema (default True).
 
     Returns:
@@ -97,13 +100,6 @@ def export_to_leanrag(
         ]
 
         doc = entry_to_leanrag_document(entry, entry_chunks)
-
-        # Optionally strip embeddings
-        if not include_embeddings:
-            doc["embedding"] = None
-            for chunk in doc["chunks"]:
-                chunk["embedding"] = None
-
         documents.append(doc)
 
     # Sort documents by thread and sequence
@@ -132,10 +128,6 @@ def export_to_leanrag(
             "event_time": thread.event_time,
             "ingestion_time": thread.ingestion_time,
         }
-
-        if include_embeddings:
-            thread_doc["embedding"] = thread.embedding
-
         threads.append(thread_doc)
 
     # Sort threads by creation time
@@ -150,7 +142,6 @@ def export_to_leanrag(
             "threads": len(threads),
             "documents": len(documents),
             "chunks": sum(len(d["chunks"]) for d in documents),
-            "embeddings_included": include_embeddings,
         },
         "files": {
             "documents": "documents.json",
@@ -184,7 +175,8 @@ def export_for_leanrag_pipeline(
     """Export in format directly consumable by LeanRAG build_graph pipeline.
 
     Creates a single JSON file with all chunks ready for entity extraction
-    and graph building.
+    and graph building. LeanRAG only needs hash_code + text; it handles
+    entity extraction and embedding generation internally.
 
     Args:
         graph: The memory graph to export.
@@ -203,7 +195,6 @@ def export_for_leanrag_pipeline(
         chunk_doc = {
             "hash_code": chunk.chunk_id,
             "text": chunk.text,
-            "embedding": chunk.embedding,
             "metadata": {
                 "source": "watercooler",
                 "thread_id": chunk.thread_id,

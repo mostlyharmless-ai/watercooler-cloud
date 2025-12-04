@@ -1,7 +1,9 @@
 """Memory graph for watercooler threads.
 
-The MemoryGraph class ties together parsing, chunking, embedding, and
-summarization to build a searchable graph from watercooler threads.
+The MemoryGraph class ties together parsing, chunking, and summarization
+to build a baseline graph from watercooler threads.
+
+For full semantic search with entity extraction, export to LeanRAG format.
 """
 
 from __future__ import annotations
@@ -21,7 +23,6 @@ from .schema import (
 )
 from .parser import parse_thread_to_nodes, parse_threads_directory
 from .chunker import chunk_entries, ChunkerConfig
-from .embeddings import embed_texts, EmbeddingConfig, is_httpx_available
 from .summarizer import (
     summarize_entry,
     summarize_thread,
@@ -37,15 +38,11 @@ class GraphConfig:
     # Chunking
     chunker: ChunkerConfig = field(default_factory=ChunkerConfig)
 
-    # Embeddings
-    embedding: EmbeddingConfig = field(default_factory=EmbeddingConfig.from_env)
-
     # Summarization
     summarizer: SummarizerConfig = field(default_factory=SummarizerConfig.from_env)
 
     # Processing options
     generate_summaries: bool = True
-    generate_embeddings: bool = True
     skip_empty_entries: bool = True
 
 
@@ -53,6 +50,14 @@ class MemoryGraph:
     """In-memory graph of watercooler threads.
 
     Provides methods to build, query, and export the graph.
+
+    The baseline graph includes:
+    - Thread and entry metadata
+    - Chunked entry bodies
+    - LLM-generated summaries (using local models)
+
+    For full semantic search with entity extraction and embeddings,
+    export to LeanRAG format using export_to_leanrag().
 
     Attributes:
         threads: Dict of thread_id → ThreadNode
@@ -242,54 +247,6 @@ class MemoryGraph:
             # Update thread with summary
             self.threads[thread_id] = replace(thread, summary=summary)
 
-    def generate_embeddings(self) -> None:
-        """Generate embeddings for all nodes with summaries."""
-        if not is_httpx_available():
-            raise ImportError(
-                "httpx is required for embeddings. "
-                "Install with: pip install 'watercooler-cloud[memory]'"
-            )
-
-        # Collect texts to embed
-        texts_to_embed: list[tuple[str, str, str]] = []  # (node_type, node_id, text)
-
-        # Thread summaries
-        for thread_id, thread in self.threads.items():
-            if thread.summary and not thread.embedding:
-                texts_to_embed.append(("thread", thread_id, thread.summary))
-
-        # Entry summaries
-        for entry_id, entry in self.entries.items():
-            if entry.summary and not entry.embedding:
-                texts_to_embed.append(("entry", entry_id, entry.summary))
-
-        # Chunk texts
-        for chunk_id, chunk in self.chunks.items():
-            if chunk.text and not chunk.embedding:
-                texts_to_embed.append(("chunk", chunk_id, chunk.text))
-
-        if not texts_to_embed:
-            return
-
-        # Batch embed
-        texts = [t[2] for t in texts_to_embed]
-        embeddings = embed_texts(texts, self.config.embedding)
-
-        # Update nodes with embeddings
-        for (node_type, node_id, _), embedding in zip(texts_to_embed, embeddings):
-            if node_type == "thread":
-                self.threads[node_id] = replace(
-                    self.threads[node_id], embedding=embedding
-                )
-            elif node_type == "entry":
-                self.entries[node_id] = replace(
-                    self.entries[node_id], embedding=embedding
-                )
-            elif node_type == "chunk":
-                self.chunks[node_id] = replace(
-                    self.chunks[node_id], embedding=embedding
-                )
-
     def build(
         self,
         threads_dir: Path,
@@ -304,7 +261,9 @@ class MemoryGraph:
         1. Parses all threads
         2. Chunks all entries
         3. Generates summaries (if configured)
-        4. Generates embeddings (if configured)
+
+        For entity extraction and semantic search, export to LeanRAG format
+        after building.
 
         Args:
             threads_dir: Path to threads directory.
@@ -356,14 +315,6 @@ class MemoryGraph:
             check_timeout()
             checkpoint("summarization")
 
-        # Generate embeddings
-        if self.config.generate_embeddings and is_httpx_available():
-            if progress_callback:
-                progress_callback(0, 0, "Generating embeddings...")
-            self.generate_embeddings()
-            check_timeout()
-            checkpoint("embeddings")
-
     def stats(self) -> dict:
         """Return graph statistics."""
         return {
@@ -374,12 +325,6 @@ class MemoryGraph:
             "hyperedges": len(self.hyperedges),
             "entries_with_summaries": sum(
                 1 for e in self.entries.values() if e.summary
-            ),
-            "entries_with_embeddings": sum(
-                1 for e in self.entries.values() if e.embedding
-            ),
-            "chunks_with_embeddings": sum(
-                1 for c in self.chunks.values() if c.embedding
             ),
         }
 
@@ -444,7 +389,7 @@ class MemoryGraph:
         data = json.loads(path.read_text())
         graph = cls(config)
 
-        # Reconstruct nodes (simplified - embeddings are lists, not numpy arrays)
+        # Reconstruct nodes
         for tid, t in data.get("threads", {}).items():
             graph.threads[tid] = ThreadNode(**t)
 

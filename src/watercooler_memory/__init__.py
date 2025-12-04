@@ -88,7 +88,6 @@ if MEMORY_AVAILABLE:
     from watercooler_memory.leanrag_export import export_to_leanrag
     from watercooler_memory.cache import (
         SummaryCache,
-        EmbeddingCache,
         ThreadSummaryCache,
         cache_stats,
         clear_cache,
@@ -137,7 +136,6 @@ else:
 
     # Cache stubs
     SummaryCache = _StubClass  # type: ignore
-    EmbeddingCache = _StubClass  # type: ignore
     ThreadSummaryCache = _StubClass  # type: ignore
 
     def cache_stats(*args, **kwargs):
@@ -184,7 +182,6 @@ __all__ = [
     "LEANRAG_PIPELINE_CHUNK_SCHEMA",
     # Cache
     "SummaryCache",
-    "EmbeddingCache",
     "ThreadSummaryCache",
     "cache_stats",
     "clear_cache",
