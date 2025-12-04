@@ -7,10 +7,9 @@ the Watercooler dashboard knowledge graph view.
 import json
 import logging
 import re
-from dataclasses import asdict
 from datetime import datetime
 from pathlib import Path
-from typing import Any, Dict, Iterator, List, Optional, Set, Tuple
+from typing import Any, Dict, Iterator, List, Optional, Tuple
 
 from .parser import ParsedThread, ParsedEntry, iter_threads
 from .summarizer import SummarizerConfig
@@ -18,7 +17,6 @@ from .summarizer import SummarizerConfig
 logger = logging.getLogger(__name__)
 
 # Regex patterns for cross-reference extraction
-THREAD_REF_RE = re.compile(r"(?:thread[:\s]+)?([a-z0-9-]+(?:-[a-z0-9-]+)*)", re.IGNORECASE)
 FILE_REF_RE = re.compile(r"`([a-zA-Z0-9_/.-]+\.[a-zA-Z0-9]+)`")
 PR_REF_RE = re.compile(r"#(\d+)")
 COMMIT_REF_RE = re.compile(r"\b([a-f0-9]{7,40})\b")
@@ -242,11 +240,21 @@ def load_nodes(nodes_file: Path) -> Iterator[Dict[str, Any]]:
 
     Yields:
         Node dicts
+
+    Raises:
+        json.JSONDecodeError: If a line contains invalid JSON (with line number context)
     """
     with open(nodes_file, "r", encoding="utf-8") as f:
-        for line in f:
+        for line_num, line in enumerate(f, 1):
             if line.strip():
-                yield json.loads(line)
+                try:
+                    yield json.loads(line)
+                except json.JSONDecodeError as e:
+                    raise json.JSONDecodeError(
+                        f"Invalid JSON at line {line_num} in {nodes_file}: {e.msg}",
+                        e.doc,
+                        e.pos,
+                    ) from e
 
 
 def load_edges(edges_file: Path) -> Iterator[Dict[str, Any]]:
@@ -257,11 +265,21 @@ def load_edges(edges_file: Path) -> Iterator[Dict[str, Any]]:
 
     Yields:
         Edge dicts
+
+    Raises:
+        json.JSONDecodeError: If a line contains invalid JSON (with line number context)
     """
     with open(edges_file, "r", encoding="utf-8") as f:
-        for line in f:
+        for line_num, line in enumerate(f, 1):
             if line.strip():
-                yield json.loads(line)
+                try:
+                    yield json.loads(line)
+                except json.JSONDecodeError as e:
+                    raise json.JSONDecodeError(
+                        f"Invalid JSON at line {line_num} in {edges_file}: {e.msg}",
+                        e.doc,
+                        e.pos,
+                    ) from e
 
 
 def load_graph(graph_dir: Path) -> Tuple[List[Dict[str, Any]], List[Dict[str, Any]]]:

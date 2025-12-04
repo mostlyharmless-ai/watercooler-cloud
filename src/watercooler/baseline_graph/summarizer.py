@@ -8,7 +8,6 @@ import logging
 import os
 import re
 from dataclasses import dataclass, field
-from pathlib import Path
 from typing import Any, Dict, List, Optional
 
 logger = logging.getLogger(__name__)
@@ -59,8 +58,8 @@ class SummarizerConfig:
             api_base=os.environ.get("BASELINE_GRAPH_API_BASE", cls.api_base),
             model=os.environ.get("BASELINE_GRAPH_MODEL", cls.model),
             api_key=os.environ.get("BASELINE_GRAPH_API_KEY", cls.api_key),
-            timeout=float(os.environ.get("BASELINE_GRAPH_TIMEOUT", cls.timeout)),
-            max_tokens=int(os.environ.get("BASELINE_GRAPH_MAX_TOKENS", cls.max_tokens)),
+            timeout=float(os.environ.get("BASELINE_GRAPH_TIMEOUT") or cls.timeout),
+            max_tokens=int(os.environ.get("BASELINE_GRAPH_MAX_TOKENS") or cls.max_tokens),
             prefer_extractive=os.environ.get("BASELINE_GRAPH_EXTRACTIVE_ONLY", "").lower() in ("1", "true", "yes"),
         )
 
