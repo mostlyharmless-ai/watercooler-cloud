@@ -291,3 +291,153 @@ class TestGetEdgeColor:
         """Test fallback for unknown edge type."""
         edge = {"type": "unknown"}
         assert get_edge_color(edge) == "#999999"
+
+
+# Import build_networkx_graph for testing (if available)
+try:
+    from visualize_graph import build_networkx_graph
+    BUILD_GRAPH_AVAILABLE = True
+except ImportError:
+    BUILD_GRAPH_AVAILABLE = False
+
+
+@pytest.mark.skipif(
+    not BUILD_GRAPH_AVAILABLE,
+    reason="build_networkx_graph requires networkx"
+)
+class TestBuildNetworkxGraph:
+    """Tests for build_networkx_graph function."""
+
+    def test_skips_nodes_without_id(self, capsys):
+        """Test that nodes without 'id' are skipped with warning."""
+        nodes = [
+            {"id": "node1", "type": "thread"},
+            {"type": "entry"},  # Missing id
+            {"id": "node2", "type": "entry"},
+        ]
+        edges = []
+
+        G = build_networkx_graph(nodes, edges)
+
+        assert len(G.nodes()) == 2
+        assert "node1" in G.nodes()
+        assert "node2" in G.nodes()
+
+        captured = capsys.readouterr()
+        assert "Warning" in captured.err
+        assert "without 'id'" in captured.err
+
+    def test_skips_edges_without_source(self, capsys):
+        """Test that edges without 'source' are skipped with warning."""
+        nodes = [{"id": "n1"}, {"id": "n2"}]
+        edges = [
+            {"source": "n1", "target": "n2"},
+            {"target": "n2"},  # Missing source
+        ]
+
+        G = build_networkx_graph(nodes, edges)
+
+        assert len(G.edges()) == 1
+        captured = capsys.readouterr()
+        assert "Warning" in captured.err
+        assert "without 'source' or 'target'" in captured.err
+
+    def test_skips_edges_without_target(self, capsys):
+        """Test that edges without 'target' are skipped with warning."""
+        nodes = [{"id": "n1"}, {"id": "n2"}]
+        edges = [
+            {"source": "n1", "target": "n2"},
+            {"source": "n1"},  # Missing target
+        ]
+
+        G = build_networkx_graph(nodes, edges)
+
+        assert len(G.edges()) == 1
+        captured = capsys.readouterr()
+        assert "Warning" in captured.err
+
+    def test_valid_graph_builds_correctly(self):
+        """Test that valid nodes and edges build correctly."""
+        nodes = [
+            {"id": "thread:test", "type": "thread", "topic": "test"},
+            {"id": "entry:1", "type": "entry"},
+        ]
+        edges = [
+            {"source": "thread:test", "target": "entry:1", "type": "contains"},
+        ]
+
+        G = build_networkx_graph(nodes, edges)
+
+        assert len(G.nodes()) == 2
+        assert len(G.edges()) == 1
+        assert G.nodes["thread:test"]["type"] == "thread"
+
+
+# Import main for integration testing
+try:
+    from visualize_graph import main
+    MAIN_AVAILABLE = True
+except ImportError:
+    MAIN_AVAILABLE = False
+
+
+@pytest.mark.skipif(
+    not MAIN_AVAILABLE,
+    reason="main() requires pyvis/networkx"
+)
+class TestMainIntegration:
+    """Integration tests for main() function."""
+
+    def test_main_generates_html_file(self, tmp_path):
+        """Test that main() generates a valid HTML file."""
+        # Create test graph data
+        graph_dir = tmp_path / "graph"
+        graph_dir.mkdir()
+
+        nodes_file = graph_dir / "nodes.jsonl"
+        edges_file = graph_dir / "edges.jsonl"
+
+        nodes_file.write_text(
+            '{"id": "thread:test", "type": "thread", "topic": "test", "status": "OPEN"}\n'
+            '{"id": "entry:test:1", "type": "entry", "title": "Test entry"}\n'
+        )
+        edges_file.write_text(
+            '{"source": "thread:test", "target": "entry:test:1", "type": "contains"}\n'
+        )
+
+        output_file = tmp_path / "output.html"
+
+        # Run main with test args
+        with patch("sys.argv", ["visualize_graph.py", "-i", str(graph_dir), "-o", str(output_file)]):
+            result = main()
+
+        assert result == 0
+        assert output_file.exists()
+
+        # Verify HTML content
+        html_content = output_file.read_text()
+        assert "<html>" in html_content or "<!DOCTYPE" in html_content
+        assert "vis-network" in html_content or "vis.js" in html_content
+
+    def test_main_returns_error_for_missing_directory(self, tmp_path, capsys):
+        """Test that main() returns error for non-existent directory."""
+        missing_dir = tmp_path / "nonexistent"
+
+        with patch("sys.argv", ["visualize_graph.py", "-i", str(missing_dir)]):
+            result = main()
+
+        assert result == 1
+        captured = capsys.readouterr()
+        assert "not found" in captured.err
+
+    def test_main_returns_error_for_file_instead_of_dir(self, tmp_path, capsys):
+        """Test that main() returns error when given a file instead of dir."""
+        file_path = tmp_path / "file.txt"
+        file_path.write_text("not a directory")
+
+        with patch("sys.argv", ["visualize_graph.py", "-i", str(file_path)]):
+            result = main()
+
+        assert result == 1
+        captured = capsys.readouterr()
+        assert "Not a directory" in captured.err

@@ -1,8 +1,23 @@
 #!/usr/bin/env python3
-"""Interactive graph visualization for baseline graph.
+"""Interactive graph visualization for Watercooler baseline graph.
 
 Uses pyvis (vis.js wrapper) for force-directed layout with spring-relaxation
 physics and interactive exploration.
+
+Graph Format (Baseline Graph):
+    The baseline graph is a JSONL-based representation of Watercooler threads
+    produced by the memory pipeline. It consists of two files:
+
+    nodes.jsonl - One JSON object per line, each with:
+        - id: Unique identifier (e.g., "thread:feature-auth", "entry:topic:1")
+        - type: "thread" or "entry"
+        - For threads: topic, status, title, ball, entry_count, last_updated, summary
+        - For entries: entry_id, title, entry_type, agent, role, timestamp, summary
+
+    edges.jsonl - One JSON object per line, each with:
+        - source: Source node ID
+        - target: Target node ID
+        - type: "contains" (thread→entry) or "followed_by" (entry→entry)
 
 Usage:
     python scripts/visualize_graph.py --input /path/to/graph/baseline
@@ -122,8 +137,8 @@ def build_networkx_graph(
     """Build NetworkX graph from nodes and edges.
 
     Args:
-        nodes: List of node dicts
-        edges: List of edge dicts
+        nodes: List of node dicts (each must have 'id' key)
+        edges: List of edge dicts (each must have 'source' and 'target' keys)
 
     Returns:
         NetworkX DiGraph
@@ -131,10 +146,22 @@ def build_networkx_graph(
     G = nx.DiGraph()
 
     for node in nodes:
-        G.add_node(node["id"], **node)
+        node_id = node.get("id")
+        if not node_id:
+            print(f"Warning: Skipping node without 'id': {node}", file=sys.stderr)
+            continue
+        G.add_node(node_id, **node)
 
     for edge in edges:
-        G.add_edge(edge["source"], edge["target"], **edge)
+        source = edge.get("source")
+        target = edge.get("target")
+        if not source or not target:
+            print(
+                f"Warning: Skipping edge without 'source' or 'target': {edge}",
+                file=sys.stderr,
+            )
+            continue
+        G.add_edge(source, target, **edge)
 
     return G
 
