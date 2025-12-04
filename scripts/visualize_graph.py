@@ -7,16 +7,34 @@ physics and interactive exploration.
 Usage:
     python scripts/visualize_graph.py --input /path/to/graph/baseline
     python scripts/visualize_graph.py --input /tmp/baseline-graph-full --open
+
+Requirements:
+    pip install pyvis networkx
+    # Or: pip install watercooler-cloud[visualization]
 """
 
 import argparse
 import json
+import sys
 import webbrowser
 from pathlib import Path
-from typing import Any, Dict, List, Optional, Tuple
+from typing import Any, Dict, List, Tuple
 
-import networkx as nx
-from pyvis.network import Network
+# Check for optional dependencies
+try:
+    import networkx as nx
+    from pyvis.network import Network
+except ImportError as e:
+    print(
+        "Error: Missing required dependencies for graph visualization.",
+        file=sys.stderr,
+    )
+    print(
+        "Install with: pip install pyvis networkx",
+        file=sys.stderr,
+    )
+    print(f"Details: {e}", file=sys.stderr)
+    sys.exit(1)
 
 
 # Color schemes
@@ -47,7 +65,9 @@ SIZES = {
 }
 
 
-def load_graph(graph_dir: Path) -> Tuple[List[Dict], List[Dict]]:
+def load_graph(
+    graph_dir: Path,
+) -> Tuple[List[Dict[str, Any]], List[Dict[str, Any]]]:
     """Load nodes and edges from JSONL files.
 
     Args:
@@ -55,29 +75,50 @@ def load_graph(graph_dir: Path) -> Tuple[List[Dict], List[Dict]]:
 
     Returns:
         Tuple of (nodes_list, edges_list)
+
+    Raises:
+        FileNotFoundError: If graph directory doesn't exist
+        json.JSONDecodeError: If JSONL files contain invalid JSON
     """
-    nodes = []
-    edges = []
+    nodes: List[Dict[str, Any]] = []
+    edges: List[Dict[str, Any]] = []
 
     nodes_file = graph_dir / "nodes.jsonl"
     edges_file = graph_dir / "edges.jsonl"
 
     if nodes_file.exists():
-        with open(nodes_file, "r") as f:
-            for line in f:
+        with open(nodes_file, "r", encoding="utf-8") as f:
+            for line_num, line in enumerate(f, 1):
                 if line.strip():
-                    nodes.append(json.loads(line))
+                    try:
+                        nodes.append(json.loads(line))
+                    except json.JSONDecodeError as e:
+                        print(
+                            f"Warning: Skipping malformed JSON in nodes.jsonl "
+                            f"line {line_num}: {e}",
+                            file=sys.stderr,
+                        )
 
     if edges_file.exists():
-        with open(edges_file, "r") as f:
-            for line in f:
+        with open(edges_file, "r", encoding="utf-8") as f:
+            for line_num, line in enumerate(f, 1):
                 if line.strip():
-                    edges.append(json.loads(line))
+                    try:
+                        edges.append(json.loads(line))
+                    except json.JSONDecodeError as e:
+                        print(
+                            f"Warning: Skipping malformed JSON in edges.jsonl "
+                            f"line {line_num}: {e}",
+                            file=sys.stderr,
+                        )
 
     return nodes, edges
 
 
-def build_networkx_graph(nodes: List[Dict], edges: List[Dict]) -> nx.DiGraph:
+def build_networkx_graph(
+    nodes: List[Dict[str, Any]],
+    edges: List[Dict[str, Any]],
+) -> nx.DiGraph:
     """Build NetworkX graph from nodes and edges.
 
     Args:
@@ -98,7 +139,7 @@ def build_networkx_graph(nodes: List[Dict], edges: List[Dict]) -> nx.DiGraph:
     return G
 
 
-def get_node_color(node: Dict) -> str:
+def get_node_color(node: Dict[str, Any]) -> str:
     """Get color for a node based on type and status."""
     node_type = node.get("type", "entry")
 
@@ -110,7 +151,7 @@ def get_node_color(node: Dict) -> str:
         return COLORS["entry"].get(entry_type, COLORS["entry"]["Note"])
 
 
-def get_node_size(node: Dict) -> int:
+def get_node_size(node: Dict[str, Any]) -> int:
     """Get size for a node based on type."""
     node_type = node.get("type", "entry")
     base_size = SIZES.get(node_type, 15)
@@ -123,7 +164,7 @@ def get_node_size(node: Dict) -> int:
     return base_size
 
 
-def get_node_label(node: Dict) -> str:
+def get_node_label(node: Dict[str, Any]) -> str:
     """Get display label for a node."""
     node_type = node.get("type", "entry")
 
@@ -141,7 +182,7 @@ def get_node_label(node: Dict) -> str:
         return node.get("entry_id", "?")
 
 
-def get_node_title(node: Dict) -> str:
+def get_node_title(node: Dict[str, Any]) -> str:
     """Get hover tooltip for a node (plain text with newlines)."""
     node_type = node.get("type", "entry")
 
@@ -188,7 +229,7 @@ def get_node_title(node: Dict) -> str:
         return "\n".join(parts)
 
 
-def get_edge_color(edge: Dict) -> str:
+def get_edge_color(edge: Dict[str, Any]) -> str:
     """Get color for an edge based on type."""
     edge_type = edge.get("type", "contains")
     return COLORS["edge"].get(edge_type, "#999999")
@@ -307,7 +348,12 @@ def create_visualization(
     return net
 
 
-def main():
+def main() -> int:
+    """Main entry point for graph visualization.
+
+    Returns:
+        Exit code (0 for success, 1 for error)
+    """
     parser = argparse.ArgumentParser(
         description="Interactive visualization for baseline graph"
     )
@@ -348,9 +394,13 @@ def main():
 
     args = parser.parse_args()
 
-    graph_dir = Path(args.input)
+    # Validate input path
+    graph_dir = Path(args.input).resolve()
     if not graph_dir.exists():
-        print(f"Error: Graph directory not found: {graph_dir}")
+        print(f"Error: Graph directory not found: {graph_dir}", file=sys.stderr)
+        return 1
+    if not graph_dir.is_dir():
+        print(f"Error: Not a directory: {graph_dir}", file=sys.stderr)
         return 1
 
     print(f"Loading graph from {graph_dir}...")
@@ -377,17 +427,25 @@ def main():
         font_color=font_color,
     )
 
-    output_path = Path(args.output)
+    output_path = Path(args.output).resolve()
     print(f"Writing to {output_path}...")
-    net.write_html(str(output_path))
 
-    # Hide loading bar (since stabilization is disabled, it never completes)
-    html_content = output_path.read_text()
-    html_content = html_content.replace(
-        "</style>",
-        "#loadingBar { display: none !important; }</style>"
-    )
-    output_path.write_text(html_content)
+    try:
+        net.write_html(str(output_path))
+
+        # Hide loading bar (since stabilization is disabled, it never completes)
+        html_content = output_path.read_text(encoding="utf-8")
+        html_content = html_content.replace(
+            "</style>",
+            "#loadingBar { display: none !important; }</style>"
+        )
+        output_path.write_text(html_content, encoding="utf-8")
+    except PermissionError as e:
+        print(f"Error: Permission denied writing to {output_path}: {e}", file=sys.stderr)
+        return 1
+    except OSError as e:
+        print(f"Error: Failed to write output file: {e}", file=sys.stderr)
+        return 1
 
     print(f"Graph visualization saved to: {output_path}")
 

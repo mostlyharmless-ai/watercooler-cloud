@@ -75,6 +75,11 @@ graph-local = [
     "httpx>=0.25",
     "llama-cpp-python[server]>=0.2.50",
 ]
+# Graph visualization tool
+visualization = [
+    "pyvis>=0.3.0",
+    "networkx>=3.0",
+]
 
 [tool.setuptools.packages.find]
 where = ["src"]
