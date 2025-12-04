@@ -1,0 +1,387 @@
+"""Summarizer for baseline graph using local LLM or extractive fallback.
+
+Uses OpenAI-compatible API for local LLM inference (Ollama, llama.cpp).
+Falls back to extractive summarization when LLM is unavailable.
+"""
+
+import logging
+import os
+import re
+from dataclasses import dataclass, field
+from pathlib import Path
+from typing import Any, Dict, List, Optional
+
+logger = logging.getLogger(__name__)
+
+
+@dataclass
+class SummarizerConfig:
+    """Configuration for the summarizer."""
+
+    # LLM settings (OpenAI-compatible API)
+    api_base: str = "http://localhost:11434/v1"  # Ollama default
+    model: str = "llama3.2:3b"  # Small local model
+    api_key: str = "ollama"  # Ollama doesn't require key
+    timeout: float = 30.0
+    max_tokens: int = 256
+
+    # Extractive fallback settings
+    extractive_max_chars: int = 200
+    include_headers: bool = True
+    max_headers: int = 3
+
+    # Behavior
+    prefer_extractive: bool = False  # Force extractive mode
+    retry_on_failure: bool = True
+
+    @classmethod
+    def from_config_dict(cls, config: Dict[str, Any]) -> "SummarizerConfig":
+        """Create config from dictionary (e.g., from config.toml)."""
+        llm = config.get("llm", {})
+        extractive = config.get("extractive", {})
+
+        return cls(
+            api_base=llm.get("api_base", cls.api_base),
+            model=llm.get("model", cls.model),
+            api_key=llm.get("api_key", cls.api_key),
+            timeout=llm.get("timeout", cls.timeout),
+            max_tokens=llm.get("max_tokens", cls.max_tokens),
+            extractive_max_chars=extractive.get("max_chars", cls.extractive_max_chars),
+            include_headers=extractive.get("include_headers", cls.include_headers),
+            max_headers=extractive.get("max_headers", cls.max_headers),
+            prefer_extractive=config.get("prefer_extractive", cls.prefer_extractive),
+        )
+
+    @classmethod
+    def from_env(cls) -> "SummarizerConfig":
+        """Create config from environment variables."""
+        return cls(
+            api_base=os.environ.get("BASELINE_GRAPH_API_BASE", cls.api_base),
+            model=os.environ.get("BASELINE_GRAPH_MODEL", cls.model),
+            api_key=os.environ.get("BASELINE_GRAPH_API_KEY", cls.api_key),
+            timeout=float(os.environ.get("BASELINE_GRAPH_TIMEOUT", cls.timeout)),
+            max_tokens=int(os.environ.get("BASELINE_GRAPH_MAX_TOKENS", cls.max_tokens)),
+            prefer_extractive=os.environ.get("BASELINE_GRAPH_EXTRACTIVE_ONLY", "").lower() in ("1", "true", "yes"),
+        )
+
+
+def _extract_headers(text: str, max_headers: int = 3) -> List[str]:
+    """Extract markdown headers from text.
+
+    Args:
+        text: Markdown text to extract headers from
+        max_headers: Maximum number of headers to return
+
+    Returns:
+        List of header strings (without # prefix)
+    """
+    headers = []
+    for line in text.split("\n"):
+        line = line.strip()
+        if line.startswith("#"):
+            # Remove leading #s and whitespace
+            header = re.sub(r"^#+\s*", "", line)
+            if header:
+                headers.append(header)
+            if len(headers) >= max_headers:
+                break
+    return headers
+
+
+def _truncate_text(text: str, max_chars: int) -> str:
+    """Truncate text to max_chars, preferring sentence boundaries.
+
+    Args:
+        text: Text to truncate
+        max_chars: Maximum characters
+
+    Returns:
+        Truncated text with ellipsis if needed
+    """
+    if len(text) <= max_chars:
+        return text
+
+    # Try to break at sentence boundary
+    truncated = text[:max_chars]
+    last_period = truncated.rfind(".")
+    last_newline = truncated.rfind("\n")
+
+    break_point = max(last_period, last_newline)
+    if break_point > max_chars * 0.5:  # Only use if we keep at least half
+        return truncated[: break_point + 1].strip()
+
+    # Fall back to word boundary
+    last_space = truncated.rfind(" ")
+    if last_space > max_chars * 0.7:
+        return truncated[:last_space].strip() + "..."
+
+    return truncated.strip() + "..."
+
+
+def extractive_summary(
+    text: str,
+    max_chars: int = 200,
+    include_headers: bool = True,
+    max_headers: int = 3,
+) -> str:
+    """Generate extractive summary from text.
+
+    Extractive summarization extracts key portions without using an LLM:
+    - First N characters of content
+    - Optionally includes markdown headers
+
+    Args:
+        text: Text to summarize
+        max_chars: Maximum characters for main summary
+        include_headers: Whether to include headers
+        max_headers: Maximum number of headers to include
+
+    Returns:
+        Extractive summary string
+    """
+    if not text or not text.strip():
+        return ""
+
+    parts = []
+
+    # Extract headers if requested
+    if include_headers:
+        headers = _extract_headers(text, max_headers)
+        if headers:
+            parts.append("Topics: " + ", ".join(headers))
+
+    # Get first paragraph or truncated content
+    # Skip any leading headers for the content portion
+    content_lines = []
+    in_header = True
+    for line in text.split("\n"):
+        if in_header and line.strip().startswith("#"):
+            continue
+        in_header = False
+        if line.strip():
+            content_lines.append(line.strip())
+
+    content = " ".join(content_lines)
+    if content:
+        truncated = _truncate_text(content, max_chars)
+        parts.append(truncated)
+
+    return " | ".join(parts) if parts else text[:max_chars]
+
+
+def _call_llm(
+    prompt: str,
+    config: SummarizerConfig,
+) -> Optional[str]:
+    """Call local LLM via OpenAI-compatible API.
+
+    Args:
+        prompt: Prompt to send
+        config: Summarizer configuration
+
+    Returns:
+        LLM response text or None on failure
+    """
+    try:
+        import httpx
+    except ImportError:
+        logger.warning("httpx not available, falling back to extractive")
+        return None
+
+    url = f"{config.api_base.rstrip('/')}/chat/completions"
+
+    payload = {
+        "model": config.model,
+        "messages": [{"role": "user", "content": prompt}],
+        "max_tokens": config.max_tokens,
+        "temperature": 0.3,  # Low temp for factual summaries
+    }
+
+    headers = {
+        "Content-Type": "application/json",
+    }
+    if config.api_key and config.api_key != "ollama":
+        headers["Authorization"] = f"Bearer {config.api_key}"
+
+    try:
+        with httpx.Client(timeout=config.timeout) as client:
+            response = client.post(url, json=payload, headers=headers)
+            response.raise_for_status()
+            data = response.json()
+            return data["choices"][0]["message"]["content"].strip()
+    except httpx.ConnectError:
+        logger.warning(f"Cannot connect to LLM at {config.api_base}")
+        return None
+    except httpx.TimeoutException:
+        logger.warning(f"LLM request timed out after {config.timeout}s")
+        return None
+    except Exception as e:
+        logger.warning(f"LLM call failed: {e}")
+        return None
+
+
+def summarize_entry(
+    entry_body: str,
+    entry_title: Optional[str] = None,
+    entry_type: Optional[str] = None,
+    config: Optional[SummarizerConfig] = None,
+) -> str:
+    """Summarize a single thread entry.
+
+    Uses LLM if available, falls back to extractive summary.
+
+    Args:
+        entry_body: Entry body text
+        entry_title: Optional entry title
+        entry_type: Optional entry type (Note, Plan, Decision, etc.)
+        config: Summarizer configuration
+
+    Returns:
+        Summary string
+    """
+    config = config or SummarizerConfig()
+
+    # Use extractive if forced or text is short
+    if config.prefer_extractive or len(entry_body) < config.extractive_max_chars:
+        return extractive_summary(
+            entry_body,
+            max_chars=config.extractive_max_chars,
+            include_headers=config.include_headers,
+            max_headers=config.max_headers,
+        )
+
+    # Build LLM prompt
+    context = ""
+    if entry_title:
+        context += f"Title: {entry_title}\n"
+    if entry_type:
+        context += f"Type: {entry_type}\n"
+
+    prompt = f"""Summarize this thread entry in 1-2 sentences. Be concise and factual.
+
+{context}
+Content:
+{entry_body[:2000]}
+
+Summary:"""
+
+    result = _call_llm(prompt, config)
+
+    # Fall back to extractive if LLM fails
+    if result is None:
+        logger.debug("Falling back to extractive summary")
+        return extractive_summary(
+            entry_body,
+            max_chars=config.extractive_max_chars,
+            include_headers=config.include_headers,
+            max_headers=config.max_headers,
+        )
+
+    return result
+
+
+def summarize_thread(
+    entries: List[Dict[str, Any]],
+    thread_title: Optional[str] = None,
+    config: Optional[SummarizerConfig] = None,
+) -> str:
+    """Summarize an entire thread from its entries.
+
+    Args:
+        entries: List of entry dicts with 'body', 'title', 'type' keys
+        thread_title: Optional thread title
+        config: Summarizer configuration
+
+    Returns:
+        Thread summary string
+    """
+    config = config or SummarizerConfig()
+
+    if not entries:
+        return ""
+
+    # Concatenate entry summaries for context
+    entry_summaries = []
+    for entry in entries[:10]:  # Limit to first 10 entries
+        body = entry.get("body", "")
+        title = entry.get("title", "")
+        if body:
+            short = extractive_summary(body, max_chars=100, include_headers=False)
+            if title:
+                entry_summaries.append(f"- {title}: {short}")
+            else:
+                entry_summaries.append(f"- {short}")
+
+    combined = "\n".join(entry_summaries)
+
+    # Use extractive if forced
+    if config.prefer_extractive:
+        return extractive_summary(
+            combined,
+            max_chars=config.extractive_max_chars * 2,
+            include_headers=False,
+        )
+
+    # Build LLM prompt
+    prompt = f"""Summarize this development thread in 2-3 sentences. Include the main topic, key decisions, and outcome if any.
+
+Thread: {thread_title or 'Development Discussion'}
+
+Entries:
+{combined}
+
+Summary:"""
+
+    result = _call_llm(prompt, config)
+
+    if result is None:
+        # Fall back to extractive
+        return extractive_summary(
+            combined,
+            max_chars=config.extractive_max_chars * 2,
+            include_headers=False,
+        )
+
+    return result
+
+
+def get_baseline_graph_config() -> Dict[str, Any]:
+    """Load baseline_graph section from config.toml.
+
+    Returns:
+        Dict with baseline_graph settings, empty dict if not configured.
+    """
+    try:
+        from watercooler.credentials import _load_config
+        config = _load_config()
+        return config.get("baseline_graph", {})
+    except Exception:
+        return {}
+
+
+def create_summarizer_config() -> SummarizerConfig:
+    """Create SummarizerConfig from config.toml and environment.
+
+    Priority:
+    1. Environment variables (highest)
+    2. config.toml [baseline_graph] section
+    3. Built-in defaults (lowest)
+
+    Returns:
+        Configured SummarizerConfig
+    """
+    # Start with config.toml
+    config_dict = get_baseline_graph_config()
+    config = SummarizerConfig.from_config_dict(config_dict)
+
+    # Override with environment
+    if os.environ.get("BASELINE_GRAPH_API_BASE"):
+        config.api_base = os.environ["BASELINE_GRAPH_API_BASE"]
+    if os.environ.get("BASELINE_GRAPH_MODEL"):
+        config.model = os.environ["BASELINE_GRAPH_MODEL"]
+    if os.environ.get("BASELINE_GRAPH_API_KEY"):
+        config.api_key = os.environ["BASELINE_GRAPH_API_KEY"]
+    if os.environ.get("BASELINE_GRAPH_EXTRACTIVE_ONLY", "").lower() in ("1", "true", "yes"):
+        config.prefer_extractive = True
+
+    return config

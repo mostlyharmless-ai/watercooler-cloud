@@ -186,6 +186,19 @@ def main(argv: list[str] | None = None) -> None:
     p_memory_stats.add_argument("--graph", help="Graph JSON file (builds from threads if not provided)")
     p_memory_stats.add_argument("--threads-dir", help="Threads directory (if building)")
 
+    # Baseline graph commands (free-tier, local LLM)
+    p_baseline = sub.add_parser("baseline-graph", help="Baseline graph operations (free-tier, local LLM)")
+    baseline_sub = p_baseline.add_subparsers(dest="baseline_cmd")
+
+    p_baseline_build = baseline_sub.add_parser("build", help="Build baseline graph from threads")
+    p_baseline_build.add_argument("--threads-dir", help="Threads directory (default: ./watercooler)")
+    p_baseline_build.add_argument("--output", "-o", help="Output directory for graph files")
+    p_baseline_build.add_argument("--extractive-only", action="store_true", help="Use extractive summaries only (no LLM)")
+    p_baseline_build.add_argument("--skip-closed", action="store_true", help="Skip closed threads")
+
+    p_baseline_stats = baseline_sub.add_parser("stats", help="Show threads statistics")
+    p_baseline_stats.add_argument("--threads-dir", help="Threads directory")
+
     args = ap.parse_args(argv)
 
     if not args.cmd:
@@ -798,6 +811,70 @@ def main(argv: list[str] | None = None) -> None:
             print(f"  Entries w/summaries:  {stats['entries_with_summaries']}")
             print(f"  Entries w/embeddings: {stats['entries_with_embeddings']}")
             print(f"  Chunks w/embeddings:  {stats['chunks_with_embeddings']}")
+            sys.exit(0)
+
+    if args.cmd == "baseline-graph":
+        from pathlib import Path
+        from .config import resolve_threads_dir
+
+        if not args.baseline_cmd:
+            print("Usage: watercooler baseline-graph {build|stats}")
+            sys.exit(0)
+
+        if args.baseline_cmd == "build":
+            from .baseline_graph import export_all_threads, SummarizerConfig
+
+            threads_dir = resolve_threads_dir(args.threads_dir)
+            if not threads_dir.exists():
+                print(f"Threads directory not found: {threads_dir}", file=sys.stderr)
+                sys.exit(1)
+
+            # Default output to threads_dir/graph/baseline
+            if args.output:
+                output_dir = Path(args.output)
+            else:
+                output_dir = threads_dir / "graph" / "baseline"
+
+            config = SummarizerConfig(prefer_extractive=args.extractive_only)
+
+            print(f"Building baseline graph from {threads_dir}...")
+            if args.extractive_only:
+                print("  Mode: extractive only (no LLM)")
+            else:
+                print(f"  Mode: LLM ({config.api_base})")
+            if args.skip_closed:
+                print("  Skipping closed threads")
+
+            manifest = export_all_threads(
+                threads_dir, output_dir, config, skip_closed=args.skip_closed
+            )
+
+            print()
+            print(f"Baseline graph built: {output_dir}")
+            print(f"  Threads: {manifest['threads_exported']}")
+            print(f"  Entries: {manifest['entries_exported']}")
+            print(f"  Nodes:   {manifest['nodes_written']}")
+            print(f"  Edges:   {manifest['edges_written']}")
+            sys.exit(0)
+
+        if args.baseline_cmd == "stats":
+            from .baseline_graph import get_thread_stats
+
+            threads_dir = resolve_threads_dir(args.threads_dir)
+            if not threads_dir.exists():
+                print(f"Threads directory not found: {threads_dir}", file=sys.stderr)
+                sys.exit(1)
+
+            stats = get_thread_stats(threads_dir)
+            print("Baseline Graph Statistics:")
+            print(f"  Threads dir:          {stats['threads_dir']}")
+            print(f"  Total threads:        {stats['total_threads']}")
+            print(f"  Total entries:        {stats['total_entries']}")
+            print(f"  Avg entries/thread:   {stats['avg_entries_per_thread']:.1f}")
+            print()
+            print("  Status breakdown:")
+            for status, count in stats.get('status_breakdown', {}).items():
+                print(f"    {status}: {count}")
             sys.exit(0)
 
     # default: other commands not yet implemented in L1

@@ -1823,6 +1823,102 @@ def reindex(ctx: Context) -> str:
 
 
 # ============================================================================
+# Baseline Graph Tools (Free-tier, local LLM)
+# ============================================================================
+
+@mcp.tool(name="watercooler_v1_baseline_graph_stats")
+def baseline_graph_stats(
+    ctx: Context,
+    code_path: str = "",
+) -> str:
+    """Get statistics about threads for baseline graph.
+
+    Returns thread counts, entry counts, and status breakdown.
+    Useful for understanding the scope before building a baseline graph.
+
+    Args:
+        code_path: Path to code repository (for resolving threads dir).
+
+    Returns:
+        JSON with thread statistics.
+    """
+    try:
+        from watercooler.baseline_graph import get_thread_stats
+
+        error, context = _require_context(code_path)
+        if error:
+            return error
+        if context is None or not context.threads_dir:
+            return "Error: Unable to resolve threads directory."
+
+        threads_dir = context.threads_dir
+        if not threads_dir.exists():
+            return f"Threads directory not found: {threads_dir}"
+
+        stats = get_thread_stats(threads_dir)
+        return json.dumps(stats, indent=2)
+
+    except Exception as e:
+        return f"Error getting baseline graph stats: {str(e)}"
+
+
+@mcp.tool(name="watercooler_v1_baseline_graph_build")
+def baseline_graph_build(
+    ctx: Context,
+    code_path: str = "",
+    output_dir: str = "",
+    extractive_only: bool = True,
+    skip_closed: bool = False,
+) -> str:
+    """Build baseline graph from threads.
+
+    Creates a lightweight knowledge graph using extractive summaries
+    or local LLM. Output is JSONL format (nodes.jsonl, edges.jsonl).
+
+    Default output is {threads_dir}/graph/baseline.
+
+    Args:
+        code_path: Path to code repository (for resolving threads dir).
+        output_dir: Output directory for graph files (optional).
+        extractive_only: Use extractive summaries only (no LLM). Default: True.
+        skip_closed: Skip closed threads. Default: False.
+
+    Returns:
+        JSON manifest with export statistics.
+    """
+    try:
+        from pathlib import Path
+        from watercooler.baseline_graph import export_all_threads, SummarizerConfig
+
+        error, context = _require_context(code_path)
+        if error:
+            return error
+        if context is None or not context.threads_dir:
+            return "Error: Unable to resolve threads directory."
+
+        threads_dir = context.threads_dir
+        if not threads_dir.exists():
+            return f"Threads directory not found: {threads_dir}"
+
+        # Default output to threads_dir/graph/baseline
+        if output_dir:
+            out_path = Path(output_dir)
+        else:
+            out_path = threads_dir / "graph" / "baseline"
+
+        config = SummarizerConfig(prefer_extractive=extractive_only)
+
+        manifest = export_all_threads(
+            threads_dir, out_path, config, skip_closed=skip_closed
+        )
+
+        return json.dumps(manifest, indent=2)
+
+    except Exception as e:
+        return f"Error building baseline graph: {str(e)}"
+
+
+# ============================================================================
 # Branch Sync Enforcement Tools
 # ============================================================================
 
