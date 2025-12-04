@@ -1,0 +1,359 @@
+# Baseline Graph Module
+
+**Free-tier knowledge graph generation for Watercooler threads.**
+
+The baseline graph module converts Watercooler threads into a lightweight knowledge graph format (JSONL) using local LLMs or pure extractive summarization—no API costs required.
+
+## Overview
+
+### What It Does
+
+- Parses Watercooler thread files and extracts structured metadata
+- Generates summaries for threads and entries (LLM or extractive)
+- Exports to JSONL format suitable for graph databases or visualization
+- Extracts cross-references (file paths, PR numbers, commit SHAs)
+
+### Use Cases
+
+- Building knowledge graphs from conversation history
+- Powering the Watercooler Dashboard graph view
+- Analyzing thread relationships and patterns
+- Creating searchable indexes of past discussions
+
+## Quick Start
+
+### Basic Export (No LLM Required)
+
+```python
+from pathlib import Path
+from watercooler.baseline_graph import export_all_threads, SummarizerConfig
+
+# Use extractive summarization (no LLM needed)
+config = SummarizerConfig(prefer_extractive=True)
+
+# Export all threads to JSONL
+manifest = export_all_threads(
+    threads_dir=Path("./my-project-threads"),
+    output_dir=Path("./graph-output"),
+    config=config,
+)
+
+print(f"Exported {manifest['threads_exported']} threads")
+print(f"Generated {manifest['nodes_written']} nodes, {manifest['edges_written']} edges")
+```
+
+### With Local LLM (Ollama)
+
+```python
+from watercooler.baseline_graph import export_all_threads, SummarizerConfig
+
+# Configure for local Ollama instance
+config = SummarizerConfig(
+    api_base="http://localhost:11434/v1",
+    model="llama3.2:3b",
+    timeout=30.0,
+)
+
+manifest = export_all_threads(
+    threads_dir=Path("./threads"),
+    output_dir=Path("./graph"),
+    config=config,
+)
+```
+
+## Configuration
+
+### SummarizerConfig Options
+
+| Option | Default | Description |
+|--------|---------|-------------|
+| `api_base` | `http://localhost:11434/v1` | OpenAI-compatible API endpoint |
+| `model` | `llama3.2:3b` | Model name for LLM summarization |
+| `api_key` | `ollama` | API key (Ollama doesn't require one) |
+| `timeout` | `30.0` | Request timeout in seconds |
+| `max_tokens` | `256` | Maximum tokens for LLM response |
+| `extractive_max_chars` | `200` | Max chars for extractive summaries |
+| `include_headers` | `True` | Include markdown headers in extractive summary |
+| `max_headers` | `3` | Max headers to include |
+| `prefer_extractive` | `False` | Force extractive mode (skip LLM) |
+
+### Environment Variables
+
+| Variable | Default | Description |
+|----------|---------|-------------|
+| `BASELINE_GRAPH_API_BASE` | `http://localhost:11434/v1` | LLM API endpoint |
+| `BASELINE_GRAPH_MODEL` | `llama3.2:3b` | LLM model name |
+| `BASELINE_GRAPH_API_KEY` | `ollama` | API key for LLM |
+| `BASELINE_GRAPH_TIMEOUT` | `30.0` | Request timeout (seconds) |
+| `BASELINE_GRAPH_MAX_TOKENS` | `256` | Max response tokens |
+| `BASELINE_GRAPH_EXTRACTIVE_ONLY` | `false` | Force extractive mode (`1`, `true`, `yes`) |
+
+### Config File (`config.toml`)
+
+```toml
+[baseline_graph]
+prefer_extractive = false
+
+[baseline_graph.llm]
+api_base = "http://localhost:11434/v1"
+model = "llama3.2:3b"
+api_key = "ollama"
+timeout = 30.0
+max_tokens = 256
+
+[baseline_graph.extractive]
+max_chars = 200
+include_headers = true
+max_headers = 3
+```
+
+### Configuration Precedence
+
+1. Environment variables (highest priority)
+2. `config.toml` `[baseline_graph]` section
+3. Built-in defaults (lowest priority)
+
+## Output Format
+
+### Directory Structure
+
+```
+graph-output/
+├── nodes.jsonl      # Graph nodes (threads + entries)
+├── edges.jsonl      # Graph edges (relationships)
+└── manifest.json    # Export metadata
+```
+
+### Node Types
+
+**Thread Node:**
+```json
+{
+  "id": "thread:feature-auth",
+  "type": "thread",
+  "topic": "feature-auth",
+  "title": "Authentication Refactor",
+  "status": "OPEN",
+  "ball": "Claude",
+  "last_updated": "2024-01-15",
+  "summary": "Discussion about refactoring auth system...",
+  "entry_count": 5
+}
+```
+
+**Entry Node:**
+```json
+{
+  "id": "entry:feature-auth:1",
+  "type": "entry",
+  "entry_id": "feature-auth:1",
+  "thread_topic": "feature-auth",
+  "index": 1,
+  "agent": "Claude",
+  "role": "implementer",
+  "entry_type": "Note",
+  "title": "Initial analysis",
+  "timestamp": "2024-01-15T10:00:00Z",
+  "summary": "Analyzed current auth implementation...",
+  "file_refs": ["src/auth.py", "tests/test_auth.py"],
+  "pr_refs": [42],
+  "commit_refs": ["abc1234"]
+}
+```
+
+### Edge Types
+
+| Type | Source | Target | Description |
+|------|--------|--------|-------------|
+| `contains` | Thread | Entry | Thread contains this entry |
+| `followed_by` | Entry | Entry | Sequential entry relationship |
+
+### Manifest
+
+```json
+{
+  "version": "1.0",
+  "generated_at": "2024-01-15T12:00:00Z",
+  "source_dir": "/path/to/threads",
+  "threads_exported": 10,
+  "entries_exported": 45,
+  "nodes_written": 55,
+  "edges_written": 80,
+  "files": {
+    "nodes": "nodes.jsonl",
+    "edges": "edges.jsonl"
+  }
+}
+```
+
+## API Reference
+
+### Summarization
+
+```python
+from watercooler.baseline_graph import (
+    summarize_entry,
+    summarize_thread,
+    extractive_summary,
+    SummarizerConfig,
+    create_summarizer_config,
+)
+
+# Create config from environment and config.toml
+config = create_summarizer_config()
+
+# Summarize a single entry
+summary = summarize_entry(
+    entry_body="Full entry content...",
+    entry_title="Entry Title",
+    entry_type="Note",
+    config=config,
+)
+
+# Summarize entire thread from entries
+entries = [
+    {"body": "Entry 1 content", "title": "Title 1", "type": "Note"},
+    {"body": "Entry 2 content", "title": "Title 2", "type": "Decision"},
+]
+thread_summary = summarize_thread(entries, thread_title="My Thread", config=config)
+
+# Pure extractive (no LLM)
+extract = extractive_summary(
+    text="# Header\nContent here...",
+    max_chars=200,
+    include_headers=True,
+)
+```
+
+### Parsing
+
+```python
+from pathlib import Path
+from watercooler.baseline_graph import (
+    parse_thread_file,
+    iter_threads,
+    parse_all_threads,
+    get_thread_stats,
+    ParsedThread,
+    ParsedEntry,
+)
+
+# Parse single thread
+thread = parse_thread_file(Path("threads/feature-auth.md"))
+print(f"Topic: {thread.topic}, Entries: {thread.entry_count}")
+
+# Iterate all threads
+for thread in iter_threads(Path("threads/"), skip_closed=True):
+    print(f"{thread.topic}: {thread.summary}")
+
+# Get statistics
+stats = get_thread_stats(Path("threads/"))
+print(f"Total: {stats['total_threads']} threads, {stats['total_entries']} entries")
+```
+
+### Export and Load
+
+```python
+from pathlib import Path
+from watercooler.baseline_graph import (
+    export_thread_graph,
+    export_all_threads,
+    load_nodes,
+    load_edges,
+    load_graph,
+)
+
+# Export single thread
+nodes, edges = export_thread_graph(thread, Path("output/"))
+
+# Export all threads
+manifest = export_all_threads(
+    threads_dir=Path("threads/"),
+    output_dir=Path("graph/"),
+    skip_closed=True,
+)
+
+# Load exported graph
+nodes, edges = load_graph(Path("graph/"))
+for node in nodes:
+    if node["type"] == "thread":
+        print(f"Thread: {node['topic']}")
+```
+
+## LLM Backend Options
+
+### Ollama (Recommended)
+
+```bash
+# Install Ollama
+curl -fsSL https://ollama.com/install.sh | sh
+
+# Pull a small model
+ollama pull llama3.2:3b
+
+# Ollama serves on http://localhost:11434 by default
+```
+
+```toml
+[baseline_graph.llm]
+api_base = "http://localhost:11434/v1"
+model = "llama3.2:3b"
+```
+
+### llama.cpp Server
+
+```bash
+# Start llama.cpp server
+./server -m model.gguf --host 0.0.0.0 --port 8080
+```
+
+```toml
+[baseline_graph.llm]
+api_base = "http://localhost:8080/v1"
+model = "local"
+```
+
+### Any OpenAI-Compatible API
+
+```toml
+[baseline_graph.llm]
+api_base = "https://your-api.example.com/v1"
+model = "your-model"
+api_key = "your-api-key"
+```
+
+## Fallback Behavior
+
+The module gracefully degrades when LLM is unavailable:
+
+1. **LLM available:** Uses LLM for high-quality summaries
+2. **LLM unavailable:** Falls back to extractive summarization
+3. **httpx not installed:** Uses extractive mode (no HTTP dependency)
+
+Extractive summaries include:
+- First N characters of content (truncated at sentence boundaries)
+- Markdown headers as topic indicators
+- No external dependencies required
+
+## Relationship to watercooler_memory
+
+| Module | Purpose | Dependencies |
+|--------|---------|--------------|
+| `baseline_graph` | Free-tier JSONL export | Local LLM or none |
+| `watercooler_memory` | Full RAG pipeline | Embeddings, vector DB |
+
+Use `baseline_graph` when you need:
+- Zero-cost graph generation
+- Simple JSONL output
+- No external API dependencies
+
+Use `watercooler_memory` when you need:
+- Semantic search capabilities
+- Vector embeddings
+- Advanced RAG features
+
+## See Also
+
+- [Configuration Guide](CONFIGURATION.md) - Config file reference
+- [Environment Variables](ENVIRONMENT_VARS.md) - All environment variables
+- [Memory Module](MEMORY.md) - Full RAG pipeline documentation

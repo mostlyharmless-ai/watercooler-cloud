@@ -23,6 +23,9 @@
 | [`WATERCOOLER_GIT_EMAIL`](#watercooler_git_email) | No | `"mcp@watercooler.dev"` | MCP Server | Git commit author email |
 | [`WATERCOOLER_TEMPLATES`](#watercooler_templates) | No | Built-in | MCP & CLI | Custom templates directory |
 | [`WATERCOOLER_USER`](#watercooler_user) | No | OS username | Lock System | Override username in lock files |
+| [`BASELINE_GRAPH_API_BASE`](#baseline_graph_api_base) | No | `http://localhost:11434/v1` | Baseline Graph | LLM API endpoint |
+| [`BASELINE_GRAPH_MODEL`](#baseline_graph_model) | No | `llama3.2:3b` | Baseline Graph | LLM model name |
+| [`BASELINE_GRAPH_EXTRACTIVE_ONLY`](#baseline_graph_extractive_only) | No | `false` | Baseline Graph | Force extractive mode |
 
 ---
 
@@ -606,6 +609,149 @@ WATERCOOLER_GIT_EMAIL = "claude@team.com"
 **Related:**
 - See [WATERCOOLER_GIT_AUTHOR](#watercooler_git_author) for author name
 - See [CLOUD_SYNC_GUIDE.md](../.mothballed/docs/CLOUD_SYNC_GUIDE.md) for team setup
+
+---
+
+## Baseline Graph Variables
+
+Variables for the baseline graph module (free-tier knowledge graph generation).
+
+### BASELINE_GRAPH_API_BASE
+
+**Purpose:** OpenAI-compatible API endpoint for LLM summarization.
+
+**Required:** No
+
+**Default:** `"http://localhost:11434/v1"` (Ollama default)
+
+**Format:** URL string
+
+**Used by:** Baseline Graph Module
+
+**Details:**
+
+The baseline graph module uses local LLMs for generating summaries. This variable sets the API endpoint.
+
+**Configuration examples:**
+
+**Shell:**
+```bash
+# Ollama (default)
+export BASELINE_GRAPH_API_BASE="http://localhost:11434/v1"
+
+# llama.cpp server
+export BASELINE_GRAPH_API_BASE="http://localhost:8080/v1"
+```
+
+---
+
+### BASELINE_GRAPH_MODEL
+
+**Purpose:** LLM model name for summarization.
+
+**Required:** No
+
+**Default:** `"llama3.2:3b"`
+
+**Format:** Model identifier string
+
+**Used by:** Baseline Graph Module
+
+**Details:**
+
+Specifies which model to use for LLM-based summarization. Use a small, fast model for best results.
+
+**Configuration examples:**
+
+**Shell:**
+```bash
+export BASELINE_GRAPH_MODEL="llama3.2:3b"
+```
+
+---
+
+### BASELINE_GRAPH_API_KEY
+
+**Purpose:** API key for LLM endpoint (if required).
+
+**Required:** No
+
+**Default:** `"ollama"` (Ollama doesn't require authentication)
+
+**Format:** API key string
+
+**Used by:** Baseline Graph Module
+
+**Details:**
+
+Most local LLM servers (Ollama, llama.cpp) don't require authentication. Set this if your endpoint requires an API key.
+
+---
+
+### BASELINE_GRAPH_TIMEOUT
+
+**Purpose:** Request timeout for LLM calls.
+
+**Required:** No
+
+**Default:** `30.0` seconds
+
+**Format:** Float (seconds)
+
+**Used by:** Baseline Graph Module
+
+**Details:**
+
+If the LLM doesn't respond within this timeout, the module falls back to extractive summarization.
+
+---
+
+### BASELINE_GRAPH_MAX_TOKENS
+
+**Purpose:** Maximum tokens in LLM response.
+
+**Required:** No
+
+**Default:** `256`
+
+**Format:** Integer
+
+**Used by:** Baseline Graph Module
+
+**Details:**
+
+Controls the length of generated summaries. Lower values produce shorter, more concise summaries.
+
+---
+
+### BASELINE_GRAPH_EXTRACTIVE_ONLY
+
+**Purpose:** Force extractive summarization (skip LLM).
+
+**Required:** No
+
+**Default:** `"false"`
+
+**Format:** Boolean string (`"1"`, `"true"`, `"yes"` for enabled)
+
+**Used by:** Baseline Graph Module
+
+**Details:**
+
+When enabled, the module uses pure extractive summarization without calling any LLM. Useful when:
+- No local LLM is available
+- You want faster processing without network calls
+- You want deterministic, reproducible output
+
+**Configuration examples:**
+
+**Shell:**
+```bash
+export BASELINE_GRAPH_EXTRACTIVE_ONLY="true"
+```
+
+**Related:**
+- See [Baseline Graph Documentation](baseline-graph.md) for full module documentation
 
 ---
 
