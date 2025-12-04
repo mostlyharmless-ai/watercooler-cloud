@@ -7,7 +7,7 @@ summarization to build a searchable graph from watercooler threads.
 from __future__ import annotations
 
 import json
-from dataclasses import asdict, dataclass, field
+from dataclasses import asdict, dataclass, field, replace
 from pathlib import Path
 from typing import Optional
 
@@ -156,25 +156,8 @@ class MemoryGraph:
         # Update entry references
         for entry_id, chunk_ids in entry_to_chunks.items():
             if entry_id in self.entries:
-                entry = self.entries[entry_id]
-                # Create new entry with updated chunk_ids
-                self.entries[entry_id] = EntryNode(
-                    entry_id=entry.entry_id,
-                    thread_id=entry.thread_id,
-                    index=entry.index,
-                    agent=entry.agent,
-                    role=entry.role,
-                    entry_type=entry.entry_type,
-                    title=entry.title,
-                    timestamp=entry.timestamp,
-                    body=entry.body,
-                    chunk_ids=chunk_ids,
-                    summary=entry.summary,
-                    embedding=entry.embedding,
-                    sequence_index=entry.sequence_index,
-                    preceding_entry_id=entry.preceding_entry_id,
-                    following_entry_id=entry.following_entry_id,
-                    ingestion_time=entry.ingestion_time,
+                self.entries[entry_id] = replace(
+                    self.entries[entry_id], chunk_ids=chunk_ids
                 )
 
         # Add CONTAINS edges for chunks
@@ -194,6 +177,15 @@ class MemoryGraph:
 
         Summaries are cached to disk - if a previous run was interrupted,
         cached summaries will be reused.
+
+        Note:
+            This method makes one LLM API call per entry (N+1 pattern). For large
+            graphs, this can be slow. Mitigations:
+            - Disk caching: previously generated summaries are reused automatically
+            - Skip short entries: entries <200 chars return body as-is
+            - Use checkpoint_path in build() to save intermediate progress
+            True batch summarization would require fundamentally different prompts
+            and may sacrifice summary quality.
 
         Args:
             progress_callback: Optional callable(current, total, message) for progress reporting.
@@ -225,24 +217,7 @@ class MemoryGraph:
             )
 
             # Update entry with summary
-            self.entries[entry_id] = EntryNode(
-                entry_id=entry.entry_id,
-                thread_id=entry.thread_id,
-                index=entry.index,
-                agent=entry.agent,
-                role=entry.role,
-                entry_type=entry.entry_type,
-                title=entry.title,
-                timestamp=entry.timestamp,
-                body=entry.body,
-                chunk_ids=entry.chunk_ids,
-                summary=summary,
-                embedding=entry.embedding,
-                sequence_index=entry.sequence_index,
-                preceding_entry_id=entry.preceding_entry_id,
-                following_entry_id=entry.following_entry_id,
-                ingestion_time=entry.ingestion_time,
-            )
+            self.entries[entry_id] = replace(entry, summary=summary)
 
         # Summarize threads
         for thread_id, thread in self.threads.items():
@@ -265,20 +240,7 @@ class MemoryGraph:
             )
 
             # Update thread with summary
-            self.threads[thread_id] = ThreadNode(
-                thread_id=thread.thread_id,
-                title=thread.title,
-                status=thread.status,
-                ball=thread.ball,
-                created_at=thread.created_at,
-                updated_at=thread.updated_at,
-                entry_ids=thread.entry_ids,
-                summary=summary,
-                embedding=thread.embedding,
-                branch_context=thread.branch_context,
-                initial_commit=thread.initial_commit,
-                ingestion_time=thread.ingestion_time,
-            )
+            self.threads[thread_id] = replace(thread, summary=summary)
 
     def generate_embeddings(self) -> None:
         """Generate embeddings for all nodes with summaries."""
@@ -316,53 +278,16 @@ class MemoryGraph:
         # Update nodes with embeddings
         for (node_type, node_id, _), embedding in zip(texts_to_embed, embeddings):
             if node_type == "thread":
-                thread = self.threads[node_id]
-                self.threads[node_id] = ThreadNode(
-                    thread_id=thread.thread_id,
-                    title=thread.title,
-                    status=thread.status,
-                    ball=thread.ball,
-                    created_at=thread.created_at,
-                    updated_at=thread.updated_at,
-                    entry_ids=thread.entry_ids,
-                    summary=thread.summary,
-                    embedding=embedding,
-                    branch_context=thread.branch_context,
-                    initial_commit=thread.initial_commit,
-                    ingestion_time=thread.ingestion_time,
+                self.threads[node_id] = replace(
+                    self.threads[node_id], embedding=embedding
                 )
             elif node_type == "entry":
-                entry = self.entries[node_id]
-                self.entries[node_id] = EntryNode(
-                    entry_id=entry.entry_id,
-                    thread_id=entry.thread_id,
-                    index=entry.index,
-                    agent=entry.agent,
-                    role=entry.role,
-                    entry_type=entry.entry_type,
-                    title=entry.title,
-                    timestamp=entry.timestamp,
-                    body=entry.body,
-                    chunk_ids=entry.chunk_ids,
-                    summary=entry.summary,
-                    embedding=embedding,
-                    sequence_index=entry.sequence_index,
-                    preceding_entry_id=entry.preceding_entry_id,
-                    following_entry_id=entry.following_entry_id,
-                    ingestion_time=entry.ingestion_time,
+                self.entries[node_id] = replace(
+                    self.entries[node_id], embedding=embedding
                 )
             elif node_type == "chunk":
-                chunk = self.chunks[node_id]
-                self.chunks[node_id] = ChunkNode(
-                    chunk_id=chunk.chunk_id,
-                    entry_id=chunk.entry_id,
-                    thread_id=chunk.thread_id,
-                    index=chunk.index,
-                    text=chunk.text,
-                    token_count=chunk.token_count,
-                    embedding=embedding,
-                    event_time=chunk.event_time,
-                    ingestion_time=chunk.ingestion_time,
+                self.chunks[node_id] = replace(
+                    self.chunks[node_id], embedding=embedding
                 )
 
     def build(
@@ -370,6 +295,8 @@ class MemoryGraph:
         threads_dir: Path,
         branch_context: Optional[str] = None,
         progress_callback=None,
+        timeout: Optional[float] = None,
+        checkpoint_path: Optional[Path] = None,
     ) -> None:
         """Build complete graph from threads directory.
 
@@ -383,28 +310,59 @@ class MemoryGraph:
             threads_dir: Path to threads directory.
             branch_context: Optional git branch name.
             progress_callback: Optional callable(current, total, message) for progress reporting.
+            timeout: Optional timeout in seconds. Raises TimeoutError if exceeded.
+            checkpoint_path: Optional path to save intermediate state after each step.
+                This allows recovery if the build fails partway through.
+
+        Raises:
+            TimeoutError: If timeout is exceeded during build.
         """
+        import time
+
+        start_time = time.monotonic()
+
+        def check_timeout():
+            if timeout and (time.monotonic() - start_time) > timeout:
+                raise TimeoutError(
+                    f"Graph build exceeded timeout of {timeout}s"
+                )
+
+        def checkpoint(stage: str):
+            """Save intermediate state if checkpoint_path is set."""
+            if checkpoint_path:
+                self.save(checkpoint_path)
+                if progress_callback:
+                    progress_callback(0, 0, f"Checkpoint saved after {stage}")
+
         # Parse threads
         if progress_callback:
             progress_callback(0, 0, "Parsing threads...")
         self.add_threads_directory(threads_dir, branch_context)
+        check_timeout()
+        checkpoint("parsing")
 
         # Chunk entries
         if progress_callback:
             progress_callback(0, 0, f"Chunking {len(self.entries)} entries...")
         self.chunk_all_entries()
+        check_timeout()
+        checkpoint("chunking")
 
         # Generate summaries
         if self.config.generate_summaries and is_summarizer_available():
             if progress_callback:
                 progress_callback(0, 0, "Generating summaries...")
             self.generate_summaries(progress_callback)
+            check_timeout()
+            checkpoint("summarization")
 
         # Generate embeddings
         if self.config.generate_embeddings and is_httpx_available():
             if progress_callback:
                 progress_callback(0, 0, "Generating embeddings...")
             self.generate_embeddings()
+            check_timeout()
+            checkpoint("embeddings")
 
     def stats(self) -> dict:
         """Return graph statistics."""
@@ -447,12 +405,42 @@ class MemoryGraph:
         return json.dumps(data, indent=indent, default=str)
 
     def save(self, path: Path) -> None:
-        """Save graph to JSON file."""
-        path.write_text(self.to_json())
+        """Save graph to JSON file.
+
+        Uses atomic write (temp file + rename) to prevent corruption
+        if the process is interrupted mid-write.
+        """
+        temp_path = path.with_suffix(".tmp")
+        try:
+            temp_path.write_text(self.to_json())
+            temp_path.replace(path)  # Atomic on POSIX
+        except Exception:
+            # Clean up temp file on failure
+            if temp_path.exists():
+                temp_path.unlink()
+            raise
 
     @classmethod
     def load(cls, path: Path, config: Optional[GraphConfig] = None) -> MemoryGraph:
-        """Load graph from JSON file."""
+        """Load graph from JSON file.
+
+        Note:
+            This loads the entire graph into memory. For very large graphs
+            (>100k entries), consider:
+            - Using the JSONL export format with LeanRAG for streaming access
+            - Filtering threads during build() to create smaller focused graphs
+            - Using a database backend for production search workloads
+
+        Args:
+            path: Path to the JSON file to load.
+            config: Optional graph configuration.
+
+        Returns:
+            Loaded MemoryGraph instance.
+
+        Raises:
+            ValueError: If edge or hyperedge types are invalid.
+        """
         data = json.loads(path.read_text())
         graph = cls(config)
 
@@ -466,14 +454,24 @@ class MemoryGraph:
         for cid, c in data.get("chunks", {}).items():
             graph.chunks[cid] = ChunkNode(**c)
 
-        for e in data.get("edges", []):
-            e["edge_type"] = EdgeType(e["edge_type"])
+        for i, e in enumerate(data.get("edges", [])):
+            try:
+                e["edge_type"] = EdgeType(e["edge_type"])
+            except ValueError as err:
+                raise ValueError(
+                    f"Invalid edge type '{e.get('edge_type')}' at edge {i}: {err}"
+                ) from err
             graph.edges.append(Edge(**e))
 
-        for h in data.get("hyperedges", []):
+        for i, h in enumerate(data.get("hyperedges", [])):
             from .schema import HyperedgeType
 
-            h["hyperedge_type"] = HyperedgeType(h["hyperedge_type"])
+            try:
+                h["hyperedge_type"] = HyperedgeType(h["hyperedge_type"])
+            except ValueError as err:
+                raise ValueError(
+                    f"Invalid hyperedge type '{h.get('hyperedge_type')}' at hyperedge {i}: {err}"
+                ) from err
             graph.hyperedges.append(Hyperedge(**h))
 
         return graph

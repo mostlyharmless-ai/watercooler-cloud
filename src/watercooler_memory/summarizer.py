@@ -11,6 +11,7 @@ from __future__ import annotations
 
 import os
 import time
+import warnings
 from dataclasses import dataclass
 from typing import Optional
 
@@ -50,6 +51,11 @@ class SummarizerConfig:
         """Create config from environment variables and credentials file.
 
         Priority: Environment variables > ~/.watercooler/credentials.toml > Defaults
+
+        Security Note:
+            API keys from environment variables may be visible in process listings
+            and shell history. For production use, prefer storing credentials in
+            ~/.watercooler/credentials.toml (mode 0600).
         """
         # Try to load from credentials system
         api_key = None
@@ -63,6 +69,14 @@ class SummarizerConfig:
             # Credentials module not available, fall back to env only
             api_key = os.environ.get("DEEPSEEK_API_KEY") or os.environ.get("LLM_API_KEY")
             api_base = os.environ.get("LLM_API_BASE", DEFAULT_API_BASE)
+            if api_key:
+                warnings.warn(
+                    "LLM API key loaded from environment variable. "
+                    "For improved security, store API keys in "
+                    "~/.watercooler/credentials.toml (mode 0600).",
+                    UserWarning,
+                    stacklevel=2,
+                )
 
         return cls(
             api_base=api_base,
