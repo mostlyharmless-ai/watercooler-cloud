@@ -56,6 +56,19 @@ memory = [
     "httpx>=0.25",
     "openai>=1.0",
 ]
+# Local LLM inference - provides OpenAI-compatible server for offline summarization
+# Usage: pip install watercooler-cloud[local]
+#        python -m watercooler_memory.local_server --model <model_path>
+local = [
+    "llama-cpp-python[server]>=0.2.50",
+    "httpx>=0.25",
+]
+# Full graph building with local models
+graph-local = [
+    "tiktoken>=0.5",
+    "httpx>=0.25",
+    "llama-cpp-python[server]>=0.2.50",
+]
 
 [tool.setuptools.packages.find]
 where = ["src"]

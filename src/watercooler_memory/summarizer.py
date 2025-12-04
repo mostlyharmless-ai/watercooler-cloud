@@ -9,6 +9,7 @@ re-generating expensive API calls.
 
 from __future__ import annotations
 
+import asyncio
 import os
 import time
 import warnings
@@ -33,6 +34,7 @@ DEFAULT_MODEL = "deepseek-chat"
 DEFAULT_TIMEOUT = 120.0
 DEFAULT_MAX_RETRIES = 3
 DEFAULT_MAX_TOKENS = 256
+DEFAULT_MAX_CONCURRENT = 8
 
 
 @dataclass
@@ -44,6 +46,7 @@ class SummarizerConfig:
     timeout: float = DEFAULT_TIMEOUT
     max_retries: int = DEFAULT_MAX_RETRIES
     max_tokens: int = DEFAULT_MAX_TOKENS
+    max_concurrent: int = DEFAULT_MAX_CONCURRENT
     api_key: Optional[str] = None
 
     @classmethod
@@ -84,6 +87,7 @@ class SummarizerConfig:
             timeout=float(os.environ.get("LLM_TIMEOUT", DEFAULT_TIMEOUT)),
             max_retries=int(os.environ.get("LLM_MAX_RETRIES", DEFAULT_MAX_RETRIES)),
             max_tokens=int(os.environ.get("LLM_MAX_TOKENS", DEFAULT_MAX_TOKENS)),
+            max_concurrent=int(os.environ.get("LLM_MAX_CONCURRENT", DEFAULT_MAX_CONCURRENT)),
             api_key=api_key,
         )
 
@@ -344,3 +348,207 @@ def summarize_entries_batch(
 def is_summarizer_available() -> bool:
     """Check if summarizer dependencies are available."""
     return HTTPX_AVAILABLE
+
+
+# =============================================================================
+# ASYNC SUMMARIZATION
+# =============================================================================
+
+
+async def _call_llm_async(
+    prompt: str,
+    config: SummarizerConfig,
+) -> str:
+    """Async LLM API call with retry logic."""
+    _ensure_httpx()
+
+    url = f"{config.api_base.rstrip('/')}/chat/completions"
+
+    headers = {"Content-Type": "application/json"}
+    if config.api_key:
+        headers["Authorization"] = f"Bearer {config.api_key}"
+
+    payload = {
+        "model": config.model,
+        "messages": [{"role": "user", "content": prompt}],
+        "max_tokens": config.max_tokens,
+        "temperature": 0.3,
+    }
+
+    last_error: Optional[Exception] = None
+
+    for attempt in range(config.max_retries):
+        try:
+            async with httpx.AsyncClient(timeout=config.timeout) as client:
+                response = await client.post(url, json=payload, headers=headers)
+                response.raise_for_status()
+
+                data = response.json()
+
+                if "choices" not in data or not data["choices"]:
+                    raise SummarizerError(f"Unexpected response format: {data}")
+
+                message = data["choices"][0].get("message", {})
+                content = message.get("content", "")
+
+                if not content:
+                    raise SummarizerError("Empty response from LLM")
+
+                return content.strip()
+
+        except httpx.HTTPStatusError as e:
+            last_error = SummarizerError(
+                f"HTTP {e.response.status_code}: {e.response.text}"
+            )
+        except httpx.RequestError as e:
+            last_error = SummarizerError(f"Request failed: {e}")
+        except KeyError as e:
+            last_error = SummarizerError(f"Missing key in response: {e}")
+        except Exception as e:
+            last_error = SummarizerError(f"Unexpected error: {e}")
+
+        # Exponential backoff
+        if attempt < config.max_retries - 1:
+            await asyncio.sleep(2**attempt)
+
+    raise last_error or SummarizerError("Summarization failed with unknown error")
+
+
+async def summarize_entry_async(
+    body: str,
+    agent: Optional[str] = None,
+    role: Optional[str] = None,
+    entry_type: Optional[str] = None,
+    title: Optional[str] = None,
+    config: Optional[SummarizerConfig] = None,
+    entry_id: Optional[str] = None,
+    use_cache: bool = True,
+) -> str:
+    """Async version of summarize_entry.
+
+    Args:
+        body: Entry body text.
+        agent: Agent name.
+        role: Agent role.
+        entry_type: Entry type.
+        title: Entry title.
+        config: Summarizer configuration.
+        entry_id: Unique entry identifier for caching.
+        use_cache: Whether to use disk cache.
+
+    Returns:
+        Summary string.
+    """
+    if config is None:
+        config = SummarizerConfig.from_env()
+
+    # Short entries don't need summarization
+    if len(body) < 200:
+        return body.strip()
+
+    # Check cache first
+    cache = SummaryCache() if use_cache else None
+    cache_key = entry_id or ""
+
+    if cache:
+        cached = cache.get(cache_key, body)
+        if cached:
+            return cached
+
+    prompt = ENTRY_SUMMARY_PROMPT.format(
+        agent=agent or "Unknown",
+        role=role or "Unknown",
+        entry_type=entry_type or "Note",
+        title=title or "Untitled",
+        body=body[:4000],
+    )
+
+    summary = await _call_llm_async(prompt, config)
+
+    # Save to cache immediately
+    if cache:
+        cache.set(cache_key, body, summary)
+
+    return summary
+
+
+async def summarize_entries_batch_async(
+    entries: list[dict],
+    config: Optional[SummarizerConfig] = None,
+    progress_callback=None,
+) -> list[str]:
+    """Async batch summarization with concurrent requests.
+
+    Uses a semaphore to limit concurrent API calls, significantly
+    speeding up summarization compared to sequential processing.
+
+    Args:
+        entries: List of entry dicts with body, agent, role, entry_type, title, entry_id.
+        config: Summarizer configuration (includes max_concurrent).
+        progress_callback: Optional callable(completed, total) for progress reporting.
+
+    Returns:
+        List of summaries (same order as input).
+    """
+    if config is None:
+        config = SummarizerConfig.from_env()
+
+    # Semaphore limits concurrent requests
+    semaphore = asyncio.Semaphore(config.max_concurrent)
+    completed = 0
+    total = len(entries)
+
+    async def summarize_one(entry: dict, index: int) -> tuple[int, str]:
+        nonlocal completed
+        async with semaphore:
+            try:
+                summary = await summarize_entry_async(
+                    body=entry.get("body", ""),
+                    agent=entry.get("agent"),
+                    role=entry.get("role"),
+                    entry_type=entry.get("entry_type"),
+                    title=entry.get("title"),
+                    config=config,
+                    entry_id=entry.get("entry_id"),
+                )
+            except SummarizerError:
+                # Fall back to truncated body on error
+                body = entry.get("body", "")
+                summary = body[:200] + "..." if len(body) > 200 else body
+
+            completed += 1
+            if progress_callback:
+                progress_callback(completed, total)
+
+            return index, summary
+
+    # Launch all tasks
+    tasks = [summarize_one(entry, i) for i, entry in enumerate(entries)]
+    results = await asyncio.gather(*tasks)
+
+    # Sort by index to maintain order
+    results.sort(key=lambda x: x[0])
+    return [summary for _, summary in results]
+
+
+def summarize_entries_concurrent(
+    entries: list[dict],
+    config: Optional[SummarizerConfig] = None,
+    progress_callback=None,
+) -> list[str]:
+    """Synchronous wrapper for async batch summarization.
+
+    Runs the async batch summarizer in an event loop. Use this from
+    synchronous code to get the benefits of concurrent summarization.
+
+    Args:
+        entries: List of entry dicts.
+        config: Summarizer configuration.
+        progress_callback: Optional callable(completed, total).
+
+    Returns:
+        List of summaries (same order as input).
+    """
+    return asyncio.run(
+        summarize_entries_batch_async(entries, config, progress_callback)
+    )

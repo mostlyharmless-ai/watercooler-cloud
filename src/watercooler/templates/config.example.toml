@@ -264,6 +264,90 @@ default_spec = "general-purpose"
 
 
 # =============================================================================
+# MEMORY GRAPH SETTINGS
+# Configuration for watercooler_memory pipeline (summarization, embeddings)
+# =============================================================================
+[memory_graph]
+
+# -----------------------------------------------------------------------------
+# LLM Settings (for summarization)
+# -----------------------------------------------------------------------------
+[memory_graph.llm]
+
+# API endpoint - supports any OpenAI-compatible API
+# Env: LLM_API_BASE
+# Default: DeepSeek API (requires DEEPSEEK_API_KEY)
+# api_base = "https://api.deepseek.com/v1"
+
+# For local models (Ollama, llama.cpp, vLLM):
+# api_base = "http://localhost:11434/v1"  # Ollama
+# api_base = "http://localhost:8080/v1"   # llama.cpp server
+# api_base = "http://localhost:8000/v1"   # vLLM
+
+# Model name
+# Env: LLM_MODEL
+# model = "deepseek-chat"
+
+# For local: model = "llama3.2", "qwen2.5:7b", etc.
+
+# Request timeout (seconds)
+# Env: LLM_TIMEOUT
+# timeout = 120.0
+
+# Max retries on failure
+# Env: LLM_MAX_RETRIES
+# max_retries = 3
+
+# Max tokens for summary generation
+# Env: LLM_MAX_TOKENS
+# max_tokens = 256
+
+# Concurrent requests (for async summarization)
+# Env: LLM_MAX_CONCURRENT
+# max_concurrent = 8
+
+
+# -----------------------------------------------------------------------------
+# Embedding Settings
+# -----------------------------------------------------------------------------
+[memory_graph.embedding]
+
+# API endpoint - supports any OpenAI-compatible embedding API
+# Env: EMBEDDING_API_BASE
+# Default: Local server (no API key needed)
+# api_base = "http://localhost:8081/v1"
+
+# Model name
+# Env: EMBEDDING_MODEL
+# model = "bge-m3"
+
+# Batch size for embedding requests
+# Env: EMBEDDING_BATCH_SIZE
+# batch_size = 32
+
+# Request timeout (seconds)
+# Env: EMBEDDING_TIMEOUT
+# timeout = 60.0
+
+
+# -----------------------------------------------------------------------------
+# Chunking Settings
+# -----------------------------------------------------------------------------
+[memory_graph.chunking]
+
+# Maximum tokens per chunk
+# Env: MAX_TOKENS
+# max_tokens = 512
+
+# Token overlap between chunks
+# Env: OVERLAP_TOKENS
+# overlap_tokens = 50
+
+# Tokenizer model (for token counting)
+# tokenizer = "cl100k_base"
+
+
+# =============================================================================
 # ENVIRONMENT VARIABLE REFERENCE
 # =============================================================================
 #
@@ -295,6 +379,19 @@ default_spec = "general-purpose"
 # mcp.logging.disable_file       WATERCOOLER_LOG_DISABLE_FILE
 # validation.on_write            WATERCOOLER_VALIDATE_ON_WRITE
 # validation.fail_on_violation   WATERCOOLER_FAIL_ON_VIOLATION
+#
+# memory_graph.llm.api_base      LLM_API_BASE
+# memory_graph.llm.model         LLM_MODEL
+# memory_graph.llm.timeout       LLM_TIMEOUT
+# memory_graph.llm.max_retries   LLM_MAX_RETRIES
+# memory_graph.llm.max_tokens    LLM_MAX_TOKENS
+# memory_graph.llm.max_concurrent LLM_MAX_CONCURRENT
+# memory_graph.embedding.api_base EMBEDDING_API_BASE
+# memory_graph.embedding.model   EMBEDDING_MODEL
+# memory_graph.embedding.batch_size EMBEDDING_BATCH_SIZE
+# memory_graph.embedding.timeout EMBEDDING_TIMEOUT
+# memory_graph.chunking.max_tokens MAX_TOKENS
+# memory_graph.chunking.overlap_tokens OVERLAP_TOKENS
 #
 # Priority (highest first): CLI args > Env vars > Project config > User config > Defaults
 # =============================================================================
