@@ -49,6 +49,17 @@ class SummarizerConfig:
     max_concurrent: int = DEFAULT_MAX_CONCURRENT
     api_key: Optional[str] = None
 
+    def __post_init__(self) -> None:
+        """Validate config values after initialization."""
+        if self.timeout <= 0:
+            raise ValueError(f"timeout must be positive, got {self.timeout}")
+        if self.max_retries < 1:
+            raise ValueError(f"max_retries must be >= 1, got {self.max_retries}")
+        if self.max_tokens < 1:
+            raise ValueError(f"max_tokens must be >= 1, got {self.max_tokens}")
+        if self.max_concurrent < 1:
+            raise ValueError(f"max_concurrent must be >= 1, got {self.max_concurrent}")
+
     @classmethod
     def from_env(cls) -> SummarizerConfig:
         """Create config from environment variables and credentials file.
@@ -103,7 +114,7 @@ def _ensure_httpx():
     if not HTTPX_AVAILABLE:
         raise ImportError(
             "httpx is required for summary generation. "
-            "Install with: pip install 'watercooler-cloud[graph]'"
+            "Install with: pip install 'watercooler-cloud[memory]'"
         )
 
 

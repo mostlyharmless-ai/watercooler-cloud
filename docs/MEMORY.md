@@ -323,6 +323,88 @@ def validate_export(documents: list, threads: list, manifest: dict) -> None: ...
 def validate_pipeline_chunks(chunks: list) -> None: ...
 ```
 
+## Checkpointing and Recovery
+
+For long-running graph builds, use checkpointing to save progress and enable recovery from failures.
+
+### Using Checkpoints
+
+```python
+from watercooler_memory import MemoryGraph, GraphConfig
+from pathlib import Path
+
+graph = MemoryGraph()
+
+# Build with checkpointing enabled
+graph.build(
+    threads_dir=Path("./threads"),
+    checkpoint_path=Path("./graph-checkpoint.json"),
+    timeout=3600,  # 1 hour timeout
+)
+```
+
+The checkpoint file is saved atomically after each stage (parsing, chunking, summarization, embeddings).
+
+### Recovery Workflow
+
+If a build fails partway through:
+
+```python
+from watercooler_memory import MemoryGraph
+from pathlib import Path
+
+checkpoint_path = Path("./graph-checkpoint.json")
+
+if checkpoint_path.exists():
+    # Load from checkpoint
+    print("Resuming from checkpoint...")
+    graph = MemoryGraph.load(checkpoint_path)
+
+    # Check what's already done
+    stats = graph.stats()
+    print(f"Loaded: {stats['threads']} threads, {stats['entries']} entries")
+    print(f"Summaries: {stats['entries_with_summaries']}/{stats['entries']}")
+
+    # Continue remaining steps manually
+    if stats['entries_with_summaries'] < stats['entries']:
+        graph.generate_summaries()
+    if stats['entries_with_embeddings'] < stats['entries']:
+        graph.generate_embeddings()
+
+    # Save final result
+    graph.save(Path("./graph.json"))
+else:
+    # Fresh build
+    graph = MemoryGraph()
+    graph.build(
+        threads_dir=Path("./threads"),
+        checkpoint_path=checkpoint_path,
+    )
+```
+
+### Caching Benefits
+
+Even without explicit checkpoints, the disk caches for summaries and embeddings survive pipeline failures:
+
+- **Summary cache**: `~/.cache/watercooler/summaries/`
+- **Embedding cache**: `~/.cache/watercooler/embeddings/`
+
+Re-running `generate_summaries()` or `generate_embeddings()` automatically reuses cached results, so failed builds can be restarted without re-processing already-completed items.
+
+### Timeout Handling
+
+```python
+try:
+    graph.build(
+        threads_dir=Path("./threads"),
+        timeout=1800,  # 30 minutes
+        checkpoint_path=Path("./checkpoint.json"),
+    )
+except TimeoutError:
+    print("Build timed out - checkpoint saved")
+    # Load checkpoint and continue in a new session
+```
+
 ## Graceful Degradation
 
 The module supports graceful degradation when optional dependencies are missing:

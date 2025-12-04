@@ -193,7 +193,7 @@ class MemoryGraph:
         if not is_summarizer_available():
             raise ImportError(
                 "httpx is required for summarization. "
-                "Install with: pip install 'watercooler-cloud[graph]'"
+                "Install with: pip install 'watercooler-cloud[memory]'"
             )
 
         total_entries = len(self.entries)
@@ -247,7 +247,7 @@ class MemoryGraph:
         if not is_httpx_available():
             raise ImportError(
                 "httpx is required for embeddings. "
-                "Install with: pip install 'watercooler-cloud[graph]'"
+                "Install with: pip install 'watercooler-cloud[memory]'"
             )
 
         # Collect texts to embed

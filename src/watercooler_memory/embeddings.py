@@ -46,6 +46,15 @@ class EmbeddingConfig:
     max_retries: int = DEFAULT_MAX_RETRIES
     api_key: Optional[str] = None
 
+    def __post_init__(self) -> None:
+        """Validate config values after initialization."""
+        if self.batch_size < 1:
+            raise ValueError(f"batch_size must be >= 1, got {self.batch_size}")
+        if self.timeout <= 0:
+            raise ValueError(f"timeout must be positive, got {self.timeout}")
+        if self.max_retries < 1:
+            raise ValueError(f"max_retries must be >= 1, got {self.max_retries}")
+
     @classmethod
     def from_env(cls) -> EmbeddingConfig:
         """Create config from environment variables and credentials file.
@@ -103,7 +112,7 @@ def _ensure_httpx():
     if not HTTPX_AVAILABLE:
         raise ImportError(
             "httpx is required for embedding generation. "
-            "Install with: pip install 'watercooler-cloud[graph]'"
+            "Install with: pip install 'watercooler-cloud[memory]'"
         )
 
 
