@@ -89,7 +89,43 @@ For summary generation:
 - `LLM_API_BASE`: LLM API endpoint (default: `https://api.deepseek.com/v1`)
 
 For embedding generation:
-- `EMBEDDING_API_BASE`: bge-m3 API endpoint (default: `http://localhost:8000/v1`)
+- `EMBEDDING_API_BASE`: bge-m3 API endpoint (default: `http://localhost:8080/v1`)
+
+## Local Server Setup (Free Tier)
+
+For fully offline operation without external APIs, use the built-in llama-cpp-python servers:
+
+### Start Both Servers
+
+```bash
+# Terminal 1: Summarization server (port 8000)
+python -m watercooler_memory.local_server
+
+# Terminal 2: Embedding server (port 8080)
+python -m watercooler_memory.embedding_server
+```
+
+Both servers auto-download their default models on first run:
+- **Summarization**: Qwen2.5-3B-Instruct (~2GB)
+- **Embeddings**: bge-m3 (~2GB)
+
+### Configure Environment
+
+```bash
+export LLM_API_BASE=http://localhost:8000/v1
+export LLM_MODEL=local
+export EMBEDDING_API_BASE=http://localhost:8080/v1
+export EMBEDDING_MODEL=bge-m3
+```
+
+### Architecture
+
+| Function | Model | Port | Endpoint |
+|----------|-------|------|----------|
+| Summarization | Qwen2.5-3B | 8000 | `/v1/chat/completions` |
+| Embeddings | bge-m3 | 8080 | `/v1/embeddings` |
+
+Both servers use llama-cpp-python with OpenAI-compatible APIs. No external dependencies required.
 
 ## CLI Usage
 

@@ -1,6 +1,7 @@
 """Embedding generation for memory graph nodes.
 
 Generates vector embeddings using bge-m3 via OpenAI-compatible API.
+Runs on port 8080 by default (separate from summarization on port 8000).
 Supports batch processing and retry logic for reliability.
 
 Embeddings are cached to disk to survive pipeline failures and avoid
@@ -28,7 +29,8 @@ except ImportError:
 
 
 # Default configuration
-DEFAULT_API_BASE = "http://localhost:8000/v1"
+# Embedding server runs on port 8080 (separate from summarization on 8000)
+DEFAULT_API_BASE = "http://localhost:8080/v1"
 DEFAULT_MODEL = "bge-m3"
 DEFAULT_BATCH_SIZE = 32
 DEFAULT_TIMEOUT = 60.0

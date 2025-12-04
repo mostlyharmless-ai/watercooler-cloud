@@ -1,116 +1,79 @@
-"""Local LLM server for offline summarization.
+"""Local embedding server for vector embeddings.
 
 Provides an OpenAI-compatible API server using llama-cpp-python for
-local inference without external API dependencies.
+local embedding generation without external API dependencies.
 
-Runs on port 8000 by default. For embeddings, use embedding_server.py on port 8080.
+Runs on port 8080 by default (separate from summarization on port 8000).
 
 Usage:
     # Start server (auto-downloads default model on first run)
-    python -m watercooler_memory.local_server
+    python -m watercooler_memory.embedding_server
 
     # Start with specific model
-    python -m watercooler_memory.local_server --model /path/to/model.gguf
+    python -m watercooler_memory.embedding_server --model /path/to/model.gguf
 
     # With custom settings
-    python -m watercooler_memory.local_server \
+    python -m watercooler_memory.embedding_server \
         --host 127.0.0.1 \
-        --port 8000 \
-        --n-ctx 4096
+        --port 8080
 
     # Then configure watercooler to use it:
-    export LLM_API_BASE=http://localhost:8000/v1
-    export LLM_MODEL=local
+    export EMBEDDING_API_BASE=http://localhost:8080/v1
+    export EMBEDDING_MODEL=bge-m3
 
 Requirements:
     pip install watercooler-cloud[local]
 
 Default Model:
-    Qwen2.5-3B-Instruct-GGUF (~2GB) - good quality for summarization
-
-Alternative Models:
-    --model-id Qwen/Qwen2.5-1.5B-Instruct-GGUF  (smaller, ~1GB)
-    --model-id bartowski/Phi-3-mini-4k-instruct-GGUF  (fast, ~2.3GB)
+    bge-m3-GGUF (~2GB) - state-of-the-art embedding quality
 """
 
 from __future__ import annotations
 
 import argparse
-import os
 import sys
 from pathlib import Path
 from typing import Optional
 
-
-# Default configuration optimized for summarization
-DEFAULT_HOST = "127.0.0.1"
-DEFAULT_PORT = 8000  # Summarization on 8000, embeddings on 8080
-DEFAULT_N_CTX = 4096  # Context window
-DEFAULT_N_GPU_LAYERS = -1  # Use all available GPU layers
-
-# Default model for auto-download
-# Qwen2.5-3B-Instruct is a good balance of quality and speed for summarization
-DEFAULT_MODEL_REPO = "Qwen/Qwen2.5-3B-Instruct-GGUF"
-DEFAULT_MODEL_FILE = "qwen2.5-3b-instruct-q4_k_m.gguf"
-
-# Where to cache downloaded models
-DEFAULT_MODELS_DIR = Path.home() / ".watercooler" / "models"
+from .local_server import (
+    DEFAULT_HOST,
+    DEFAULT_MODELS_DIR,
+    DEFAULT_N_GPU_LAYERS,
+    check_huggingface_hub,
+    check_server_dependencies,
+)
 
 
-def check_dependencies() -> bool:
-    """Check if llama-cpp-python is available."""
-    try:
-        import llama_cpp  # noqa: F401
+# Default configuration for embedding server
+DEFAULT_EMBEDDING_PORT = 8080
+DEFAULT_EMBEDDING_N_CTX = 512  # Embeddings need less context than chat
 
-        return True
-    except ImportError:
-        return False
-
-
-def check_server_dependencies() -> bool:
-    """Check if llama-cpp-python[server] is available."""
-    try:
-        import llama_cpp.server  # noqa: F401
-
-        return True
-    except ImportError:
-        return False
+# Default embedding model
+DEFAULT_EMBEDDING_MODEL_REPO = "KimChen/bge-m3-GGUF"
+DEFAULT_EMBEDDING_MODEL_FILE = "bge-m3-q8_0.gguf"
 
 
-def check_huggingface_hub() -> bool:
-    """Check if huggingface_hub is available."""
-    try:
-        import huggingface_hub  # noqa: F401
-
-        return True
-    except ImportError:
-        return False
+def get_default_embedding_model_path() -> Path:
+    """Get path to default embedding model (may not exist yet)."""
+    return DEFAULT_MODELS_DIR / DEFAULT_EMBEDDING_MODEL_FILE
 
 
-def get_default_model_path() -> Path:
-    """Get path to default model (may not exist yet)."""
-    return DEFAULT_MODELS_DIR / DEFAULT_MODEL_FILE
-
-
-def download_model(
-    repo_id: str = DEFAULT_MODEL_REPO,
-    filename: str = DEFAULT_MODEL_FILE,
+def download_embedding_model(
+    repo_id: str = DEFAULT_EMBEDDING_MODEL_REPO,
+    filename: str = DEFAULT_EMBEDDING_MODEL_FILE,
     models_dir: Optional[Path] = None,
     verbose: bool = False,
 ) -> Path:
-    """Download a GGUF model from HuggingFace.
+    """Download embedding model from HuggingFace.
 
     Args:
-        repo_id: HuggingFace repository ID (e.g., "Qwen/Qwen2.5-3B-Instruct-GGUF")
-        filename: Specific file to download (e.g., "qwen2.5-3b-instruct-q4_k_m.gguf")
+        repo_id: HuggingFace repository ID
+        filename: Specific file to download
         models_dir: Directory to save models (default: ~/.watercooler/models)
         verbose: Print download progress.
 
     Returns:
         Path to downloaded model file.
-
-    Raises:
-        ImportError: If huggingface_hub is not available.
     """
     if not check_huggingface_hub():
         raise ImportError(
@@ -125,11 +88,10 @@ def download_model(
 
     models_dir.mkdir(parents=True, exist_ok=True)
 
-    print(f"Downloading model: {repo_id}/{filename}")
-    print(f"This may take a few minutes (~2GB)...")
+    print(f"Downloading embedding model: {repo_id}/{filename}")
+    print("This may take a few minutes (~2GB)...")
     print()
 
-    # Download to local models directory
     model_path = hf_hub_download(
         repo_id=repo_id,
         filename=filename,
@@ -140,16 +102,16 @@ def download_model(
     return Path(model_path)
 
 
-def ensure_model(
+def ensure_embedding_model(
     model_path: Optional[str] = None,
     model_id: Optional[str] = None,
     verbose: bool = False,
 ) -> Path:
-    """Ensure a model is available, downloading if necessary.
+    """Ensure embedding model is available, downloading if necessary.
 
     Args:
         model_path: Explicit path to a GGUF file.
-        model_id: HuggingFace model ID to download (e.g., "Qwen/Qwen2.5-3B-Instruct-GGUF")
+        model_id: HuggingFace model ID to download
         verbose: Print progress messages.
 
     Returns:
@@ -165,16 +127,14 @@ def ensure_model(
 
     # If model_id provided, download from HuggingFace
     if model_id:
-        # Parse repo_id and optional filename
         if ":" in model_id:
             repo_id, filename = model_id.split(":", 1)
         else:
             repo_id = model_id
-            # Try to find a Q4_K_M quantized version (good quality/size balance)
             filename = None
 
         if filename:
-            return download_model(repo_id, filename, verbose=verbose)
+            return download_embedding_model(repo_id, filename, verbose=verbose)
         else:
             # List files and pick a reasonable default
             if not check_huggingface_hub():
@@ -185,8 +145,8 @@ def ensure_model(
             files = list_repo_files(repo_id)
             gguf_files = [f for f in files if f.endswith(".gguf")]
 
-            # Prefer Q4_K_M quantization
-            preferred = [f for f in gguf_files if "q4_k_m" in f.lower()]
+            # Prefer Q8_0 quantization for embeddings (higher quality)
+            preferred = [f for f in gguf_files if "q8_0" in f.lower()]
             if preferred:
                 filename = preferred[0]
             elif gguf_files:
@@ -195,50 +155,50 @@ def ensure_model(
                 print(f"Error: No GGUF files found in {repo_id}", file=sys.stderr)
                 sys.exit(1)
 
-            return download_model(repo_id, filename, verbose=verbose)
+            return download_embedding_model(repo_id, filename, verbose=verbose)
 
     # Check for default model
-    default_path = get_default_model_path()
+    default_path = get_default_embedding_model_path()
     if default_path.exists():
         if verbose:
-            print(f"Using cached model: {default_path}")
+            print(f"Using cached embedding model: {default_path}")
         return default_path
 
     # Download default model
-    print("No model specified. Downloading default model...")
-    print(f"  Repository: {DEFAULT_MODEL_REPO}")
-    print(f"  File: {DEFAULT_MODEL_FILE}")
+    print("No embedding model specified. Downloading default model...")
+    print(f"  Repository: {DEFAULT_EMBEDDING_MODEL_REPO}")
+    print(f"  File: {DEFAULT_EMBEDDING_MODEL_FILE}")
     print()
 
-    return download_model(verbose=verbose)
+    return download_embedding_model(verbose=verbose)
 
 
-def print_config_hint(host: str, port: int, model_name: str) -> None:
-    """Print configuration hints for using the local server."""
+def print_embedding_config_hint(host: str, port: int, model_name: str) -> None:
+    """Print configuration hints for using the embedding server."""
     print("\n" + "=" * 60)
-    print("Local LLM Server Configuration")
+    print("Local Embedding Server Configuration")
     print("=" * 60)
     print(f"\nServer running at: http://{host}:{port}/v1")
     print(f"Model: {model_name}")
     print("\nTo use with watercooler memory graph, set these environment variables:")
-    print(f"\n  export LLM_API_BASE=http://{host}:{port}/v1")
-    print("  export LLM_MODEL=local")
+    print(f"\n  export EMBEDDING_API_BASE=http://{host}:{port}/v1")
+    print("  export EMBEDDING_MODEL=bge-m3")
     print("\nOr add to ~/.watercooler/config.toml:")
-    print("\n  [memory_graph.llm]")
+    print("\n  [memory_graph.embedding]")
     print(f'  api_base = "http://{host}:{port}/v1"')
-    print('  model = "local"')
+    print('  model = "bge-m3"')
     print("\n" + "=" * 60 + "\n")
 
 
-def start_server(
+def start_embedding_server(
     model_path: Path,
     host: str = DEFAULT_HOST,
-    port: int = DEFAULT_PORT,
-    n_ctx: int = DEFAULT_N_CTX,
+    port: int = DEFAULT_EMBEDDING_PORT,
+    n_ctx: int = DEFAULT_EMBEDDING_N_CTX,
     n_gpu_layers: int = DEFAULT_N_GPU_LAYERS,
     verbose: bool = False,
 ) -> None:
-    """Start the local LLM server.
+    """Start the local embedding server.
 
     Args:
         model_path: Path to GGUF model file.
@@ -247,9 +207,6 @@ def start_server(
         n_ctx: Context window size.
         n_gpu_layers: Number of layers to offload to GPU (-1 = all).
         verbose: Enable verbose output.
-
-    Raises:
-        ImportError: If llama-cpp-python[server] is not installed.
     """
     if not check_server_dependencies():
         print(
@@ -259,13 +216,10 @@ def start_server(
         )
         sys.exit(1)
 
-    # Print config hints before starting
-    print_config_hint(host, port, model_path.name)
+    print_embedding_config_hint(host, port, model_path.name)
 
-    # Import here to delay ImportError until we've checked
     from llama_cpp.server.app import create_app, Settings
 
-    # Configure server settings
     settings = Settings(
         model=str(model_path),
         host=host,
@@ -273,11 +227,9 @@ def start_server(
         n_ctx=n_ctx,
         n_gpu_layers=n_gpu_layers,
         verbose=verbose,
-        # Optimized for summarization workloads
-        embedding=False,  # Disable embedding endpoint (use separate server)
+        embedding=True,  # Enable embedding endpoint
     )
 
-    # Create and run the app
     app = create_app(settings=settings)
 
     import uvicorn
@@ -291,9 +243,9 @@ def start_server(
 
 
 def main() -> None:
-    """CLI entry point for local server."""
+    """CLI entry point for embedding server."""
     parser = argparse.ArgumentParser(
-        description="Start local LLM server for watercooler summarization",
+        description="Start local embedding server for watercooler",
         formatter_class=argparse.RawDescriptionHelpFormatter,
         epilog="""
 Examples:
@@ -301,18 +253,17 @@ Examples:
   %(prog)s
 
   # Use specific local model file
-  %(prog)s --model ~/models/qwen2.5-3b-instruct.gguf
+  %(prog)s --model ~/models/bge-m3-q8_0.gguf
 
   # Download and use a specific HuggingFace model
-  %(prog)s --model-id Qwen/Qwen2.5-1.5B-Instruct-GGUF
+  %(prog)s --model-id KimChen/bge-m3-GGUF:Q8_0
 
-  # Custom port and context size
-  %(prog)s --port 8081 --n-ctx 8192
+  # Custom port
+  %(prog)s --port 8081
 
 Available models (--model-id):
-  Qwen/Qwen2.5-3B-Instruct-GGUF      (default, ~2GB, good quality)
-  Qwen/Qwen2.5-1.5B-Instruct-GGUF    (smaller, ~1GB, faster)
-  bartowski/Phi-3-mini-4k-instruct-GGUF  (fast, ~2.3GB)
+  KimChen/bge-m3-GGUF         (default, ~2GB, state-of-the-art)
+  nomic-ai/nomic-embed-text-v1.5-GGUF  (lighter, ~550MB)
         """,
     )
 
@@ -320,11 +271,11 @@ Available models (--model-id):
     model_group.add_argument(
         "--model",
         "-m",
-        help="Path to local GGUF model file",
+        help="Path to local GGUF embedding model file",
     )
     model_group.add_argument(
         "--model-id",
-        help="HuggingFace model ID to download (e.g., Qwen/Qwen2.5-3B-Instruct-GGUF)",
+        help="HuggingFace model ID to download (e.g., KimChen/bge-m3-GGUF)",
     )
 
     parser.add_argument(
@@ -336,14 +287,14 @@ Available models (--model-id):
         "--port",
         "-p",
         type=int,
-        default=DEFAULT_PORT,
-        help=f"Port to listen on (default: {DEFAULT_PORT})",
+        default=DEFAULT_EMBEDDING_PORT,
+        help=f"Port to listen on (default: {DEFAULT_EMBEDDING_PORT})",
     )
     parser.add_argument(
         "--n-ctx",
         type=int,
-        default=DEFAULT_N_CTX,
-        help=f"Context window size (default: {DEFAULT_N_CTX})",
+        default=DEFAULT_EMBEDDING_N_CTX,
+        help=f"Context window size (default: {DEFAULT_EMBEDDING_N_CTX})",
     )
     parser.add_argument(
         "--n-gpu-layers",
@@ -360,14 +311,13 @@ Available models (--model-id):
 
     args = parser.parse_args()
 
-    # Ensure model is available (download if needed)
-    model_path = ensure_model(
+    model_path = ensure_embedding_model(
         model_path=args.model,
         model_id=args.model_id,
         verbose=args.verbose,
     )
 
-    start_server(
+    start_embedding_server(
         model_path=model_path,
         host=args.host,
         port=args.port,
