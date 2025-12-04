@@ -58,9 +58,10 @@ memory = [
 ]
 # Local LLM inference - provides OpenAI-compatible server for offline summarization
 # Usage: pip install watercooler-cloud[local]
-#        python -m watercooler_memory.local_server --model <model_path>
+#        python -m watercooler_memory.local_server  (auto-downloads default model)
 local = [
     "llama-cpp-python[server]>=0.2.50",
+    "huggingface_hub>=0.20",
     "httpx>=0.25",
 ]
 # Full graph building with local models
