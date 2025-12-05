@@ -1,0 +1,3 @@
+[submodule "external/LeanRAG"]
+	path = external/LeanRAG
+	url = https://github.com/mostlyharmless-ai/LeanRAG
