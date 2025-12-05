@@ -49,7 +49,7 @@ Update `~/.claude.json`:
       "command": "uvx",
       "args": [
         "--from",
-        "git+https://github.com/mostlyharmless-ai/watercooler-cloud",
+        "git+https://github.com/mostlyharmless-ai/watercooler-cloud@stable",
         "watercooler-mcp"
       ]
     },
@@ -66,7 +66,7 @@ Update `~/.codex/config.toml`:
 ```toml
 [mcp_servers.watercooler_cloud]
 command = "uvx"
-args = ["--from", "git+https://github.com/mostlyharmless-ai/watercooler-cloud", "watercooler-mcp"]
+args = ["--from", "git+https://github.com/mostlyharmless-ai/watercooler-cloud@stable", "watercooler-mcp"]
 
 ```
 
@@ -84,7 +84,7 @@ Edit `~/.cursor/mcp.json`:
       "command": "uvx",
       "args": [
         "--from",
-        "git+https://github.com/mostlyharmless-ai/watercooler-cloud",
+        "git+https://github.com/mostlyharmless-ai/watercooler-cloud@stable",
         "watercooler-mcp"
       ]
     }
@@ -106,7 +106,7 @@ Edit `~/Library/Application Support/Claude/claude_desktop_config.json` (macOS) o
       "command": "uvx",
       "args": [
         "--from",
-        "git+https://github.com/mostlyharmless-ai/watercooler-cloud",
+        "git+https://github.com/mostlyharmless-ai/watercooler-cloud@stable",
         "watercooler-mcp"
       ]
     }
