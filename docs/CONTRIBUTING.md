@@ -546,14 +546,16 @@ git push origin stable --tags
 If a release has issues:
 
 ```bash
-# Revert stable to previous tag
+# Revert stable to previous tag (e.g., rolling back v0.2.0 to v0.1.0)
 git checkout stable
-git reset --hard v0.X-1.0
+git reset --hard v0.1.0
 git push --force-with-lease origin stable
 
 # Users can pin to previous version
-uvx --from "git+https://github.com/mostlyharmless-ai/watercooler-cloud@v0.X-1.0"
+uvx --from "git+https://github.com/mostlyharmless-ai/watercooler-cloud@v0.1.0"
 ```
+
+> **Warning**: Force-pushing to `stable` affects users with cached installations. They may need to clear their `uvx` cache or re-install. Only use rollback for critical issues.
 
 ---
 
