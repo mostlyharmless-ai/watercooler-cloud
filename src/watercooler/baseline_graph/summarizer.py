@@ -264,7 +264,7 @@ def summarize_entry(
 
 {context}
 Content:
-{entry_body[:2000]}
+{_truncate_text(entry_body, 2000)}
 
 Summary:"""
 
@@ -358,11 +358,16 @@ def get_baseline_graph_config() -> Dict[str, Any]:
         from watercooler.credentials import _load_config
         config = _load_config()
         return config.get("baseline_graph", {})
-    except (ImportError, FileNotFoundError, PermissionError) as e:
+    except (ImportError, FileNotFoundError, PermissionError, OSError) as e:
+        # Expected failures when config not found/accessible
         logger.debug(f"Could not load config: {e}")
         return {}
+    except (KeyError, TypeError, ValueError) as e:
+        # Config structure issues - likely bugs in TOML format
+        logger.warning(f"Malformed baseline_graph config: {e}")
+        return {}
     except Exception as e:
-        # Log unexpected exceptions but don't crash
+        # Unexpected errors - log and continue
         logger.warning(f"Unexpected error loading baseline_graph config: {e}")
         return {}
 

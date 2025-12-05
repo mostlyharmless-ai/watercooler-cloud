@@ -20,6 +20,27 @@ The baseline graph module converts Watercooler threads into a lightweight knowle
 - Analyzing thread relationships and patterns
 - Creating searchable indexes of past discussions
 
+### Dependencies
+
+The baseline graph module has two modes with different requirements:
+
+| Mode | Dependencies | Use Case |
+|------|--------------|----------|
+| **Extractive** | None (stdlib only) | Fast, offline summarization |
+| **LLM** | `httpx` | Higher quality summaries via local LLM |
+
+**Extractive mode** works out of the box with no additional dependencies. It extracts key sentences and headers from text.
+
+**LLM mode** requires `httpx` for HTTP communication with the LLM API:
+
+```bash
+pip install httpx
+# or
+pip install watercooler-cloud[baseline]
+```
+
+If `httpx` is not installed and LLM mode is configured, the module automatically falls back to extractive mode with a warning.
+
 ## Quick Start
 
 ### Basic Export (No LLM Required)
@@ -75,6 +96,7 @@ manifest = export_all_threads(
 | `extractive_max_chars` | `200` | Max chars for extractive summaries |
 | `include_headers` | `True` | Include markdown headers in extractive summary |
 | `max_headers` | `3` | Max headers to include |
+| `max_thread_entries` | `10` | Max entries to include in thread summaries |
 | `prefer_extractive` | `False` | Force extractive mode (skip LLM) |
 
 ### Environment Variables
