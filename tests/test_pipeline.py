@@ -234,3 +234,127 @@ class TestStageValidation:
 
         assert len(errors) > 0
         assert any(".md" in e for e in errors)
+
+
+class TestExportStageIntegration:
+    """Integration tests for ExportStageRunner."""
+
+    @pytest.fixture
+    def sample_threads_dir(self, tmp_path):
+        """Create a sample threads directory with test threads."""
+        threads_dir = tmp_path / ".watercooler"
+        threads_dir.mkdir()
+
+        # Create a sample thread file
+        thread_content = """# test-thread — Thread
+
+Status: OPEN
+Ball: Claude (user)
+
+---
+
+Entry: Claude (user) 2025-01-01T12:00:00Z
+Role: planner
+Type: Plan
+Title: Test entry
+
+This is a test entry for integration testing.
+
+---
+"""
+        (threads_dir / "test-thread.md").write_text(thread_content)
+        return tmp_path  # Return parent so it finds .watercooler subdirectory
+
+    def test_export_stage_runs_successfully(self, sample_threads_dir, tmp_path):
+        """Test that export stage completes successfully with valid input."""
+        from watercooler_memory.pipeline.stages import ExportStageRunner
+        from watercooler_memory.pipeline.logging import PipelineLogger
+
+        work_dir = tmp_path / "work"
+        config = PipelineConfig(
+            threads_dir=sample_threads_dir,
+            work_dir=work_dir,
+        )
+        config.ensure_work_dir()
+        state = PipelineState.create("test-run", config.threads_dir, config.work_dir)
+        logger = PipelineLogger("test-run", work_dir / "logs")
+
+        runner = ExportStageRunner(config, state, logger)
+
+        # Validate inputs pass
+        errors = runner.validate_inputs()
+        assert len(errors) == 0, f"Validation errors: {errors}"
+
+        # Run the stage
+        outputs = runner.run()
+
+        # Verify outputs
+        assert "export_dir" in outputs
+        assert "documents_file" in outputs
+        assert Path(outputs["documents_file"]).exists()
+        assert outputs["statistics"]["documents"] >= 1
+
+
+class TestExtendedRedaction:
+    """Tests for extended secret redaction patterns."""
+
+    def test_redact_x_api_key_header(self):
+        """Test redacting X-API-Key headers."""
+        text = "X-API-Key: abcd1234567890abcdef"
+        redacted = _redact_sensitive(text)
+        assert "abcd1234567890abcdef" not in redacted
+        assert "X-API-Key" in redacted
+
+    def test_redact_url_credentials(self):
+        """Test redacting credentials from URLs."""
+        text = "Connecting to https://user:secretpassword@api.example.com/v1"
+        redacted = _redact_sensitive(text)
+        assert "secretpassword" not in redacted
+        assert "https://user:" in redacted
+        assert "@api.example.com" in redacted
+
+    def test_redact_basic_auth_header(self):
+        """Test redacting Basic auth headers."""
+        text = "Authorization: Basic dXNlcm5hbWU6cGFzc3dvcmQxMjM0NTY="
+        redacted = _redact_sensitive(text)
+        assert "dXNlcm5hbWU6cGFzc3dvcmQxMjM0NTY=" not in redacted
+        assert "[REDACTED_BASE64]" in redacted
+
+    def test_redact_aws_key(self):
+        """Test redacting AWS access keys."""
+        text = "AWS Key: AKIAIOSFODNN7EXAMPLE"
+        redacted = _redact_sensitive(text)
+        assert "AKIAIOSFODNN7EXAMPLE" not in redacted
+        assert "[REDACTED_AWS_KEY]" in redacted
+
+
+class TestConfigValidation:
+    """Additional tests for configuration validation."""
+
+    def test_pipeline_config_batch_size_validation(self, tmp_path):
+        """Test that invalid batch_size is caught by validation."""
+        threads_dir = tmp_path / "threads"
+        threads_dir.mkdir()
+        (threads_dir / "test.md").write_text("# Test")
+
+        config = PipelineConfig(
+            threads_dir=threads_dir,
+            work_dir=tmp_path / "work",
+            batch_size=0,  # Invalid
+        )
+        errors = config.validate()
+        assert any("batch_size" in e for e in errors)
+
+    def test_pipeline_config_max_concurrent_validation(self, tmp_path):
+        """Test that invalid max_concurrent is caught by validation."""
+        threads_dir = tmp_path / "threads"
+        threads_dir.mkdir()
+        (threads_dir / "test.md").write_text("# Test")
+
+        config = PipelineConfig(
+            threads_dir=threads_dir,
+            work_dir=tmp_path / "work",
+            max_concurrent=-1,  # Invalid
+        )
+        errors = config.validate()
+        assert any("max_concurrent" in e for e in errors)

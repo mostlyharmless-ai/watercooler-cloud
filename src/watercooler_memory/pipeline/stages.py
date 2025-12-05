@@ -4,6 +4,7 @@ import asyncio
 import json
 import os
 import re
+import signal
 import subprocess
 import sys
 from pathlib import Path
@@ -33,8 +34,14 @@ _SENSITIVE_PATTERNS = [
     (re.compile(r"eyJ[a-zA-Z0-9_-]*\.eyJ[a-zA-Z0-9_-]*\.[a-zA-Z0-9_-]*"), "[REDACTED_JWT]"),
     # Bearer tokens in headers
     (re.compile(r"(Bearer\s+)[a-zA-Z0-9_-]{20,}", re.I), r"\1[REDACTED_TOKEN]"),
+    # X-API-Key and similar headers
+    (re.compile(r"(X-API-Key[:\s]+)[a-zA-Z0-9_-]{16,}", re.I), r"\1[REDACTED_KEY]"),
     # AWS-style keys (AKIA prefix)
     (re.compile(r"AKIA[A-Z0-9]{16,}"), "[REDACTED_AWS_KEY]"),
+    # URL credentials (https://user:password@host)
+    (re.compile(r"(https?://[^:]+:)[^@]+(@)"), r"\1[REDACTED]\2"),
+    # Basic auth header (base64 encoded)
+    (re.compile(r"(Basic\s+)[A-Za-z0-9+/=]{20,}", re.I), r"\1[REDACTED_BASE64]"),
 ]
 
 
@@ -54,6 +61,8 @@ def _run_subprocess_with_timeout(
 ) -> subprocess.CompletedProcess:
     """Run subprocess with proper timeout handling that kills orphaned processes.
 
+    Uses process groups on Unix to ensure all child processes are killed on timeout.
+
     Args:
         cmd: Command and arguments to run
         cwd: Working directory for the subprocess
@@ -65,8 +74,12 @@ def _run_subprocess_with_timeout(
         CompletedProcess with stdout/stderr
 
     Raises:
-        StageError: If timeout expires (after killing the process)
+        StageError: If timeout expires (after killing the process tree)
     """
+    # On Unix, use process groups to kill entire process tree on timeout
+    # On Windows, start_new_session is not supported the same way
+    use_process_group = sys.platform != "win32"
+
     process = subprocess.Popen(
         cmd,
         cwd=cwd,
@@ -74,6 +87,7 @@ def _run_subprocess_with_timeout(
         stderr=subprocess.PIPE,
         text=True,
         env=env,
+        start_new_session=use_process_group,
     )
 
     try:
@@ -85,14 +99,20 @@ def _run_subprocess_with_timeout(
             stderr=stderr,
         )
     except subprocess.TimeoutExpired:
-        # Kill the process and all children
-        process.kill()
+        # Kill the entire process group (or just the process on Windows)
+        if use_process_group:
+            try:
+                os.killpg(process.pid, signal.SIGKILL)
+            except ProcessLookupError:
+                pass  # Process already terminated
+        else:
+            process.kill()
         # Wait for process to fully terminate and collect output
         stdout, stderr = process.communicate()
         timeout_mins = timeout // 60
         raise StageError(
             f"{operation_name} timed out after {timeout_mins} minutes. "
-            "Process was terminated."
+            "Process tree was terminated."
         )
 
 
@@ -252,6 +272,9 @@ class ExtractStageRunner(StageRunner):
         self.logger.info(f"Converting {len(documents)} documents to markdown")
 
         with self.logger.timed("markdown_conversion", doc_count=len(documents)):
+            # Track used filenames to avoid collisions
+            used_names: set[str] = set()
+
             for doc in documents:
                 doc_id = doc["doc_id"]
                 title = doc.get("title", "Untitled")
@@ -275,6 +298,15 @@ class ExtractStageRunner(StageRunner):
                 safe_id = re.sub(r"[^\w-]", "_", doc_id).lstrip("_")[:200]
                 if not safe_id:
                     safe_id = "unnamed"
+
+                # Handle filename collisions with counter suffix
+                base_id = safe_id
+                counter = 0
+                while safe_id in used_names:
+                    counter += 1
+                    safe_id = f"{base_id}_{counter}"
+                used_names.add(safe_id)
+
                 md_path = md_dir / f"{safe_id}.md"
                 md_path.write_text(md_content)
 
