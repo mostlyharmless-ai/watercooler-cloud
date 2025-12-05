@@ -59,6 +59,8 @@ class LLMConfig:
         errors = []
         if not self.api_key:
             errors.append("DEEPSEEK_API_KEY not set (env or ~/.watercooler/credentials.toml)")
+        if self.base_url and not self.base_url.startswith(("http://", "https://")):
+            errors.append(f"Invalid LLM API base URL (must start with http:// or https://): {self.base_url}")
         return errors
 
 
@@ -76,6 +78,8 @@ class EmbeddingConfig:
         errors = []
         if not self.base_url:
             errors.append("Embedding API base URL not set (env EMBEDDING_API_BASE or ~/.watercooler/config.toml)")
+        elif not self.base_url.startswith(("http://", "https://")):
+            errors.append(f"Invalid Embedding API base URL (must start with http:// or https://): {self.base_url}")
         return errors
 
 

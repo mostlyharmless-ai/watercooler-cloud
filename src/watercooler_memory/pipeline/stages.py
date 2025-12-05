@@ -26,6 +26,12 @@ class StageError(Exception):
 _SENSITIVE_PATTERNS = [
     (re.compile(r"(DEEPSEEK_API_KEY|API_KEY|SECRET|PASSWORD|TOKEN)=\S+", re.I), r"\1=[REDACTED]"),
     (re.compile(r"(sk-|api-|key-)[a-zA-Z0-9]{20,}"), "[REDACTED_KEY]"),
+    # JWT tokens (three base64 sections separated by dots)
+    (re.compile(r"eyJ[a-zA-Z0-9_-]*\.eyJ[a-zA-Z0-9_-]*\.[a-zA-Z0-9_-]*"), "[REDACTED_JWT]"),
+    # Bearer tokens in headers
+    (re.compile(r"(Bearer\s+)[a-zA-Z0-9_-]{20,}", re.I), r"\1[REDACTED_TOKEN]"),
+    # Generic long alphanumeric strings that look like secrets (40+ chars)
+    (re.compile(r"[a-zA-Z0-9]{40,}"), "[REDACTED_LONG_SECRET]"),
 ]
 
 
@@ -209,8 +215,11 @@ class ExtractStageRunner(StageRunner):
                 md_content += content
 
                 # Write to file (sanitize doc_id for safe filename)
-                # Only allow alphanumeric, dash, underscore, and dot
-                safe_id = re.sub(r"[^\w.-]", "_", doc_id)
+                # Only allow alphanumeric, dash, underscore
+                # Strip dots to prevent hidden files and path traversal
+                safe_id = re.sub(r"[^\w-]", "_", doc_id).lstrip("_")
+                if not safe_id:
+                    safe_id = "unnamed"
                 md_path = md_dir / f"{safe_id}.md"
                 md_path.write_text(md_content)
 
