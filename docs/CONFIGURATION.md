@@ -214,6 +214,29 @@ check_commit_footers = true  # Validate commit footers
 check_entry_format = true    # Validate entry format
 ```
 
+### `[baseline_graph]` Section
+
+Settings for the baseline graph module (free-tier knowledge graph generation):
+
+```toml
+[baseline_graph]
+prefer_extractive = false    # Force extractive mode (skip LLM)
+
+[baseline_graph.llm]
+api_base = "http://localhost:11434/v1"  # Ollama default
+model = "llama3.2:3b"                   # Small local model
+api_key = "ollama"                      # Ollama doesn't require key
+timeout = 30.0                          # Request timeout (seconds)
+max_tokens = 256                        # Max response tokens
+
+[baseline_graph.extractive]
+max_chars = 200              # Max chars for extractive summary
+include_headers = true       # Include markdown headers
+max_headers = 3              # Max headers to include
+```
+
+See [Baseline Graph Documentation](baseline-graph.md) for full usage guide.
+
 ## Migrating from Environment Variables
 
 If you're currently using environment variables, you can migrate to config files:

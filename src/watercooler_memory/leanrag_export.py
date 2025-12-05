@@ -173,6 +173,20 @@ def export_to_leanrag(
         json.dumps(manifest, indent=2)
     )
 
+    # Also export chunks.json for LeanRAG pipeline compatibility
+    # LeanRAG's get_chunk() expects list of {hash_code, text} objects
+    chunks_for_leanrag = []
+    for doc in documents:
+        for chunk in doc["chunks"]:
+            chunks_for_leanrag.append({
+                "hash_code": chunk["hash_code"],
+                "text": chunk["text"],
+            })
+    (output_dir / "chunks.json").write_text(
+        json.dumps(chunks_for_leanrag, indent=2, default=str)
+    )
+    manifest["files"]["chunks"] = "chunks.json"
+
     return manifest
 
 

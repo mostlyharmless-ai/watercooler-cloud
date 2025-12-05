@@ -51,6 +51,11 @@ http = [
     "fastapi>=0.100",
     "uvicorn[standard]>=0.20",
 ]
+# Baseline graph module - LLM-based summarization for knowledge graphs
+# Usage: pip install watercooler-cloud[baseline]
+baseline = [
+    "httpx>=0.25",
+]
 memory = [
     "tiktoken>=0.5",
     "httpx>=0.25",

@@ -1,77 +1,70 @@
 # Watercooler Scripts
 
-## KV Setup for Remote MCP
+Utility scripts for watercooler-cloud development and deployment.
 
-### Quick Start
+## Memory Graph
 
-```bash
-# 1. Install wrangler if needed
-npm install -g wrangler
+### build_memory_graph.py
 
-# 2. Login to Cloudflare
-wrangler login
-
-# 3. Run setup script
-cd scripts
-chmod +x kv_setup.sh
-./kv_setup.sh
-```
-
-### Manual KV Setup
-
-If you prefer to set up KV manually:
+Builds a memory graph from watercooler threads and exports to LeanRAG format.
 
 ```bash
-# Create KV namespace
-wrangler kv:namespace create KV_PROJECTS
+# Basic usage - build graph from threads
+python scripts/build_memory_graph.py /path/to/threads-repo
 
-# Load user ACLs (example for user gh:caleb)
-wrangler kv:key put \
-  --namespace-id=<your-kv-id> \
-  "gh:caleb" \
-  '{"user_id":"gh:caleb","default":"watercooler-cloud","projects":["watercooler-cloud","proj-alpha"]}'
+# Export to LeanRAG format
+python scripts/build_memory_graph.py /path/to/threads-repo --export-leanrag ./output
 
-# Verify
-wrangler kv:key get --namespace-id=<your-kv-id> "gh:caleb"
+# Save intermediate graph JSON
+python scripts/build_memory_graph.py /path/to/threads-repo -o graph.json --export-leanrag ./output
 ```
 
-### KV Data Structure
+Output:
+- `documents.json` - Entries with chunks for LeanRAG processing
+- `threads.json` - Thread metadata
+- `manifest.json` - Export statistics
 
-Each user entry in KV follows this schema:
+See [docs/MEMORY.md](../docs/MEMORY.md) for the full LeanRAG integration pipeline.
 
-```json
-{
-  "user_id": "gh:username",
-  "default": "default-project-id",
-  "projects": ["project1", "project2", ...]
-}
+## MCP Server
+
+### install-mcp.sh / install-mcp.ps1
+
+Install the watercooler MCP server for AI coding assistants.
+
+```bash
+# Linux/macOS
+./scripts/install-mcp.sh
+
+# Windows (PowerShell)
+.\scripts\install-mcp.ps1
 ```
 
-- **user_id**: GitHub username prefixed with `gh:` (matches OAuth identity)
-- **default**: Project ID to use when `?project=` is not specified
-- **projects**: Array of project IDs this user can access
+Configures:
+- Claude Code (`~/.claude/claude_desktop_config.json`)
+- Codex CLI (`~/.codex/config.toml`)
 
-### Adding New Users
+### mcp-server-daemon.sh
 
-Edit `kv_seed_projects.json` and add a new entry:
+Run the MCP server as a persistent daemon with HTTP transport.
 
-```json
-{
-  "key": "gh:newuser",
-  "value": {
-    "user_id": "gh:newuser",
-    "default": "my-project",
-    "projects": ["my-project", "shared-project"]
-  }
-}
+```bash
+./scripts/mcp-server-daemon.sh [host] [port]
+# Default: 127.0.0.1:8080
 ```
 
-Then re-run the setup script or use wrangler directly.
+## Git Integration
 
-### Project Isolation
+### git-credential-watercooler
 
-Each project gets its own threads directory:
-- Local mode: `{BASE_THREADS_ROOT}/{user_id}/{project_id}/`
-- Git mode: Mapped per project to separate repositories
+Git credential helper for GitHub authentication via watercooler-site dashboard.
 
-This ensures complete data isolation between projects.
+```bash
+# Install as git credential helper
+git config --global credential.helper /path/to/scripts/git-credential-watercooler
+
+# Usage (automatic - git calls this when credentials needed)
+echo "protocol=https\nhost=github.com" | ./scripts/git-credential-watercooler get
+```
+
+Retrieves GitHub tokens from the watercooler dashboard OAuth flow.

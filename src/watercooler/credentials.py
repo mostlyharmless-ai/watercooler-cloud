@@ -404,6 +404,27 @@ def get_deepseek_api_base() -> str:
     return llm_config.get("api_base", "https://api.deepseek.com/v1")
 
 
+def get_deepseek_model() -> str:
+    """Get DeepSeek model name from config or environment.
+
+    Priority: Environment > config.toml > Default
+
+    Available models (as of Dec 2025):
+    - deepseek-chat: General purpose chat model
+    - deepseek-v3.2: Reasoning-first model for agents
+    - deepseek-v3.2-speciale: Extended reasoning capabilities
+    """
+    # Check environment first
+    env_model = os.getenv("DEEPSEEK_MODEL")
+    if env_model:
+        return env_model
+
+    # Load from config.toml
+    mg_config = get_memory_graph_config()
+    llm_config = mg_config.get("llm", {})
+    return llm_config.get("model", "deepseek-v3.2")
+
+
 def get_embedding_api_base() -> str:
     """Get embedding API base URL from config or environment.
 
