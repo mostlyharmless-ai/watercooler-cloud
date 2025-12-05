@@ -7,7 +7,7 @@ Falls back to extractive summarization when LLM is unavailable.
 import logging
 import os
 import re
-from dataclasses import dataclass, field
+from dataclasses import dataclass
 from typing import Any, Dict, List, Optional
 
 logger = logging.getLogger(__name__)
@@ -172,6 +172,45 @@ def extractive_summary(
     return " | ".join(parts) if parts else text[:max_chars]
 
 
+def _validate_api_base(api_base: str) -> bool:
+    """Validate api_base URL format and warn about security concerns.
+
+    Args:
+        api_base: The API base URL to validate
+
+    Returns:
+        True if URL is valid, False otherwise
+    """
+    from urllib.parse import urlparse
+
+    try:
+        parsed = urlparse(api_base)
+
+        # Must have scheme and netloc
+        if not parsed.scheme or not parsed.netloc:
+            logger.warning(f"Invalid api_base URL format: {api_base}")
+            return False
+
+        # Must be http or https
+        if parsed.scheme not in ("http", "https"):
+            logger.warning(f"api_base must use http or https: {api_base}")
+            return False
+
+        # Warn about non-localhost URLs (potential SSRF)
+        host = parsed.netloc.split(":")[0].lower()
+        localhost_hosts = ("localhost", "127.0.0.1", "::1", "0.0.0.0")
+        if host not in localhost_hosts:
+            logger.warning(
+                f"api_base points to non-localhost ({host}). "
+                "Ensure this is intentional for your LLM backend."
+            )
+
+        return True
+    except Exception as e:
+        logger.warning(f"Failed to parse api_base URL: {e}")
+        return False
+
+
 def _call_llm(
     prompt: str,
     config: SummarizerConfig,
@@ -189,6 +228,10 @@ def _call_llm(
         import httpx
     except ImportError:
         logger.warning("httpx not available, falling back to extractive")
+        return None
+
+    # Validate api_base URL
+    if not _validate_api_base(config.api_base):
         return None
 
     url = f"{config.api_base.rstrip('/')}/chat/completions"
