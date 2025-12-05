@@ -118,6 +118,12 @@ class PipelineConfig:
         if self.leanrag_dir and not self.leanrag_dir.exists():
             errors.append(f"LeanRAG directory not found: {self.leanrag_dir}")
 
+        # Validate processing parameters
+        if self.batch_size < 1:
+            errors.append(f"batch_size must be >= 1, got {self.batch_size}")
+        if self.max_concurrent < 1:
+            errors.append(f"max_concurrent must be >= 1, got {self.max_concurrent}")
+
         errors.extend(self.llm.validate())
         errors.extend(self.embedding.validate())
 
