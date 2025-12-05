@@ -58,12 +58,27 @@ class SummarizerConfig:
     @classmethod
     def from_env(cls) -> "SummarizerConfig":
         """Create config from environment variables."""
+        # Parse numeric values with fallback to defaults on invalid input
+        timeout = cls.timeout
+        if timeout_str := os.environ.get("BASELINE_GRAPH_TIMEOUT"):
+            try:
+                timeout = float(timeout_str)
+            except ValueError:
+                logger.warning(f"Invalid BASELINE_GRAPH_TIMEOUT value: {timeout_str!r}, using default")
+
+        max_tokens = cls.max_tokens
+        if max_tokens_str := os.environ.get("BASELINE_GRAPH_MAX_TOKENS"):
+            try:
+                max_tokens = int(max_tokens_str)
+            except ValueError:
+                logger.warning(f"Invalid BASELINE_GRAPH_MAX_TOKENS value: {max_tokens_str!r}, using default")
+
         return cls(
             api_base=os.environ.get("BASELINE_GRAPH_API_BASE", cls.api_base),
             model=os.environ.get("BASELINE_GRAPH_MODEL", cls.model),
             api_key=os.environ.get("BASELINE_GRAPH_API_KEY", cls.api_key),
-            timeout=float(os.environ.get("BASELINE_GRAPH_TIMEOUT") or cls.timeout),
-            max_tokens=int(os.environ.get("BASELINE_GRAPH_MAX_TOKENS") or cls.max_tokens),
+            timeout=timeout,
+            max_tokens=max_tokens,
             prefer_extractive=os.environ.get("BASELINE_GRAPH_EXTRACTIVE_ONLY", "").lower() in ("1", "true", "yes"),
         )
 

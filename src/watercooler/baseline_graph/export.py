@@ -19,7 +19,7 @@ logger = logging.getLogger(__name__)
 # Regex patterns for cross-reference extraction
 FILE_REF_RE = re.compile(r"`([a-zA-Z0-9_/.-]+\.[a-zA-Z0-9]+)`")
 PR_REF_RE = re.compile(r"#(\d+)")
-COMMIT_REF_RE = re.compile(r"\b([a-fA-F0-9]{8,40})\b")  # Min 8 chars to reduce false positives
+COMMIT_REF_RE = re.compile(r"\b([a-fA-F0-9]{10,40})\b")  # Min 10 chars to avoid UUID/hex false positives
 
 
 def _is_safe_path(path: str) -> bool:

@@ -479,15 +479,15 @@ class TestRefExtraction:
         assert 456 in refs
 
     def test_extract_commit_refs(self):
-        """Test commit SHA extraction (min 8 chars to reduce false positives)."""
-        text = "Fixed in abc12345 and def5678901234567890."
+        """Test commit SHA extraction (min 10 chars to avoid UUID/hex false positives)."""
+        text = "Fixed in abc1234567 and def5678901234567890."
         refs = _extract_commit_refs(text)
-        assert "abc12345" in refs
-        assert "def5678901234567890" in refs
-        # 7-char strings should NOT match (too short)
-        text2 = "Not a commit: abc1234"
+        assert "abc1234567" in refs  # 10 chars - matches
+        assert "def5678901234567890" in refs  # 20 chars - matches
+        # 9-char strings should NOT match (too short)
+        text2 = "Not a commit: abc123456"  # 9 chars
         refs2 = _extract_commit_refs(text2)
-        assert "abc1234" not in refs2
+        assert "abc123456" not in refs2
 
 
 class TestNodeConversion:
