@@ -165,8 +165,8 @@ class ExportStageRunner(StageRunner):
 
         self.logger.info(f"Threads directory: {threads_dir}")
 
-        # Build memory graph
-        graph_config = GraphConfig()
+        # Build memory graph (skip embeddings - not needed for export)
+        graph_config = GraphConfig(generate_embeddings=False)
         graph = MemoryGraph(graph_config)
 
         def progress_cb(current: int, total: int, message: str) -> None:
