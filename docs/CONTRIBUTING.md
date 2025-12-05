@@ -467,8 +467,8 @@ main (development) ──PR──► staging (integration) ──release──�
 # Production (recommended)
 uvx --from "git+https://github.com/mostlyharmless-ai/watercooler-cloud@stable"
 
-# Pinned version (most stable)
-uvx --from "git+https://github.com/mostlyharmless-ai/watercooler-cloud@v0.2.0"
+# Pinned version (check releases for available tags)
+uvx --from "git+https://github.com/mostlyharmless-ai/watercooler-cloud@v0.1.0"
 
 # Bleeding edge (developers only)
 uvx --from "git+https://github.com/mostlyharmless-ai/watercooler-cloud@main"
