@@ -9,7 +9,12 @@ Phase 1B features:
 - Codex TOML configuration support
 """
 
-__version__ = "0.2.0"
+from importlib.metadata import version, PackageNotFoundError
+
+try:
+    __version__ = version("watercooler-cloud")
+except PackageNotFoundError:
+    __version__ = "0.0.0-dev"  # Fallback for editable installs without metadata
 
 from .server import mcp
 
