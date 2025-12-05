@@ -11,9 +11,9 @@ from unittest.mock import patch
 import pytest
 
 
-# Import the module - will fail gracefully if deps missing
+# Import the module - deps availability is checked via DEPS_AVAILABLE flag
+sys.path.insert(0, str(Path(__file__).parent.parent / "scripts"))
 try:
-    sys.path.insert(0, str(Path(__file__).parent.parent / "scripts"))
     from visualize_graph import (
         load_graph,
         get_node_color,
@@ -23,9 +23,10 @@ try:
         get_edge_color,
         COLORS,
         SIZES,
+        DEPS_AVAILABLE,
     )
-    DEPS_AVAILABLE = True
 except ImportError:
+    # Fallback if module itself can't be imported
     DEPS_AVAILABLE = False
 
 
@@ -293,10 +294,11 @@ class TestGetEdgeColor:
         assert get_edge_color(edge) == "#999999"
 
 
-# Import build_networkx_graph for testing (if available)
+# Import build_networkx_graph for testing (requires networkx)
 try:
     from visualize_graph import build_networkx_graph
-    BUILD_GRAPH_AVAILABLE = True
+    # Only mark available if deps are actually installed
+    BUILD_GRAPH_AVAILABLE = DEPS_AVAILABLE
 except ImportError:
     BUILD_GRAPH_AVAILABLE = False
 
@@ -373,10 +375,11 @@ class TestBuildNetworkxGraph:
         assert G.nodes["thread:test"]["type"] == "thread"
 
 
-# Import main for integration testing
+# Import main for integration testing (requires pyvis/networkx)
 try:
     from visualize_graph import main
-    MAIN_AVAILABLE = True
+    # Only mark available if deps are actually installed
+    MAIN_AVAILABLE = DEPS_AVAILABLE
 except ImportError:
     MAIN_AVAILABLE = False
 

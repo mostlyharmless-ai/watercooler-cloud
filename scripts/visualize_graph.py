@@ -36,20 +36,18 @@ from pathlib import Path
 from typing import Any, Dict, List, Tuple
 
 # Check for optional dependencies
+_MISSING_DEPS_ERROR: ImportError | None = None
 try:
     import networkx as nx
     from pyvis.network import Network
 except ImportError as e:
-    print(
-        "Error: Missing required dependencies for graph visualization.",
-        file=sys.stderr,
-    )
-    print(
-        "Install with: pip install pyvis networkx",
-        file=sys.stderr,
-    )
-    print(f"Details: {e}", file=sys.stderr)
-    sys.exit(1)
+    _MISSING_DEPS_ERROR = e
+    # Define placeholders so module can still be imported for testing
+    nx = None  # type: ignore[assignment]
+    Network = None  # type: ignore[assignment, misc]
+
+# Flag for tests to check if deps are available
+DEPS_AVAILABLE = _MISSING_DEPS_ERROR is None
 
 
 # Color schemes
@@ -381,6 +379,19 @@ def main() -> int:
     Returns:
         Exit code (0 for success, 1 for error)
     """
+    # Check for missing dependencies
+    if _MISSING_DEPS_ERROR is not None:
+        print(
+            "Error: Missing required dependencies for graph visualization.",
+            file=sys.stderr,
+        )
+        print(
+            "Install with: pip install pyvis networkx",
+            file=sys.stderr,
+        )
+        print(f"Details: {_MISSING_DEPS_ERROR}", file=sys.stderr)
+        return 1
+
     parser = argparse.ArgumentParser(
         description="Interactive visualization for baseline graph"
     )
