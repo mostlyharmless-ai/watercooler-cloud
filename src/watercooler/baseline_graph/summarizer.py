@@ -29,6 +29,9 @@ class SummarizerConfig:
     include_headers: bool = True
     max_headers: int = 3
 
+    # Thread summarization
+    max_thread_entries: int = 10  # Max entries to include in thread summary
+
     # Behavior
     prefer_extractive: bool = False  # Force extractive mode
     retry_on_failure: bool = True
@@ -48,6 +51,7 @@ class SummarizerConfig:
             extractive_max_chars=extractive.get("max_chars", cls.extractive_max_chars),
             include_headers=extractive.get("include_headers", cls.include_headers),
             max_headers=extractive.get("max_headers", cls.max_headers),
+            max_thread_entries=config.get("max_thread_entries", cls.max_thread_entries),
             prefer_extractive=config.get("prefer_extractive", cls.prefer_extractive),
         )
 
@@ -301,7 +305,7 @@ def summarize_thread(
 
     # Concatenate entry summaries for context
     entry_summaries = []
-    for entry in entries[:10]:  # Limit to first 10 entries
+    for entry in entries[:config.max_thread_entries]:
         body = entry.get("body", "")
         title = entry.get("title", "")
         if body:
@@ -354,7 +358,12 @@ def get_baseline_graph_config() -> Dict[str, Any]:
         from watercooler.credentials import _load_config
         config = _load_config()
         return config.get("baseline_graph", {})
-    except Exception:
+    except (ImportError, FileNotFoundError, PermissionError) as e:
+        logger.debug(f"Could not load config: {e}")
+        return {}
+    except Exception as e:
+        # Log unexpected exceptions but don't crash
+        logger.warning(f"Unexpected error loading baseline_graph config: {e}")
         return {}
 
 

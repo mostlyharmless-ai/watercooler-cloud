@@ -7,7 +7,7 @@ the Watercooler dashboard knowledge graph view.
 import json
 import logging
 import re
-from datetime import datetime
+from datetime import datetime, timezone
 from pathlib import Path
 from typing import Any, Dict, Iterator, List, Optional, Tuple
 
@@ -19,12 +19,34 @@ logger = logging.getLogger(__name__)
 # Regex patterns for cross-reference extraction
 FILE_REF_RE = re.compile(r"`([a-zA-Z0-9_/.-]+\.[a-zA-Z0-9]+)`")
 PR_REF_RE = re.compile(r"#(\d+)")
-COMMIT_REF_RE = re.compile(r"\b([a-f0-9]{7,40})\b")
+COMMIT_REF_RE = re.compile(r"\b([a-fA-F0-9]{7,40})\b")
+
+
+def _is_safe_path(path: str) -> bool:
+    """Check if a path reference is safe (no traversal or absolute paths).
+
+    Args:
+        path: Path string to validate
+
+    Returns:
+        True if path is safe, False if it contains traversal or is absolute
+    """
+    # Reject absolute paths
+    if path.startswith("/") or (len(path) > 1 and path[1] == ":"):
+        return False
+    # Reject path traversal
+    if ".." in path:
+        return False
+    return True
 
 
 def _extract_file_refs(text: str) -> List[str]:
-    """Extract file path references from text."""
-    return list(set(FILE_REF_RE.findall(text)))
+    """Extract file path references from text.
+
+    Filters out paths with traversal sequences or absolute paths for security.
+    """
+    refs = FILE_REF_RE.findall(text)
+    return list(set(ref for ref in refs if _is_safe_path(ref)))
 
 
 def _extract_pr_refs(text: str) -> List[int]:
@@ -213,7 +235,7 @@ def export_all_threads(
     # Write manifest
     manifest = {
         "version": "1.0",
-        "generated_at": datetime.utcnow().isoformat() + "Z",
+        "generated_at": datetime.now(timezone.utc).strftime("%Y-%m-%dT%H:%M:%SZ"),
         "source_dir": str(threads_dir),
         "threads_exported": total_threads,
         "entries_exported": total_entries,
