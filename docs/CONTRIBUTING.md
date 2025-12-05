@@ -476,17 +476,15 @@ uvx --from "git+https://github.com/mostlyharmless-ai/watercooler-cloud@main"
 
 ### Branch Protection
 
-**`stable` branch:**
-- Requires PR reviews (2+ approvers)
-- Requires status checks to pass
-- Requires linear history
+| Branch | PR Required | Approvals | CI Must Pass |
+|--------|-------------|-----------|--------------|
+| `main` | Yes | 0 | Yes |
+| `staging` | Yes | 0 | Yes |
+| `stable` | Yes | 1 | Yes |
+
+**Additional rules for `stable`:**
 - Restricted push access (release managers only)
 - No force pushes or deletions
-
-**`main` branch:**
-- Requires PR reviews (1+ approver)
-- Requires status checks to pass
-- Squash merging preferred
 
 ---
 
