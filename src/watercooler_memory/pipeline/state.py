@@ -1,7 +1,7 @@
 """Pipeline state management for resumable processing."""
 
 from dataclasses import dataclass, field, asdict
-from datetime import datetime
+from datetime import datetime, timezone
 from enum import Enum
 from pathlib import Path
 from typing import Optional, Any
@@ -64,7 +64,7 @@ class StageState:
     def start(self, total_items: int = 0) -> None:
         """Mark stage as started."""
         self.status = StageStatus.RUNNING
-        self.started_at = datetime.utcnow().isoformat() + "Z"
+        self.started_at = datetime.now(timezone.utc).isoformat() + "Z"
         self.total_items = total_items
         self.processed_items = 0
         self.failed_items = 0
@@ -73,12 +73,12 @@ class StageState:
     def complete(self) -> None:
         """Mark stage as completed."""
         self.status = StageStatus.COMPLETED
-        self.completed_at = datetime.utcnow().isoformat() + "Z"
+        self.completed_at = datetime.now(timezone.utc).isoformat() + "Z"
 
     def fail(self, error: str) -> None:
         """Mark stage as failed."""
         self.status = StageStatus.FAILED
-        self.completed_at = datetime.utcnow().isoformat() + "Z"
+        self.completed_at = datetime.now(timezone.utc).isoformat() + "Z"
         self.error = error
 
     def update_progress(self, processed: int, failed: int = 0) -> None:
@@ -155,7 +155,7 @@ class PipelineState:
 
     def save(self, path: Path) -> None:
         """Save state to file."""
-        self.updated_at = datetime.utcnow().isoformat() + "Z"
+        self.updated_at = datetime.now(timezone.utc).isoformat() + "Z"
 
         # Convert to dict, handling StageState objects
         data = {
@@ -197,7 +197,7 @@ class PipelineState:
     @classmethod
     def create(cls, run_id: str, threads_dir: Path, work_dir: Path, test_mode: bool = False) -> "PipelineState":
         """Create a new pipeline state."""
-        now = datetime.utcnow().isoformat() + "Z"
+        now = datetime.now(timezone.utc).isoformat() + "Z"
         return cls(
             run_id=run_id,
             created_at=now,

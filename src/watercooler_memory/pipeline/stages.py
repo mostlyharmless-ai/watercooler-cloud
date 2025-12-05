@@ -23,15 +23,18 @@ class StageError(Exception):
 
 
 # Patterns for redacting sensitive data in logs
+# Ordered from most specific to least specific
 _SENSITIVE_PATTERNS = [
-    (re.compile(r"(DEEPSEEK_API_KEY|API_KEY|SECRET|PASSWORD|TOKEN)=\S+", re.I), r"\1=[REDACTED]"),
+    # Environment variable assignments with sensitive names
+    (re.compile(r"(DEEPSEEK_API_KEY|API_KEY|SECRET|PASSWORD|TOKEN|CREDENTIAL)=\S+", re.I), r"\1=[REDACTED]"),
+    # Common API key prefixes (sk- for OpenAI/Anthropic, api-, key-)
     (re.compile(r"(sk-|api-|key-)[a-zA-Z0-9]{20,}"), "[REDACTED_KEY]"),
-    # JWT tokens (three base64 sections separated by dots)
+    # JWT tokens (three base64 sections separated by dots, starts with eyJ)
     (re.compile(r"eyJ[a-zA-Z0-9_-]*\.eyJ[a-zA-Z0-9_-]*\.[a-zA-Z0-9_-]*"), "[REDACTED_JWT]"),
     # Bearer tokens in headers
     (re.compile(r"(Bearer\s+)[a-zA-Z0-9_-]{20,}", re.I), r"\1[REDACTED_TOKEN]"),
-    # Generic long alphanumeric strings that look like secrets (40+ chars)
-    (re.compile(r"[a-zA-Z0-9]{40,}"), "[REDACTED_LONG_SECRET]"),
+    # AWS-style keys (AKIA prefix)
+    (re.compile(r"AKIA[A-Z0-9]{16,}"), "[REDACTED_AWS_KEY]"),
 ]
 
 
@@ -40,6 +43,57 @@ def _redact_sensitive(text: str) -> str:
     for pattern, replacement in _SENSITIVE_PATTERNS:
         text = pattern.sub(replacement, text)
     return text
+
+
+def _run_subprocess_with_timeout(
+    cmd: list[str],
+    cwd: str,
+    env: dict[str, str],
+    timeout: int,
+    operation_name: str,
+) -> subprocess.CompletedProcess:
+    """Run subprocess with proper timeout handling that kills orphaned processes.
+
+    Args:
+        cmd: Command and arguments to run
+        cwd: Working directory for the subprocess
+        env: Environment variables
+        timeout: Timeout in seconds
+        operation_name: Name of operation for error messages
+
+    Returns:
+        CompletedProcess with stdout/stderr
+
+    Raises:
+        StageError: If timeout expires (after killing the process)
+    """
+    process = subprocess.Popen(
+        cmd,
+        cwd=cwd,
+        stdout=subprocess.PIPE,
+        stderr=subprocess.PIPE,
+        text=True,
+        env=env,
+    )
+
+    try:
+        stdout, stderr = process.communicate(timeout=timeout)
+        return subprocess.CompletedProcess(
+            args=cmd,
+            returncode=process.returncode,
+            stdout=stdout,
+            stderr=stderr,
+        )
+    except subprocess.TimeoutExpired:
+        # Kill the process and all children
+        process.kill()
+        # Wait for process to fully terminate and collect output
+        stdout, stderr = process.communicate()
+        timeout_mins = timeout // 60
+        raise StageError(
+            f"{operation_name} timed out after {timeout_mins} minutes. "
+            "Process was terminated."
+        )
 
 
 class StageRunner:
@@ -216,8 +270,9 @@ class ExtractStageRunner(StageRunner):
 
                 # Write to file (sanitize doc_id for safe filename)
                 # Only allow alphanumeric, dash, underscore
-                # Strip dots to prevent hidden files and path traversal
-                safe_id = re.sub(r"[^\w-]", "_", doc_id).lstrip("_")
+                # Strip leading underscores to prevent hidden files
+                # Limit length to avoid filesystem issues (max 200 chars before .md extension)
+                safe_id = re.sub(r"[^\w-]", "_", doc_id).lstrip("_")[:200]
                 if not safe_id:
                     safe_id = "unnamed"
                 md_path = md_dir / f"{safe_id}.md"
@@ -260,28 +315,23 @@ class ExtractStageRunner(StageRunner):
         env["EMBEDDING_BATCH_SIZE"] = str(self.config.embedding.batch_size)
 
         with self.logger.timed("llm_call", operation="leanrag_extraction"):
-            try:
-                result = subprocess.run(
-                    cmd,
-                    cwd=str(leanrag_dir),
-                    capture_output=True,
-                    text=True,
-                    timeout=3600,  # 1 hour timeout
-                    env=env,
-                )
+            result = _run_subprocess_with_timeout(
+                cmd=cmd,
+                cwd=str(leanrag_dir),
+                env=env,
+                timeout=3600,  # 1 hour timeout
+                operation_name="LeanRAG pipeline",
+            )
 
-                # Log output
-                if result.stdout:
-                    for line in result.stdout.split("\n"):
-                        if line.strip():
-                            self.logger.debug(line)
+            # Log output
+            if result.stdout:
+                for line in result.stdout.split("\n"):
+                    if line.strip():
+                        self.logger.debug(line)
 
-                if result.returncode != 0:
-                    self.logger.error(f"LeanRAG pipeline failed: {_redact_sensitive(result.stderr)}")
-                    raise StageError(f"LeanRAG pipeline failed with code {result.returncode}")
-
-            except subprocess.TimeoutExpired:
-                raise StageError("LeanRAG pipeline timed out after 1 hour")
+            if result.returncode != 0:
+                self.logger.error(f"LeanRAG pipeline failed: {_redact_sensitive(result.stderr)}")
+                raise StageError(f"LeanRAG pipeline failed with code {result.returncode}")
 
         # Verify outputs
         entity_file = working_dir / "entity.jsonl"
@@ -376,27 +426,22 @@ class DedupeStageRunner(StageRunner):
         env["EMBEDDING_BATCH_SIZE"] = str(self.config.embedding.batch_size)
 
         with self.logger.timed("llm_call", operation="entity_deduplication"):
-            try:
-                result = subprocess.run(
-                    cmd,
-                    cwd=str(leanrag_dir),
-                    capture_output=True,
-                    text=True,
-                    timeout=1800,  # 30 minute timeout
-                    env=env,
-                )
+            result = _run_subprocess_with_timeout(
+                cmd=cmd,
+                cwd=str(leanrag_dir),
+                env=env,
+                timeout=1800,  # 30 minute timeout
+                operation_name="Entity deduplication",
+            )
 
-                if result.stdout:
-                    for line in result.stdout.split("\n"):
-                        if line.strip():
-                            self.logger.debug(line)
+            if result.stdout:
+                for line in result.stdout.split("\n"):
+                    if line.strip():
+                        self.logger.debug(line)
 
-                if result.returncode != 0:
-                    self.logger.error(f"Deduplication failed: {_redact_sensitive(result.stderr)}")
-                    raise StageError(f"Deduplication failed with code {result.returncode}")
-
-            except subprocess.TimeoutExpired:
-                raise StageError("Deduplication timed out after 30 minutes")
+            if result.returncode != 0:
+                self.logger.error(f"Deduplication failed: {_redact_sensitive(result.stderr)}")
+                raise StageError(f"Deduplication failed with code {result.returncode}")
 
         # Verify outputs
         entity_file = processed_dir / "entity.jsonl"
@@ -493,52 +538,47 @@ class BuildStageRunner(StageRunner):
         env["LLM_API_BASE"] = self.config.llm.base_url
 
         with self.logger.timed("embedding_call", operation="graph_build_embeddings"):
-            try:
-                result = subprocess.run(
-                    cmd,
-                    cwd=str(leanrag_dir),
-                    capture_output=True,
-                    text=True,
-                    timeout=7200,  # 2 hour timeout
-                    env=env,
-                )
+            result = _run_subprocess_with_timeout(
+                cmd=cmd,
+                cwd=str(leanrag_dir),
+                env=env,
+                timeout=7200,  # 2 hour timeout
+                operation_name="Graph build",
+            )
 
-                if result.stdout:
-                    for line in result.stdout.split("\n"):
-                        if line.strip():
-                            self.logger.debug(line)
+            if result.stdout:
+                for line in result.stdout.split("\n"):
+                    if line.strip():
+                        self.logger.debug(line)
 
-                # Check for essential outputs BEFORE failing on return code
-                # LeanRAG's build_graph.py may fail at MySQL step after creating all critical outputs
-                all_entities_file = processed_dir / "all_entities.json"
-                milvus_db_file = processed_dir / "milvus_demo.db"
+            # Check for essential outputs BEFORE failing on return code
+            # LeanRAG's build_graph.py may fail at MySQL step after creating all critical outputs
+            all_entities_file = processed_dir / "all_entities.json"
+            milvus_db_file = processed_dir / "milvus_demo.db"
 
-                has_essential_outputs = (
-                    all_entities_file.exists()
-                    and all_entities_file.stat().st_size > 0
-                    and milvus_db_file.exists()
-                    and milvus_db_file.stat().st_size > 0
-                )
+            has_essential_outputs = (
+                all_entities_file.exists()
+                and all_entities_file.stat().st_size > 0
+                and milvus_db_file.exists()
+                and milvus_db_file.stat().st_size > 0
+            )
 
-                if result.returncode != 0:
-                    stderr_redacted = _redact_sensitive(result.stderr)
-                    if has_essential_outputs:
-                        # MySQL or other non-critical step failed, but graph is built
+            if result.returncode != 0:
+                stderr_redacted = _redact_sensitive(result.stderr)
+                if has_essential_outputs:
+                    # MySQL or other non-critical step failed, but graph is built
+                    self.logger.warning(
+                        f"Graph build subprocess returned code {result.returncode}, "
+                        "but essential outputs exist - treating as success"
+                    )
+                    if "mysql" in result.stderr.lower() or "Access denied" in result.stderr:
                         self.logger.warning(
-                            f"Graph build subprocess returned code {result.returncode}, "
-                            "but essential outputs exist - treating as success"
+                            "MySQL connection failed (this is expected without MySQL setup). "
+                            "Vector DB (Milvus) was created successfully."
                         )
-                        if "mysql" in result.stderr.lower() or "Access denied" in result.stderr:
-                            self.logger.warning(
-                                "MySQL connection failed (this is expected without MySQL setup). "
-                                "Vector DB (Milvus) was created successfully."
-                            )
-                    else:
-                        self.logger.error(f"Graph build failed: {stderr_redacted}")
-                        raise StageError(f"Graph build failed with code {result.returncode}")
-
-            except subprocess.TimeoutExpired:
-                raise StageError("Graph build timed out after 2 hours")
+                else:
+                    self.logger.error(f"Graph build failed: {stderr_redacted}")
+                    raise StageError(f"Graph build failed with code {result.returncode}")
 
         # Verify outputs
         all_entities_file = processed_dir / "all_entities.json"
