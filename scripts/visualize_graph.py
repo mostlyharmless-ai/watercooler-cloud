@@ -4,6 +4,10 @@
 Uses pyvis (vis.js wrapper) for force-directed layout with spring-relaxation
 physics and interactive exploration.
 
+NOTE: This module uses `from __future__ import annotations` to defer type
+annotation evaluation, allowing the module to be imported even when optional
+dependencies (networkx, pyvis) are not installed.
+
 Graph Format (Baseline Graph):
     The baseline graph is a JSONL-based representation of Watercooler threads
     produced by the memory pipeline. It consists of two files:
@@ -27,6 +31,8 @@ Requirements:
     pip install pyvis networkx
     # Or: pip install watercooler-cloud[visualization]
 """
+
+from __future__ import annotations
 
 import argparse
 import json
