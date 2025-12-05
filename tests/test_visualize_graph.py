@@ -444,3 +444,24 @@ class TestMainIntegration:
         assert result == 1
         captured = capsys.readouterr()
         assert "Not a directory" in captured.err
+
+    def test_main_returns_error_for_nonexistent_output_dir(self, tmp_path, capsys):
+        """Test that main() returns error when output directory doesn't exist."""
+        # Create valid input
+        graph_dir = tmp_path / "graph"
+        graph_dir.mkdir()
+        (graph_dir / "nodes.jsonl").write_text('{"id": "t:1", "type": "thread"}\n')
+        (graph_dir / "edges.jsonl").write_text("")
+
+        # Output to nonexistent directory
+        bad_output = tmp_path / "nonexistent" / "output.html"
+
+        with patch(
+            "sys.argv",
+            ["visualize_graph.py", "-i", str(graph_dir), "-o", str(bad_output)],
+        ):
+            result = main()
+
+        assert result == 1
+        captured = capsys.readouterr()
+        assert "Output directory not found" in captured.err

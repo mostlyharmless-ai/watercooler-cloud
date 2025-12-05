@@ -59,17 +59,17 @@ DEPS_AVAILABLE = _MISSING_DEPS_ERROR is None
 # Color schemes
 COLORS = {
     "thread": {
-        "OPEN": "#4CAF50",      # Green
-        "CLOSED": "#9E9E9E",    # Gray
-        "IN_REVIEW": "#FF9800", # Orange
-        "BLOCKED": "#F44336",   # Red
+        "OPEN": "#4CAF50",  # Green
+        "CLOSED": "#9E9E9E",  # Gray
+        "IN_REVIEW": "#FF9800",  # Orange
+        "BLOCKED": "#F44336",  # Red
     },
     "entry": {
-        "Note": "#2196F3",      # Blue
-        "Plan": "#9C27B0",      # Purple
-        "Decision": "#FF5722", # Deep Orange
-        "PR": "#00BCD4",        # Cyan
-        "Closure": "#607D8B",   # Blue Gray
+        "Note": "#2196F3",  # Blue
+        "Plan": "#9C27B0",  # Purple
+        "Decision": "#FF5722",  # Deep Orange
+        "PR": "#00BCD4",  # Cyan
+        "Closure": "#607D8B",  # Blue Gray
     },
     "edge": {
         "contains": "#666666",
@@ -300,7 +300,8 @@ def create_visualization(
     # Configure physics (force-directed with spring relaxation)
     # Use barnesHut which is faster for large graphs
     # Disable stabilization to show graph immediately (settles live)
-    net.set_options("""
+    net.set_options(
+        """
     {
         "physics": {
             "enabled": true,
@@ -347,7 +348,8 @@ def create_visualization(
             "navigationButtons": true
         }
     }
-    """)
+    """
+    )
 
     # Add nodes
     for node_id in G.nodes():
@@ -402,38 +404,30 @@ def main() -> int:
         description="Interactive visualization for baseline graph"
     )
     parser.add_argument(
-        "--input", "-i",
+        "--input",
+        "-i",
         type=str,
         required=True,
-        help="Path to graph directory (contains nodes.jsonl, edges.jsonl)"
+        help="Path to graph directory (contains nodes.jsonl, edges.jsonl)",
     )
     parser.add_argument(
-        "--output", "-o",
+        "--output",
+        "-o",
         type=str,
         default="graph.html",
-        help="Output HTML file (default: graph.html)"
+        help="Output HTML file (default: graph.html)",
     )
     parser.add_argument(
-        "--open",
-        action="store_true",
-        help="Open in browser after generating"
+        "--open", action="store_true", help="Open in browser after generating"
     )
     parser.add_argument(
-        "--height",
-        type=str,
-        default="900px",
-        help="Canvas height (default: 900px)"
+        "--height", type=str, default="900px", help="Canvas height (default: 900px)"
     )
     parser.add_argument(
-        "--width",
-        type=str,
-        default="100%",
-        help="Canvas width (default: 100%%)"
+        "--width", type=str, default="100%", help="Canvas width (default: 100%%)"
     )
     parser.add_argument(
-        "--light",
-        action="store_true",
-        help="Use light theme instead of dark"
+        "--light", action="store_true", help="Use light theme instead of dark"
     )
 
     args = parser.parse_args()
@@ -472,6 +466,16 @@ def main() -> int:
     )
 
     output_path = Path(args.output).resolve()
+
+    # Validate output directory exists
+    output_dir = output_path.parent
+    if not output_dir.exists():
+        print(f"Error: Output directory not found: {output_dir}", file=sys.stderr)
+        return 1
+    if not output_dir.is_dir():
+        print(f"Error: Output path parent is not a directory: {output_dir}", file=sys.stderr)
+        return 1
+
     print(f"Writing to {output_path}...")
 
     try:
@@ -480,12 +484,13 @@ def main() -> int:
         # Hide loading bar (since stabilization is disabled, it never completes)
         html_content = output_path.read_text(encoding="utf-8")
         html_content = html_content.replace(
-            "</style>",
-            "#loadingBar { display: none !important; }</style>"
+            "</style>", "#loadingBar { display: none !important; }</style>"
         )
         output_path.write_text(html_content, encoding="utf-8")
     except PermissionError as e:
-        print(f"Error: Permission denied writing to {output_path}: {e}", file=sys.stderr)
+        print(
+            f"Error: Permission denied writing to {output_path}: {e}", file=sys.stderr
+        )
         return 1
     except OSError as e:
         print(f"Error: Failed to write output file: {e}", file=sys.stderr)
