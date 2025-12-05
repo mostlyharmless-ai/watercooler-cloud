@@ -1,3 +1,5 @@
+> **📦 Archived Documentation**: This document may contain outdated installation URLs. For current setup instructions, see [INSTALLATION.md](../INSTALLATION.md). Production users should install from the `@stable` branch.
+
 # Watercooler — Setup & Quickstart
 
 Your single stop for getting the Watercooler MCP server running in universal dev mode, wiring branch-paired threads, and performing the first few calls. The goal: clone one repo, run one registration command, and be productive in minutes.

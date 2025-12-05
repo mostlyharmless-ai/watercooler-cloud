@@ -21,7 +21,14 @@ pip install -e .
 ### Option 2: Install via pip
 
 ```bash
-pip install git+https://github.com/mostlyharmless-ai/watercooler-cloud
+# Production (recommended)
+pip install git+https://github.com/mostlyharmless-ai/watercooler-cloud@stable
+
+# Pinned version (most stable)
+pip install git+https://github.com/mostlyharmless-ai/watercooler-cloud@v0.1.0
+
+# Development (bleeding edge)
+pip install git+https://github.com/mostlyharmless-ai/watercooler-cloud@main
 ```
 
 ### Option 3: Install MCP Extras
@@ -94,7 +101,7 @@ Override `-Python` with `py`/`python3` as needed. Additional flags are documente
 
 ```bash
 claude mcp add --transport stdio watercooler-cloud --scope user \
-  -- uvx --from git+https://github.com/mostlyharmless-ai/watercooler-cloud watercooler-mcp
+  -- uvx --from git+https://github.com/mostlyharmless-ai/watercooler-cloud@stable watercooler-mcp
 ```
 
 > If you previously registered `watercooler-universal`, remove it first with `claude mcp remove watercooler-universal`.
@@ -105,7 +112,7 @@ claude mcp add --transport stdio watercooler-cloud --scope user \
 
 ```bash
 codex mcp add watercooler-cloud \
-  -- uvx --from git+https://github.com/mostlyharmless-ai/watercooler-cloud watercooler-mcp
+  -- uvx --from git+https://github.com/mostlyharmless-ai/watercooler-cloud@stable watercooler-mcp
 ```
 
 ### Cursor
@@ -119,7 +126,7 @@ Edit `~/.cursor/mcp.json`:
       "command": "uvx",
       "args": [
         "--from",
-        "git+https://github.com/mostlyharmless-ai/watercooler-cloud",
+        "git+https://github.com/mostlyharmless-ai/watercooler-cloud@stable",
         "watercooler-mcp"
       ]
     }

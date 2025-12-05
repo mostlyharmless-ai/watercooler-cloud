@@ -443,6 +443,53 @@ Fixes #456
 
 ---
 
+## Branch Strategy
+
+We use a three-branch model for development and deployment:
+
+```
+main (development) ──PR──► staging (integration) ──release──► stable (production)
+                              │
+                              └── tagged releases: v0.1.0, v0.2.0, etc.
+```
+
+### Branch Purposes
+
+| Branch | Purpose | Who Merges |
+|--------|---------|------------|
+| `main` | Active development | Core team via PR |
+| `staging` | Integration testing | Automated/maintainers |
+| `stable` | Production-ready | Release managers only |
+
+### Which Branch Should Users Install From?
+
+```bash
+# Production (recommended)
+uvx --from "git+https://github.com/mostlyharmless-ai/watercooler-cloud@stable"
+
+# Pinned version (check releases for available tags)
+uvx --from "git+https://github.com/mostlyharmless-ai/watercooler-cloud@v0.1.0"
+
+# Bleeding edge (developers only)
+uvx --from "git+https://github.com/mostlyharmless-ai/watercooler-cloud@main"
+```
+
+### Branch Protection
+
+**`stable` branch:**
+- Requires PR reviews (2+ approvers)
+- Requires status checks to pass
+- Requires linear history
+- Restricted push access (release managers only)
+- No force pushes or deletions
+
+**`main` branch:**
+- Requires PR reviews (1+ approver)
+- Requires status checks to pass
+- Squash merging preferred
+
+---
+
 ## Release Process
 
 For maintainers:
@@ -454,14 +501,61 @@ We follow **Semantic Versioning** (SemVer):
 - **MINOR** - New features (backward compatible)
 - **PATCH** - Bug fixes
 
+### Release Workflow
+
+#### 1. Prepare Release
+
+Ensure `staging` is up to date with `main`:
+
+```bash
+git checkout staging
+git merge --ff-only origin/main
+git push origin staging
+```
+
+#### 2. Create Release
+
+Fast-forward `stable` to `staging` and tag:
+
+```bash
+git checkout stable
+git merge --ff-only origin/staging
+git tag -a v0.X.0 -m "Release v0.X.0 - Brief description"
+git push origin stable --tags
+```
+
+#### 3. Verify Release
+
+- GitHub Actions automatically creates a GitHub Release
+- Verify the release notes are accurate
+- Test installation: `uvx --from "git+https://github.com/mostlyharmless-ai/watercooler-cloud@v0.X.0"`
+
 ### Release Checklist
 
-1. Update `__version__` in `src/watercooler/__init__.py`
-2. Update `ROADMAP.md` with release notes
-3. Tag release: `git tag v0.3.0`
-4. Push tags: `git push --tags`
-5. Create GitHub release
-6. Publish to PyPI (when ready)
+1. [ ] All tests passing on `staging`
+2. [ ] Update `__version__` in `src/watercooler/__init__.py`
+3. [ ] Update `ROADMAP.md` with release notes
+4. [ ] Fast-forward `stable` to `staging`
+5. [ ] Tag release: `git tag -a v0.X.0 -m "Release message"`
+6. [ ] Push: `git push origin stable --tags`
+7. [ ] Verify GitHub Release was created
+8. [ ] Announce release (if applicable)
+
+### Rollback Procedure
+
+If a release has issues:
+
+```bash
+# Revert stable to previous tag (e.g., rolling back v0.2.0 to v0.1.0)
+git checkout stable
+git reset --hard v0.1.0
+git push --force-with-lease origin stable
+
+# Users can pin to previous version
+uvx --from "git+https://github.com/mostlyharmless-ai/watercooler-cloud@v0.1.0"
+```
+
+> **Warning**: Force-pushing to `stable` affects users with cached installations. They may need to clear their `uvx` cache or re-install. Only use rollback for critical issues.
 
 ---
 

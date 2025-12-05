@@ -1,3 +1,5 @@
+> **📦 Archived Documentation**: This document may contain outdated installation URLs. For current setup instructions, see [INSTALLATION.md](../INSTALLATION.md). Production users should install from the `@stable` branch.
+
 # Watercooler – Tester Setup (Universal Dev Mode)
 
 This guide shows how a tester can install and run the local MCP server with zero per‑project configuration. Read [SETUP_AND_QUICKSTART.md](./SETUP_AND_QUICKSTART.md) first; this document assumes the universal flow is already familiar.

@@ -131,7 +131,7 @@ Add to `~/.config/claude/claude-code/mcp-settings.json`:
   "mcpServers": {
     "watercooler-cloud": {
       "command": "uvx",
-      "args": ["--from", "git+https://github.com/mostlyharmless-ai/watercooler-cloud", "watercooler-mcp"]
+      "args": ["--from", "git+https://github.com/mostlyharmless-ai/watercooler-cloud@stable", "watercooler-mcp"]
     }
   }
 }
@@ -144,7 +144,7 @@ Add to `~/.config/claude/claude-code/mcp-settings.json`:
   "mcpServers": {
     "watercooler-cloud": {
       "command": "uvx",
-      "args": ["--from", "git+https://github.com/mostlyharmless-ai/watercooler-cloud", "watercooler-mcp"],
+      "args": ["--from", "git+https://github.com/mostlyharmless-ai/watercooler-cloud@stable", "watercooler-mcp"],
       "env": {
         "WATERCOOLER_GITHUB_TOKEN": "ghp_your_token_here"
       }
@@ -164,7 +164,7 @@ Add to `.cursor/mcp.json`:
   "mcpServers": {
     "watercooler-cloud": {
       "command": "uvx",
-      "args": ["--from", "git+https://github.com/mostlyharmless-ai/watercooler-cloud", "watercooler-mcp"]
+      "args": ["--from", "git+https://github.com/mostlyharmless-ai/watercooler-cloud@stable", "watercooler-mcp"]
     }
   }
 }
@@ -177,7 +177,7 @@ Add to `.cursor/mcp.json`:
   "mcpServers": {
     "watercooler-cloud": {
       "command": "uvx",
-      "args": ["--from", "git+https://github.com/mostlyharmless-ai/watercooler-cloud", "watercooler-mcp"],
+      "args": ["--from", "git+https://github.com/mostlyharmless-ai/watercooler-cloud@stable", "watercooler-mcp"],
       "env": {
         "WATERCOOLER_GITHUB_TOKEN": "ghp_your_token_here"
       }

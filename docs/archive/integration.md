@@ -1,3 +1,5 @@
+> **📦 Archived Documentation**: This document may contain outdated installation URLs. For current setup instructions, see [INSTALLATION.md](../INSTALLATION.md). Production users should install from the `@stable` branch.
+
 # Integration Guide
 
 Complete guide for integrating watercooler-cloud into your project.

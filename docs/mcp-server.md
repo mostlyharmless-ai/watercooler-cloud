@@ -29,7 +29,7 @@ This installs `fastmcp>=2.0` and creates the `watercooler-mcp` command.
 ```toml
 [mcp_servers.watercooler_cloud]
 command = "uvx"
-args = ["--from", "git+https://github.com/mostlyharmless-ai/watercooler-cloud", "watercooler-mcp"]
+args = ["--from", "git+https://github.com/mostlyharmless-ai/watercooler-cloud@stable", "watercooler-mcp"]
 
 [mcp_servers.watercooler_cloud.env]
 WATERCOOLER_AGENT = "Codex"
@@ -45,7 +45,7 @@ WATERCOOLER_AUTO_BRANCH = "1"
       "command": "uvx",
       "args": [
         "--from",
-        "git+https://github.com/mostlyharmless-ai/watercooler-cloud",
+        "git+https://github.com/mostlyharmless-ai/watercooler-cloud@stable",
         "watercooler-mcp"
       ],
       "env": {
@@ -66,7 +66,7 @@ WATERCOOLER_AUTO_BRANCH = "1"
       "command": "uvx",
       "args": [
         "--from",
-        "git+https://github.com/mostlyharmless-ai/watercooler-cloud",
+        "git+https://github.com/mostlyharmless-ai/watercooler-cloud@stable",
         "watercooler-mcp"
       ],
       "env": {
@@ -87,7 +87,7 @@ WATERCOOLER_AUTO_BRANCH = "1"
       "command": "uvx",
       "args": [
         "--from",
-        "git+https://github.com/mostlyharmless-ai/watercooler-cloud",
+        "git+https://github.com/mostlyharmless-ai/watercooler-cloud@stable",
         "watercooler-mcp"
       ],
       "env": {
@@ -134,7 +134,7 @@ Example (Claude Desktop, macOS):
       "command": "uvx",
       "args": [
         "--from",
-        "git+https://github.com/mostlyharmless-ai/watercooler-cloud",
+        "git+https://github.com/mostlyharmless-ai/watercooler-cloud@stable",
         "watercooler-mcp"
       ],
       "env": {

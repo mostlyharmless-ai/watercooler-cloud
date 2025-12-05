@@ -1,3 +1,5 @@
+> **📦 Archived Documentation**: This document may contain outdated installation URLs. For current setup instructions, see [INSTALLATION.md](../INSTALLATION.md). Production users should install from the `@stable` branch.
+
 # Setting Up Watercooler MCP Server with Claude Desktop
 
 This guide shows you how to configure Claude Desktop to automatically launch and connect to the watercooler MCP server.
