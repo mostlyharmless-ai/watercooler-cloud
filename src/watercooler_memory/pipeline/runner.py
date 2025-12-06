@@ -10,6 +10,7 @@ from .config import PipelineConfig
 from .state import Stage, StageStatus, PipelineState, get_state_path, load_or_create_state
 from .stages import get_runner, StageError
 from .logging import PipelineLogger, format_duration
+from .server_manager import ServerManager
 
 
 class PipelineRunner:
@@ -20,10 +21,16 @@ class PipelineRunner:
         config: PipelineConfig,
         run_id: Optional[str] = None,
         verbose: bool = False,
+        auto_server: bool = True,
+        stop_servers: bool = False,
+        auto_approve: bool = False,
     ):
         self.config = config
         self.run_id = run_id or str(ULID()).lower()
         self.verbose = verbose
+        self.auto_server = auto_server
+        self.stop_servers_on_complete = stop_servers
+        self.auto_approve = auto_approve
 
         # Ensure work directory exists
         config.ensure_work_dir()
@@ -40,6 +47,15 @@ class PipelineRunner:
         self.logger = PipelineLogger(
             self.run_id,
             config.work_dir,
+            verbose=verbose,
+        )
+
+        # Initialize server manager
+        self.server_manager = ServerManager(
+            llm_api_base=config.llm.base_url,
+            embedding_api_base=config.embedding.base_url,
+            interactive=True,
+            auto_approve=auto_approve,
             verbose=verbose,
         )
 
@@ -142,6 +158,13 @@ class PipelineRunner:
                 self.logger.error(f"Unknown stage: {to_stage}")
                 return False
 
+        # Auto-start servers if enabled
+        if self.auto_server:
+            self.logger.info("Checking server availability...")
+            if not self.server_manager.ensure_servers_running():
+                self.logger.error("Required servers not available. Use --no-auto-server to skip this check.")
+                return False
+
         self.logger.info(f"Running pipeline: {' → '.join(s.value for s in stages)}")
         if self.config.test_mode:
             self.logger.warning(f"Test mode enabled: limiting to {self.config.test_limit} documents")
@@ -149,10 +172,16 @@ class PipelineRunner:
         start_time = time.time()
         success = True
 
-        for stage in stages:
-            if not self.run_stage(stage):
-                success = False
-                break
+        try:
+            for stage in stages:
+                if not self.run_stage(stage):
+                    success = False
+                    break
+        finally:
+            # Stop servers if requested
+            if self.stop_servers_on_complete:
+                self.logger.info("Stopping servers...")
+                self.server_manager.stop_servers()
 
         elapsed = time.time() - start_time
 
@@ -230,6 +259,9 @@ def create_runner(
     run_id: Optional[str] = None,
     test_mode: bool = False,
     verbose: bool = False,
+    auto_server: bool = True,
+    stop_servers: bool = False,
+    auto_approve: bool = False,
 ) -> PipelineRunner:
     """Create a pipeline runner with configuration.
 
@@ -240,6 +272,9 @@ def create_runner(
         run_id: Optional run ID (auto-generated if not provided)
         test_mode: Enable test mode with limited data
         verbose: Enable verbose logging
+        auto_server: Automatically start LLM/embedding servers if not running
+        stop_servers: Stop servers when pipeline completes
+        auto_approve: Auto-approve prompts (model downloads, server starts)
 
     Returns:
         Configured PipelineRunner
@@ -253,4 +288,11 @@ def create_runner(
         test_mode=test_mode,
     )
 
-    return PipelineRunner(config, run_id=run_id, verbose=verbose)
+    return PipelineRunner(
+        config,
+        run_id=run_id,
+        verbose=verbose,
+        auto_server=auto_server,
+        stop_servers=stop_servers,
+        auto_approve=auto_approve,
+    )

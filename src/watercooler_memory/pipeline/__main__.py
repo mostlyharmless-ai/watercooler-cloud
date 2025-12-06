@@ -47,6 +47,9 @@ def cmd_run(args: argparse.Namespace) -> int:
         config,
         run_id=args.run_id,
         verbose=args.verbose,
+        auto_server=not args.no_auto_server,
+        stop_servers=args.stop_servers,
+        auto_approve=args.yes,
     )
 
     print(f"Pipeline run: {runner.run_id}")
@@ -105,7 +108,7 @@ def cmd_status(args: argparse.Namespace) -> int:
         work_dir=work_dir,
     )
 
-    runner = PipelineRunner(config, run_id=run_id)
+    runner = PipelineRunner(config, run_id=run_id, auto_server=False)
     runner.print_status()
 
     return 0
@@ -194,6 +197,15 @@ Examples:
   # Run full pipeline in test mode (5 documents)
   python -m watercooler_memory.pipeline run --threads /path/to/threads --test
 
+  # Run with auto-approve (no prompts for model downloads)
+  python -m watercooler_memory.pipeline run --threads /path/to/threads --test -y
+
+  # Run without auto-starting servers (requires external server)
+  python -m watercooler_memory.pipeline run --threads /path/to/threads --no-auto-server
+
+  # Run and stop servers when complete
+  python -m watercooler_memory.pipeline run --threads /path/to/threads --stop-servers
+
   # Run only export stage
   python -m watercooler_memory.pipeline run --threads /path/to/threads --stage export
 
@@ -227,6 +239,9 @@ Examples:
     run_parser.add_argument("--from", dest="from_stage", help="Start from this stage")
     run_parser.add_argument("--to", dest="to_stage", help="Stop after this stage")
     run_parser.add_argument("--force", action="store_true", help="Force re-run of completed stages")
+    run_parser.add_argument("--no-auto-server", action="store_true", help="Don't auto-start LLM/embedding servers")
+    run_parser.add_argument("--stop-servers", action="store_true", help="Stop servers when pipeline completes")
+    run_parser.add_argument("-y", "--yes", action="store_true", help="Auto-approve all prompts (model downloads, server starts)")
 
     # Status command
     status_parser = subparsers.add_parser("status", help="Show pipeline status")
