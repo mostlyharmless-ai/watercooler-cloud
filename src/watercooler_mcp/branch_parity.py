@@ -610,6 +610,29 @@ def run_preflight(
                             blocking_reason=state.last_error,
                         )
 
+        # Threads ahead of origin: auto-push when code is synced
+        # This is the key parity check: if code is pushed, threads should be too
+        if threads_ahead > 0 and code_ahead == 0:
+            if auto_fix:
+                log_debug(f"[PARITY] Threads ahead of origin by {threads_ahead} commits, pushing")
+                if _push_with_retry(threads_repo, code_branch):
+                    actions_taken.append(f"Pushed threads ({threads_ahead} commits to origin)")
+                    threads_ahead = 0
+                    state.threads_ahead_origin = 0
+                else:
+                    # Push failed - mark as pending but allow operation to proceed
+                    # The write will add more commits; we'll try again next time
+                    state.status = ParityStatus.PENDING_PUSH.value
+                    state.pending_push = True
+                    state.last_error = f"Failed to push threads branch {code_branch} to origin"
+                    log_debug(f"[PARITY] {state.last_error}")
+            else:
+                # No auto-fix: warn but don't block
+                log_debug(
+                    f"[PARITY] Threads ahead of origin by {threads_ahead} commits "
+                    f"(auto_fix disabled, not pushing)"
+                )
+
         # All checks passed
         state.status = ParityStatus.CLEAN.value
         state.actions_taken = actions_taken

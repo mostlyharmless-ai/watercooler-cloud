@@ -438,3 +438,109 @@ def test_preflight_result_with_blocking_reason() -> None:
     assert result.success is False
     assert result.can_proceed is False
     assert "5 commits behind" in result.blocking_reason
+
+
+# =============================================================================
+# Remote Push Parity Tests (with bare remotes)
+# =============================================================================
+
+
+@pytest.fixture
+def repos_with_remotes(tmp_path: Path) -> tuple[Path, Path, Path, Path]:
+    """Create code and threads repos with bare remotes for push testing."""
+    # Create bare remotes (simulating origin)
+    code_bare = tmp_path / "code-bare.git"
+    threads_bare = tmp_path / "threads-bare.git"
+    Repo.init(code_bare, bare=True)
+    Repo.init(threads_bare, bare=True)
+
+    # Create working directories
+    code_path = tmp_path / "code-repo"
+    threads_path = tmp_path / "threads-repo"
+
+    # Clone from bare repos
+    code = Repo.clone_from(str(code_bare), str(code_path))
+    threads = Repo.clone_from(str(threads_bare), str(threads_path))
+
+    # Create initial commits and push
+    author = Actor("Test", "test@example.com")
+
+    (code_path / "README.md").write_text("# Code Repo\n")
+    code.index.add(["README.md"])
+    code.index.commit("Initial commit", author=author)
+    code.git.push("origin", "HEAD:main")
+    code.git.checkout("-b", "main")
+    code.git.branch("--set-upstream-to=origin/main", "main")
+
+    (threads_path / "README.md").write_text("# Threads Repo\n")
+    threads.index.add(["README.md"])
+    threads.index.commit("Initial commit", author=author)
+    threads.git.push("origin", "HEAD:main")
+    threads.git.checkout("-b", "main")
+    threads.git.branch("--set-upstream-to=origin/main", "main")
+
+    return code_path, threads_path, code_bare, threads_bare
+
+
+def test_preflight_threads_ahead_auto_push(repos_with_remotes: tuple[Path, Path, Path, Path]) -> None:
+    """Test preflight auto-pushes when threads is ahead of origin."""
+    code_path, threads_path, code_bare, threads_bare = repos_with_remotes
+
+    # Add local commit to threads (not pushed)
+    threads = Repo(threads_path)
+    author = Actor("Test", "test@example.com")
+    (threads_path / "thread.md").write_text("# Thread\n")
+    threads.index.add(["thread.md"])
+    threads.index.commit("Add thread", author=author)
+
+    # Threads is now ahead of origin by 1 commit
+    # Code is synced with origin
+
+    result = run_preflight(
+        code_repo_path=code_path,
+        threads_repo_path=threads_path,
+        auto_fix=True,
+        fetch_first=False,
+    )
+
+    assert result.success is True
+    assert result.can_proceed is True
+    assert result.auto_fixed is True
+    # Verify push action was taken
+    assert any("Pushed threads" in action for action in result.state.actions_taken)
+
+    # Verify threads is now synced with origin
+    threads.git.fetch("origin")
+    ahead_behind = threads.git.rev_list("--left-right", "--count", "main...origin/main")
+    ahead, behind = [int(x) for x in ahead_behind.split()]
+    assert ahead == 0  # No longer ahead
+
+
+def test_preflight_threads_ahead_no_auto_fix(repos_with_remotes: tuple[Path, Path, Path, Path]) -> None:
+    """Test preflight logs but doesn't push when auto_fix=False."""
+    code_path, threads_path, code_bare, threads_bare = repos_with_remotes
+
+    # Add local commit to threads (not pushed)
+    threads = Repo(threads_path)
+    author = Actor("Test", "test@example.com")
+    (threads_path / "thread.md").write_text("# Thread\n")
+    threads.index.add(["thread.md"])
+    threads.index.commit("Add thread", author=author)
+
+    result = run_preflight(
+        code_repo_path=code_path,
+        threads_repo_path=threads_path,
+        auto_fix=False,
+        fetch_first=False,
+    )
+
+    # Should still succeed (we don't block on threads ahead)
+    assert result.success is True
+    assert result.can_proceed is True
+    assert result.auto_fixed is False
+
+    # Threads should still be ahead (no push happened)
+    threads.git.fetch("origin")
+    ahead_behind = threads.git.rev_list("--left-right", "--count", "main...origin/main")
+    ahead, behind = [int(x) for x in ahead_behind.split()]
+    assert ahead == 1  # Still ahead
