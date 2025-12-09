@@ -368,9 +368,95 @@ def get_memory_graph_config() -> Dict[str, Any]:
 
     Returns:
         Dict with llm, embedding, and chunking settings.
+
+    .. deprecated::
+        Use get_server_config() instead. This function remains for
+        backwards compatibility with existing config files.
     """
     config = _load_config()
     return config.get("memory_graph", {})
+
+
+# Default server configurations for local development
+_SERVER_DEFAULTS: Dict[str, Dict[str, Any]] = {
+    "llm": {
+        "api_base": "http://localhost:11434/v1",  # Ollama default
+        "model": "llama3.2:3b",
+        "timeout": 120.0,
+        "max_tokens": 256,
+    },
+    "embedding": {
+        "api_base": "http://localhost:8080/v1",  # llama.cpp default
+        "model": "bge-m3",
+        "timeout": 60.0,
+        "batch_size": 32,
+    },
+}
+
+
+def get_server_config(server_type: str) -> Dict[str, Any]:
+    """Get unified server configuration.
+
+    Loads configuration with the following priority:
+    1. Environment variables (SERVER_TYPE_SETTING, e.g., LLM_API_BASE)
+    2. [servers.{type}] section in config.toml (preferred)
+    3. [memory_graph.{type}] section in config.toml (deprecated, for backwards compat)
+    4. Built-in defaults for local development
+
+    Args:
+        server_type: Either "llm" or "embedding"
+
+    Returns:
+        Dict with server configuration (api_base, model, timeout, etc.)
+
+    Example:
+        >>> config = get_server_config("llm")
+        >>> print(config["api_base"])
+        http://localhost:11434/v1
+    """
+    if server_type not in _SERVER_DEFAULTS:
+        raise ValueError(f"Unknown server type: {server_type}. Use 'llm' or 'embedding'.")
+
+    # Start with defaults
+    result = _SERVER_DEFAULTS[server_type].copy()
+
+    # Load from config file
+    config = _load_config()
+
+    # Check new [servers.{type}] section first
+    servers_config = config.get("servers", {}).get(server_type, {})
+
+    # Fall back to deprecated [memory_graph.{type}] section
+    if not servers_config:
+        mg_config = config.get("memory_graph", {})
+        servers_config = mg_config.get(server_type, {})
+
+    # Merge config file values
+    result.update(servers_config)
+
+    # Environment variables override everything
+    env_prefix = server_type.upper()
+    env_mappings = {
+        "api_base": f"{env_prefix}_API_BASE",
+        "model": f"{env_prefix}_MODEL",
+        "timeout": f"{env_prefix}_TIMEOUT",
+        "max_tokens": f"{env_prefix}_MAX_TOKENS",
+        "batch_size": f"{env_prefix}_BATCH_SIZE",
+    }
+
+    for key, env_var in env_mappings.items():
+        env_val = os.getenv(env_var)
+        if env_val:
+            # Convert numeric values
+            if key in ("timeout", "max_tokens", "batch_size"):
+                try:
+                    result[key] = float(env_val) if key == "timeout" else int(env_val)
+                except ValueError:
+                    pass
+            else:
+                result[key] = env_val
+
+    return result
 
 
 def get_deepseek_api_key() -> Optional[str]:
@@ -438,7 +524,7 @@ def get_embedding_api_base() -> str:
     # Load from config.toml
     mg_config = get_memory_graph_config()
     emb_config = mg_config.get("embedding", {})
-    return emb_config.get("api_base", "http://localhost:8081/v1")
+    return emb_config.get("api_base", "http://localhost:8080/v1")
 
 
 def get_embedding_api_key() -> Optional[str]:

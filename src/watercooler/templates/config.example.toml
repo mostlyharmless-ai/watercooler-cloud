@@ -264,8 +264,61 @@ default_spec = "general-purpose"
 
 
 # =============================================================================
-# MEMORY GRAPH SETTINGS
-# Configuration for watercooler_memory pipeline (summarization, embeddings)
+# SERVER SETTINGS (RECOMMENDED)
+# Unified configuration for LLM and embedding servers
+# Used by baseline_graph pipeline and other watercooler tools
+# =============================================================================
+
+# -----------------------------------------------------------------------------
+# LLM Server
+# For summarization, chat, and other LLM tasks
+# -----------------------------------------------------------------------------
+[servers.llm]
+
+# API endpoint - any OpenAI-compatible API
+# Env: LLM_API_BASE
+api_base = "http://localhost:11434/v1"  # Ollama default
+
+# Model name
+# Env: LLM_MODEL
+model = "llama3.2:3b"
+
+# Request timeout (seconds)
+# Env: LLM_TIMEOUT
+timeout = 120.0
+
+# Max tokens for generation
+# Env: LLM_MAX_TOKENS
+max_tokens = 256
+
+
+# -----------------------------------------------------------------------------
+# Embedding Server
+# For vector embeddings (semantic search, RAG)
+# -----------------------------------------------------------------------------
+[servers.embedding]
+
+# API endpoint - any OpenAI-compatible embedding API
+# Env: EMBEDDING_API_BASE
+api_base = "http://localhost:8080/v1"  # llama.cpp default
+
+# Model name
+# Env: EMBEDDING_MODEL
+model = "bge-m3"
+
+# Batch size for embedding requests
+# Env: EMBEDDING_BATCH_SIZE
+batch_size = 32
+
+# Request timeout (seconds)
+# Env: EMBEDDING_TIMEOUT
+timeout = 60.0
+
+
+# =============================================================================
+# MEMORY GRAPH SETTINGS (DEPRECATED)
+# Use [servers.*] sections above instead.
+# These settings are kept for backwards compatibility.
 # =============================================================================
 [memory_graph]
 
