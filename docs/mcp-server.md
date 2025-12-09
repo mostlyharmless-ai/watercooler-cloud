@@ -667,6 +667,7 @@ asyncio.run(show_tools())
 - **Phase 1B (v0.2.0)**: Upward directory search, comprehensive documentation, Python 3.10+
 - **Phase 2A**: Git-based cloud sync with Entry-ID idempotency and retry logic
 - **Branch Sync Enforcement**: Automatic validation and tools for maintaining 1:1 branch correspondence
+- **Auto-Remediation**: Preflight state machine with per-topic locking, automatic branch checkout/creation, and safe push-with-retry
 
 ### Deferred Features (Evaluate Based on Usage)
 - **JSON format support**: Structured output for programmatic clients

@@ -181,6 +181,121 @@ git push origin main
 - **Orphaned threads branch**: Use `watercooler_v1_audit_branch_pairing` to identify, then `sync_branch_state` with `operation="delete"` to clean up
 - **Git state issues**: Use `watercooler_v1_recover_branch_state` to diagnose and fix rebase conflicts, detached HEAD, etc.
 
+## Auto-Remediation System
+
+The MCP server includes an auto-remediating preflight state machine that runs before every write operation (`say`, `ack`, `handoff`, `set_status`). This system automatically fixes common branch parity issues while ensuring safety through neutral-origin guarantees.
+
+### Design Principles
+
+- **Neutral Origin**: No force-push, no history rewrites, no auto-merge to main
+- **Per-Topic Locking**: Serializes concurrent writes to prevent race conditions
+- **State Persistence**: Tracks parity state in `branch_parity_state.json`
+- **Fail-Safe**: Blocks on issues that require manual intervention
+
+### Parity States
+
+The preflight system tracks these states:
+
+| State | Description | Auto-Fix? |
+|-------|-------------|-----------|
+| `clean` | Branches are aligned, no action needed | N/A |
+| `pending_push` | Commit made, awaiting push | Yes - push with retry |
+| `branch_mismatch` | Code and threads on different branches | Yes - checkout/create |
+| `main_protection` | Would write to threads:main from feature branch | Yes - create threads branch |
+| `code_behind_origin` | Code repo is behind origin | No - manual pull required |
+| `remote_unreachable` | Cannot reach git remote | No - retry later |
+| `rebase_in_progress` | Git rebase not completed | No - abort/continue manually |
+| `detached_head` | Code repo in detached HEAD state | No - checkout a branch |
+| `diverged` | Branches have diverged, needs merge/rebase | No - manual resolution |
+| `needs_manual_recover` | Complex issue detected | No - use recover tools |
+| `orphan_branch` | Threads branch exists but code branch deleted | No - use sync tools |
+| `error` | Unexpected error occurred | No - check logs |
+
+### Auto-Remediation Behaviors
+
+When `WATERCOOLER_AUTO_BRANCH=1` (default), the preflight automatically:
+
+1. **Branch Mismatch → Checkout/Create**
+   - If threads branch exists: `git checkout <branch>`
+   - If threads branch missing: `git checkout -b <branch>` from current position
+
+2. **Main Protection → Create Feature Branch**
+   - Detects when code is on a feature branch but threads would write to main
+   - Creates the matching threads branch before proceeding
+
+3. **Pending Push → Push with Retry**
+   - After commit, pushes to origin
+   - On rejection: pulls with rebase, then retries push
+   - Configurable retry limit (default: 3 attempts)
+
+4. **Fetch Before Check**
+   - Optionally fetches from origin before running checks
+   - Ensures state reflects remote reality
+
+### State Persistence
+
+The system maintains state in `.wc-parity/branch_parity_state.json`:
+
+```json
+{
+  "status": "clean",
+  "last_check_at": "2025-01-15T10:30:00Z",
+  "code_branch": "feature-auth",
+  "threads_branch": "feature-auth",
+  "actions_taken": ["Checked out threads branch 'feature-auth'"],
+  "pending_push": false,
+  "last_error": null
+}
+```
+
+This file is git-ignored and local to each clone.
+
+### Per-Topic Locking
+
+To prevent concurrent writes from corrupting thread files, the system uses advisory file locks:
+
+- Lock files stored in `.wc-locks/<topic>.lock`
+- 30-second timeout for acquiring locks
+- 60-second TTL to prevent stale locks
+- Topic names with `/` are sanitized (e.g., `feature/auth` → `feature_auth.lock`)
+
+### Health Reporting
+
+The `watercooler_v1_health` tool now includes branch parity status:
+
+```
+Branch Parity:
+  Status: clean
+  Code Branch: feature-auth
+  Threads Branch: feature-auth
+  Pending Push: False
+  Code Ahead/Behind Origin: 0/0
+  Last Check: 2025-01-15T10:30:00Z
+```
+
+### Blocking Scenarios
+
+The preflight blocks (does not auto-fix) when:
+
+1. **Detached HEAD**: Cannot determine which branch to target
+2. **Code Behind Origin**: Risk of losing remote changes
+3. **Rebase in Progress**: Git state must be resolved first
+4. **Diverged History**: Requires explicit merge/rebase decision
+5. **Remote Unreachable**: Cannot verify or push state
+
+When blocked, the error message includes:
+- The detected issue
+- Specific recovery steps
+- Which MCP tool can help (e.g., `recover_branch_state`)
+
+### Environment Variables
+
+| Variable | Default | Description |
+|----------|---------|-------------|
+| `WATERCOOLER_AUTO_BRANCH` | `1` | Enable auto-remediation |
+| `WATERCOOLER_PARITY_FETCH_FIRST` | `1` | Fetch from origin before checks |
+| `WATERCOOLER_PARITY_MAX_RETRIES` | `3` | Push retry attempts |
+
 ## CLI Commands
 
 **Branch Management Commands:**

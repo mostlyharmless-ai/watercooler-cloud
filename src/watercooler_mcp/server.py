@@ -55,6 +55,14 @@ from .git_sync import (
     BranchDivergenceInfo,
     _find_main_branch,
 )
+from .branch_parity import (
+    run_preflight,
+    acquire_topic_lock,
+    write_parity_state,
+    get_branch_health,
+    PreflightResult,
+    ParityStatus,
+)
 from .observability import log_debug, log_action, log_warning, log_error, timeit
 
 # Workaround for Windows stdio hang: Force auto-flush on every stdout write
@@ -596,27 +604,67 @@ def run_with_sync(
     priority_flush: bool = False,
     skip_validation: bool = False,
 ) -> T:
+    """Execute operation with git sync and branch parity enforcement.
+
+    Flow: acquire lock → run preflight → operation → commit → push → release lock
+
+    The new preflight state machine replaces the old _validate_and_sync_branches()
+    with comprehensive auto-remediation:
+    - Branch mismatch: auto-checkout threads to match code
+    - Missing remote branch: auto-push threads branch
+    - Threads behind origin: auto-pull with ff-only or rebase
+    - Main protection: block writes when threads=main but code=feature
+    """
     sync = get_git_sync_manager_from_context(context)
     if not sync:
         return operation()
 
-    # Validate and sync branches before write operation
-    _validate_and_sync_branches(context, skip_validation=skip_validation)
+    # Per-topic locking to serialize concurrent writes
+    lock = None
+    try:
+        if topic and context.threads_dir:
+            try:
+                lock = acquire_topic_lock(context.threads_dir, topic, timeout=30)
+                log_debug(f"[PARITY] Acquired lock for topic '{topic}'")
+            except TimeoutError as e:
+                raise BranchPairingError(f"Failed to acquire lock for topic '{topic}': {e}")
 
-    footers = _build_commit_footers(
-        context,
-        topic=topic,
-        entry_id=entry_id,
-        agent_spec=agent_spec,
-    )
-    commit_message = commit_title if not footers else f"{commit_title}\n\n" + "\n".join(footers)
-    return sync.with_sync(
-        operation,
-        commit_message,
-        topic=topic,
-        entry_id=entry_id,
-        priority_flush=priority_flush,
-    )
+        # Run preflight with auto-remediation instead of old validation
+        if not skip_validation and context.code_root and context.threads_dir:
+            preflight_result = run_preflight(
+                code_repo_path=context.code_root,
+                threads_repo_path=context.threads_dir,
+                auto_fix=_should_auto_branch(),
+                fetch_first=True,
+            )
+            if not preflight_result.can_proceed:
+                raise BranchPairingError(
+                    preflight_result.blocking_reason or "Branch parity preflight failed"
+                )
+            if preflight_result.auto_fixed:
+                log_debug(f"[PARITY] Auto-fixed: {preflight_result.state.actions_taken}")
+
+        # Build commit footers
+        footers = _build_commit_footers(
+            context,
+            topic=topic,
+            entry_id=entry_id,
+            agent_spec=agent_spec,
+        )
+        commit_message = commit_title if not footers else f"{commit_title}\n\n" + "\n".join(footers)
+
+        # Execute operation with git sync (pull → operation → commit → push)
+        return sync.with_sync(
+            operation,
+            commit_message,
+            topic=topic,
+            entry_id=entry_id,
+            priority_flush=priority_flush,
+        )
+    finally:
+        if lock:
+            lock.release()
+            log_debug(f"[PARITY] Released lock for topic '{topic}'")
 
 
 # ============================================================================
@@ -723,11 +771,14 @@ The **ball** indicates whose turn it is:
 # ============================================================================
 
 @mcp.tool(name="watercooler_v1_health")
-def health(ctx: Context) -> str:
-    """Check server health and configuration.
+def health(ctx: Context, code_path: str = "") -> str:
+    """Check server health and configuration including branch parity status.
 
-    Returns server version, configured agent identity, and threads directory.
-    Useful for debugging configuration issues.
+    Returns server version, configured agent identity, threads directory,
+    and branch parity health status.
+
+    Args:
+        code_path: Optional path to code repository for parity checks.
 
     Example output:
         Watercooler MCP Server v0.1.0
@@ -735,10 +786,11 @@ def health(ctx: Context) -> str:
         Agent: Codex
         Threads Dir: /path/to/project/.watercooler
         Threads Dir Exists: True
+        Branch Parity: clean
     """
     try:
         agent = get_agent_name(ctx.client_id)
-        context = resolve_thread_context()
+        context = resolve_thread_context(code_path=code_path if code_path else None)
         threads_dir = context.threads_dir
         version = get_version()
 
@@ -754,19 +806,43 @@ def health(ctx: Context) -> str:
         except Exception:
             fm_ver = "not-importable"
 
-        status = (
-            f"Watercooler MCP Server v{version}\n"
-            f"Status: Healthy\n"
-            f"Agent: {agent}\n"
-            f"Threads Dir: {threads_dir}\n"
-            f"Threads Dir Exists: {threads_dir.exists()}\n"
-            f"Threads Repo URL: {context.threads_repo_url or 'local-only'}\n"
-            f"Code Branch: {context.code_branch or 'n/a'}\n"
-            f"Auto-Branch: {'enabled' if _should_auto_branch() else 'disabled'}\n"
-            f"Python: {py_exec}\n"
-            f"fastmcp: {fm_ver}\n"
-        )
-        return status
+        status_lines = [
+            f"Watercooler MCP Server v{version}",
+            f"Status: Healthy",
+            f"Agent: {agent}",
+            f"Threads Dir: {threads_dir}",
+            f"Threads Dir Exists: {threads_dir.exists()}",
+            f"Threads Repo URL: {context.threads_repo_url or 'local-only'}",
+            f"Code Branch: {context.code_branch or 'n/a'}",
+            f"Auto-Branch: {'enabled' if _should_auto_branch() else 'disabled'}",
+            f"Python: {py_exec}",
+            f"fastmcp: {fm_ver}",
+        ]
+
+        # Add branch parity health if code and threads repos are available
+        if context.code_root and context.threads_dir:
+            try:
+                parity_health = get_branch_health(context.code_root, context.threads_dir)
+                status_lines.extend([
+                    "",
+                    "Branch Parity:",
+                    f"  Status: {parity_health.get('status', 'unknown')}",
+                    f"  Code Branch: {parity_health.get('code_branch', 'n/a')}",
+                    f"  Threads Branch: {parity_health.get('threads_branch', 'n/a')}",
+                    f"  Code Ahead/Behind: {parity_health.get('code_ahead_origin', 0)}/{parity_health.get('code_behind_origin', 0)}",
+                    f"  Threads Ahead/Behind: {parity_health.get('threads_ahead_origin', 0)}/{parity_health.get('threads_behind_origin', 0)}",
+                    f"  Pending Push: {parity_health.get('pending_push', False)}",
+                ])
+                if parity_health.get('last_error'):
+                    status_lines.append(f"  Last Error: {parity_health.get('last_error')}")
+                if parity_health.get('actions_taken'):
+                    status_lines.append(f"  Actions Taken: {', '.join(parity_health.get('actions_taken', []))}")
+                if parity_health.get('lock_holder'):
+                    status_lines.append(f"  Lock Holder: PID {parity_health.get('lock_holder')}")
+            except Exception as e:
+                status_lines.append(f"\nBranch Parity: Error - {e}")
+
+        return "\n".join(status_lines)
     except Exception as e:
         return f"Watercooler MCP Server\nStatus: Error\nError: {str(e)}"
 

@@ -19,6 +19,7 @@ Common issues and solutions for the watercooler MCP server.
   - [Tools Not Working](#tools-not-working)
   - [Git Not Found](#git-not-found)
   - [Git Sync Issues (Cloud Mode)](#git-sync-issues-cloud-mode)
+- [Branch Parity Errors](#branch-parity-errors)
 - [Thread folder inside code repo](#thread-folder-inside-code-repo)
 - [Ball Not Flipping](#ball-not-flipping)
 - [Server Crashes or Hangs](#server-crashes-or-hangs)
@@ -47,6 +48,7 @@ graph TD
     Q3 -->|"permission denied"| PermError[<b>Permission Errors</b><br/>Jump to section below]
     Q3 -->|"git command not found"| GitNotFound[<b>Git Not Found</b><br/>Jump to section below]
     Q3 -->|Git sync errors| GitSync[<b>Git Sync Issues</b><br/>Jump to section below]
+    Q3 -->|"branch parity" or "preflight"| ParityError[<b>Branch Parity Errors</b><br/>Jump to section below]
     Q3 -->|Other errors| ToolError[<b>Tools Not Working</b><br/>Jump to section below]
 
     Q4 -->|Wrong agent name| WrongAgent[<b>Wrong Agent Identity</b><br/>Jump to section below]
@@ -61,6 +63,7 @@ graph TD
     style PermError fill:#ffcccc
     style GitNotFound fill:#ffcccc
     style GitSync fill:#ffcccc
+    style ParityError fill:#ffcccc
     style ToolError fill:#ffcccc
     style WrongAgent fill:#ffffcc
     style BallNotFlip fill:#ffffcc
@@ -411,6 +414,105 @@ If you enabled cloud sync via `WATERCOOLER_GIT_REPO`, here are common problems a
 - Rate limits / GitHub API
   - Apply exponential backoff and consider short batching windows
    - All other functionality works normally
+
+## Branch Parity Errors
+
+### Symptom
+Write operations (`say`, `ack`, `handoff`, `set_status`) fail with errors like:
+- "Branch parity preflight failed"
+- "Code repo in detached HEAD state"
+- "Code branch 'X' but threads branch is 'Y'"
+- "Failed to acquire lock for topic"
+
+### Understanding Parity States
+
+The MCP server runs a preflight check before every write. It detects:
+
+| State | Meaning | Auto-Fixed? |
+|-------|---------|-------------|
+| `branch_mismatch` | Code and threads on different branches | Yes |
+| `main_protection` | Would write to threads:main from feature | Yes |
+| `detached_head` | Code repo not on a branch | No |
+| `code_behind_origin` | Code repo behind remote | No |
+| `rebase_in_progress` | Incomplete git rebase | No |
+
+### Solutions by Error Type
+
+**Branch Mismatch (auto-fixed)**
+- Normally auto-fixed by checking out/creating the threads branch
+- If `WATERCOOLER_AUTO_BRANCH=0`, manually sync:
+  ```bash
+  cd ../repo-threads
+  git checkout <branch-name>  # or git checkout -b <branch-name>
+  ```
+
+**Detached HEAD**
+```bash
+cd /path/to/code-repo
+git checkout main  # or your target branch
+# Then retry the MCP operation
+```
+
+**Code Behind Origin**
+```bash
+cd /path/to/code-repo
+git pull origin <branch>
+# Then retry the MCP operation
+```
+
+**Rebase in Progress**
+```bash
+cd /path/to/repo  # whichever repo has the issue
+git rebase --abort  # or complete the rebase
+# Then retry the MCP operation
+```
+
+**Lock Timeout**
+- Another MCP operation is in progress on the same topic
+- Wait for it to complete, or if stuck:
+  ```bash
+  # Remove stale lock (only if you're sure no operation is running)
+  rm ../repo-threads/.wc-locks/<topic>.lock
+  ```
+
+### Using Recovery Tools
+
+The MCP server provides tools for diagnosis and recovery:
+
+```python
+# Diagnose issues
+watercooler_v1_recover_branch_state(code_path=".", diagnose_only=True)
+
+# Auto-fix safe issues
+watercooler_v1_recover_branch_state(code_path=".", auto_fix=True)
+
+# Sync branches manually
+watercooler_v1_sync_branch_state(code_path=".", operation="checkout")
+
+# Full audit
+watercooler_v1_audit_branch_pairing(code_path=".")
+```
+
+### Checking Parity Health
+
+The health tool shows current parity status:
+
+```python
+watercooler_v1_health(code_path=".")
+
+# Look for the "Branch Parity" section:
+# Branch Parity:
+#   Status: clean
+#   Code Branch: feature-auth
+#   Threads Branch: feature-auth
+```
+
+### See Also
+
+- [BRANCH_PAIRING.md](./BRANCH_PAIRING.md#auto-remediation-system) - Full auto-remediation documentation
+- [mcp-server.md](./mcp-server.md#branch-sync-enforcement-tools) - Recovery tool reference
+
+---
 
 ## Thread folder inside code repo
 
