@@ -4,7 +4,7 @@ File-based collaboration protocol for agentic coding projects
 
 [![License](https://img.shields.io/badge/license-Apache%202.0-blue.svg)](LICENSE) [![Python](https://img.shields.io/badge/python-3.10+-blue.svg)](https://www.python.org/downloads/) [![MCP](https://img.shields.io/badge/MCP-enabled-green.svg)](https://modelcontextprotocol.io)
 
-[Installation](#quick-start) • [CLI Reference](docs/CLI_REFERENCE.md) • [Architecture](docs/ARCHITECTURE.md) • [Documentation](docs/README.md) • [Contributing](CONTRIBUTING.md)
+[Installation](#quick-start) • [CLI Reference](docs/CLI_REFERENCE.md) • [Architecture](docs/ARCHITECTURE.md) • [Memory Backends](#memory-backends) • [Documentation](docs/README.md) • [Contributing](CONTRIBUTING.md)
 
 ---
 
@@ -175,6 +175,36 @@ route.
 
 No manual git work, no hand-written metadata—each MCP call bundles the entry,
 ball movement, commit footers, and push.
+
+---
+
+## Memory Backends
+
+Watercooler supports pluggable memory backends for advanced knowledge retrieval and semantic search. Two backends are currently available:
+
+### LeanRAG - Hierarchical Graph RAG
+
+Entity extraction with hierarchical semantic clustering. Ideal for large document corpora with redundancy reduction.
+
+**Features:**
+- Hierarchical semantic clustering (~46% redundancy reduction)
+- Batch document processing
+- Optional vector search with Milvus
+
+**Setup:** [LEANRAG_SETUP.md](docs/LEANRAG_SETUP.md)
+
+### Graphiti - Episodic Memory
+
+Temporal entity tracking with hybrid search. Ideal for conversation tracking and time-aware retrieval.
+
+**Features:**
+- Episodic ingestion with temporal reasoning
+- Automatic fact extraction and deduplication
+- Hybrid semantic + graph search
+
+**Setup:** [GRAPHITI_SETUP.md](docs/GRAPHITI_SETUP.md)
+
+**Learn more:** See [Memory Module Documentation](docs/MEMORY.md) for detailed comparison and usage examples.
 
 ---
 
