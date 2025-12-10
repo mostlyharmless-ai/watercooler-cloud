@@ -662,6 +662,28 @@ def run_with_sync(
             priority_flush=priority_flush,
         )
 
+        # Sync to baseline graph (non-blocking - failures don't stop the write)
+        if topic and context.threads_dir:
+            try:
+                from watercooler.baseline_graph.sync import sync_entry_to_graph
+
+                sync_entry_to_graph(
+                    threads_dir=context.threads_dir,
+                    topic=topic,
+                    entry_id=entry_id,
+                    generate_summaries=False,  # Fast mode - no LLM summaries
+                )
+                log_debug(f"[GRAPH] Synced entry to graph: {topic}/{entry_id}")
+            except Exception as graph_err:
+                # Graph sync failure should not block the write operation
+                log_debug(f"[GRAPH] Sync failed (non-blocking): {graph_err}")
+                try:
+                    from watercooler.baseline_graph.sync import record_graph_sync_error
+
+                    record_graph_sync_error(context.threads_dir, topic, entry_id, graph_err)
+                except Exception:
+                    pass  # Best effort error recording
+
         # Update parity state file after successful write
         if context.code_root and context.threads_dir:
             try:
