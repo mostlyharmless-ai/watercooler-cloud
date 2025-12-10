@@ -1,0 +1,451 @@
+"""Graph reader module for MCP read operations.
+
+This module provides functions to read thread/entry data from the baseline graph
+instead of parsing markdown files directly. Falls back to markdown parsing when
+graph data is unavailable.
+
+Key functions:
+- list_threads_from_graph(): List threads from graph with metadata
+- read_thread_from_graph(): Read full thread with entries from graph
+- get_entry_from_graph(): Get specific entry by ID or index
+- is_graph_available(): Check if graph data exists and is usable
+"""
+
+from __future__ import annotations
+
+import json
+import logging
+from dataclasses import dataclass
+from datetime import datetime
+from pathlib import Path
+from typing import Any, Dict, Iterator, List, Optional, Tuple
+
+logger = logging.getLogger(__name__)
+
+
+# ============================================================================
+# Data Structures
+# ============================================================================
+
+
+@dataclass
+class GraphThread:
+    """Thread data from graph."""
+
+    topic: str
+    title: str
+    status: str
+    ball: str
+    last_updated: str
+    summary: str
+    entry_count: int
+
+
+@dataclass
+class GraphEntry:
+    """Entry data from graph."""
+
+    entry_id: str
+    thread_topic: str
+    index: int
+    agent: str
+    role: str
+    entry_type: str
+    title: str
+    timestamp: str
+    summary: str
+    body: Optional[str] = None  # Body may not be stored in graph
+    file_refs: List[str] = None
+    pr_refs: List[str] = None
+    commit_refs: List[str] = None
+
+    def __post_init__(self):
+        if self.file_refs is None:
+            self.file_refs = []
+        if self.pr_refs is None:
+            self.pr_refs = []
+        if self.commit_refs is None:
+            self.commit_refs = []
+
+
+# ============================================================================
+# Graph Availability
+# ============================================================================
+
+
+def get_graph_dir(threads_dir: Path) -> Path:
+    """Get graph directory path."""
+    return threads_dir / "graph" / "baseline"
+
+
+def is_graph_available(threads_dir: Path) -> bool:
+    """Check if graph data exists and is usable.
+
+    Args:
+        threads_dir: Threads directory
+
+    Returns:
+        True if graph files exist and are readable
+    """
+    graph_dir = get_graph_dir(threads_dir)
+    nodes_file = graph_dir / "nodes.jsonl"
+
+    if not nodes_file.exists():
+        return False
+
+    # Quick check: can we read at least one line?
+    try:
+        with open(nodes_file, "r", encoding="utf-8") as f:
+            first_line = f.readline()
+            if first_line.strip():
+                json.loads(first_line)
+                return True
+    except Exception:
+        pass
+
+    return False
+
+
+def get_graph_staleness(threads_dir: Path) -> Optional[float]:
+    """Get how stale the graph is in seconds.
+
+    Compares manifest last_updated to now.
+
+    Args:
+        threads_dir: Threads directory
+
+    Returns:
+        Seconds since last graph update, or None if unknown
+    """
+    graph_dir = get_graph_dir(threads_dir)
+    manifest_file = graph_dir / "manifest.json"
+
+    if not manifest_file.exists():
+        return None
+
+    try:
+        manifest = json.loads(manifest_file.read_text(encoding="utf-8"))
+        last_updated = manifest.get("last_updated")
+        if last_updated:
+            last_dt = datetime.fromisoformat(last_updated.replace("Z", "+00:00"))
+            now = datetime.now(last_dt.tzinfo)
+            return (now - last_dt).total_seconds()
+    except Exception:
+        pass
+
+    return None
+
+
+# ============================================================================
+# Graph Loading
+# ============================================================================
+
+
+def _load_nodes(graph_dir: Path) -> Iterator[Dict[str, Any]]:
+    """Load nodes from JSONL file."""
+    nodes_file = graph_dir / "nodes.jsonl"
+    if not nodes_file.exists():
+        return
+
+    with open(nodes_file, "r", encoding="utf-8") as f:
+        for line in f:
+            if line.strip():
+                try:
+                    yield json.loads(line)
+                except json.JSONDecodeError:
+                    continue
+
+
+def _load_edges(graph_dir: Path) -> Iterator[Dict[str, Any]]:
+    """Load edges from JSONL file."""
+    edges_file = graph_dir / "edges.jsonl"
+    if not edges_file.exists():
+        return
+
+    with open(edges_file, "r", encoding="utf-8") as f:
+        for line in f:
+            if line.strip():
+                try:
+                    yield json.loads(line)
+                except json.JSONDecodeError:
+                    continue
+
+
+def _node_to_thread(node: Dict[str, Any]) -> GraphThread:
+    """Convert node dict to GraphThread."""
+    return GraphThread(
+        topic=node.get("topic", ""),
+        title=node.get("title", ""),
+        status=node.get("status", "OPEN"),
+        ball=node.get("ball", ""),
+        last_updated=node.get("last_updated", ""),
+        summary=node.get("summary", ""),
+        entry_count=node.get("entry_count", 0),
+    )
+
+
+def _node_to_entry(node: Dict[str, Any]) -> GraphEntry:
+    """Convert node dict to GraphEntry."""
+    return GraphEntry(
+        entry_id=node.get("entry_id", ""),
+        thread_topic=node.get("thread_topic", ""),
+        index=node.get("index", 0),
+        agent=node.get("agent", ""),
+        role=node.get("role", ""),
+        entry_type=node.get("entry_type", "Note"),
+        title=node.get("title", ""),
+        timestamp=node.get("timestamp", ""),
+        summary=node.get("summary", ""),
+        body=node.get("body"),  # May not be present
+        file_refs=node.get("file_refs", []),
+        pr_refs=node.get("pr_refs", []),
+        commit_refs=node.get("commit_refs", []),
+    )
+
+
+# ============================================================================
+# Read Operations
+# ============================================================================
+
+
+def list_threads_from_graph(
+    threads_dir: Path,
+    open_only: Optional[bool] = None,
+) -> List[GraphThread]:
+    """List threads from graph.
+
+    Args:
+        threads_dir: Threads directory
+        open_only: Filter by status (True=OPEN only, False=CLOSED only, None=all)
+
+    Returns:
+        List of GraphThread objects sorted by last_updated descending
+    """
+    graph_dir = get_graph_dir(threads_dir)
+    threads = []
+
+    for node in _load_nodes(graph_dir):
+        if node.get("type") != "thread":
+            continue
+
+        thread = _node_to_thread(node)
+
+        # Apply status filter
+        if open_only is True and thread.status.upper() != "OPEN":
+            continue
+        if open_only is False and thread.status.upper() == "OPEN":
+            continue
+
+        threads.append(thread)
+
+    # Sort by last_updated descending
+    threads.sort(key=lambda t: t.last_updated or "", reverse=True)
+
+    return threads
+
+
+def read_thread_from_graph(
+    threads_dir: Path,
+    topic: str,
+) -> Optional[Tuple[GraphThread, List[GraphEntry]]]:
+    """Read thread with all entries from graph.
+
+    Args:
+        threads_dir: Threads directory
+        topic: Thread topic
+
+    Returns:
+        Tuple of (thread, entries) or None if not found
+    """
+    graph_dir = get_graph_dir(threads_dir)
+
+    thread: Optional[GraphThread] = None
+    entries: List[GraphEntry] = []
+
+    # Single pass through nodes
+    for node in _load_nodes(graph_dir):
+        node_type = node.get("type")
+
+        if node_type == "thread" and node.get("topic") == topic:
+            thread = _node_to_thread(node)
+        elif node_type == "entry" and node.get("thread_topic") == topic:
+            entries.append(_node_to_entry(node))
+
+    if not thread:
+        return None
+
+    # Sort entries by index
+    entries.sort(key=lambda e: e.index)
+
+    return thread, entries
+
+
+def get_entry_from_graph(
+    threads_dir: Path,
+    topic: str,
+    entry_id: Optional[str] = None,
+    index: Optional[int] = None,
+) -> Optional[GraphEntry]:
+    """Get specific entry from graph.
+
+    Args:
+        threads_dir: Threads directory
+        topic: Thread topic
+        entry_id: Entry ID (ULID)
+        index: Entry index (0-based)
+
+    Returns:
+        GraphEntry or None if not found
+    """
+    if entry_id is None and index is None:
+        return None
+
+    graph_dir = get_graph_dir(threads_dir)
+
+    for node in _load_nodes(graph_dir):
+        if node.get("type") != "entry":
+            continue
+        if node.get("thread_topic") != topic:
+            continue
+
+        if entry_id and node.get("entry_id") == entry_id:
+            return _node_to_entry(node)
+        if index is not None and node.get("index") == index:
+            return _node_to_entry(node)
+
+    return None
+
+
+def get_entries_range_from_graph(
+    threads_dir: Path,
+    topic: str,
+    start_index: int = 0,
+    end_index: Optional[int] = None,
+) -> List[GraphEntry]:
+    """Get range of entries from graph.
+
+    Args:
+        threads_dir: Threads directory
+        topic: Thread topic
+        start_index: Starting index (inclusive)
+        end_index: Ending index (inclusive), or None for all
+
+    Returns:
+        List of GraphEntry objects in index order
+    """
+    graph_dir = get_graph_dir(threads_dir)
+    entries = []
+
+    for node in _load_nodes(graph_dir):
+        if node.get("type") != "entry":
+            continue
+        if node.get("thread_topic") != topic:
+            continue
+
+        idx = node.get("index", 0)
+        if idx < start_index:
+            continue
+        if end_index is not None and idx > end_index:
+            continue
+
+        entries.append(_node_to_entry(node))
+
+    # Sort by index
+    entries.sort(key=lambda e: e.index)
+
+    return entries
+
+
+# ============================================================================
+# Format Conversion
+# ============================================================================
+
+
+def thread_to_list_tuple(
+    thread: GraphThread,
+    path: Path,
+    is_new: bool = False,
+) -> Tuple[str, str, str, str, Path, bool]:
+    """Convert GraphThread to tuple format expected by commands.list_threads.
+
+    Returns:
+        Tuple of (title, status, ball, updated, path, is_new)
+    """
+    return (
+        thread.title,
+        thread.status,
+        thread.ball,
+        thread.last_updated,
+        path,
+        is_new,
+    )
+
+
+def format_thread_markdown(
+    thread: GraphThread,
+    entries: List[GraphEntry],
+) -> str:
+    """Format thread and entries as markdown.
+
+    Args:
+        thread: Thread metadata
+        entries: List of entries
+
+    Returns:
+        Markdown formatted string
+    """
+    lines = []
+
+    # Header
+    lines.append(f"# {thread.topic} — Thread")
+    lines.append(f"Status: {thread.status}")
+    lines.append(f"Ball: {thread.ball}")
+    lines.append(f"Topic: {thread.topic}")
+    lines.append(f"Created: {entries[0].timestamp if entries else 'Unknown'}")
+    lines.append("")
+
+    # Entries
+    for entry in entries:
+        lines.append("---")
+        lines.append(f"Entry: {entry.agent} {entry.timestamp}")
+        lines.append(f"Role: {entry.role}")
+        lines.append(f"Type: {entry.entry_type}")
+        lines.append(f"Title: {entry.title}")
+        lines.append("")
+
+        if entry.body:
+            lines.append(entry.body)
+        elif entry.summary:
+            lines.append(f"*[Summary: {entry.summary}]*")
+
+        if entry.entry_id:
+            lines.append(f"<!-- Entry-ID: {entry.entry_id} -->")
+        lines.append("")
+
+    return "\n".join(lines)
+
+
+def format_entry_json(entry: GraphEntry) -> Dict[str, Any]:
+    """Format entry as JSON-serializable dict.
+
+    Args:
+        entry: GraphEntry object
+
+    Returns:
+        Dict ready for JSON serialization
+    """
+    return {
+        "entry_id": entry.entry_id,
+        "thread_topic": entry.thread_topic,
+        "index": entry.index,
+        "agent": entry.agent,
+        "role": entry.role,
+        "entry_type": entry.entry_type,
+        "title": entry.title,
+        "timestamp": entry.timestamp,
+        "summary": entry.summary,
+        "body": entry.body,
+        "file_refs": entry.file_refs,
+        "pr_refs": entry.pr_refs,
+        "commit_refs": entry.commit_refs,
+    }
