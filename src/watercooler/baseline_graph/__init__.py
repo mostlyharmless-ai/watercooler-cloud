@@ -55,6 +55,17 @@ from .sync import (
     reconcile_graph,
 )
 
+from .search import (
+    SearchQuery,
+    SearchResult,
+    SearchResults,
+    search_graph,
+    search_entries,
+    search_threads,
+    find_similar_entries,
+    search_by_time_range,
+)
+
 __all__ = [
     # Summarizer
     "summarize_entry",
@@ -92,4 +103,13 @@ __all__ = [
     "record_graph_sync_error",
     "check_graph_health",
     "reconcile_graph",
+    # Search
+    "SearchQuery",
+    "SearchResult",
+    "SearchResults",
+    "search_graph",
+    "search_entries",
+    "search_threads",
+    "find_similar_entries",
+    "search_by_time_range",
 ]
