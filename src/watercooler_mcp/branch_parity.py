@@ -289,11 +289,21 @@ def _pull_rebase(repo: Repo) -> bool:
         return False
 
 
-def _push_with_retry(repo: Repo, branch: str, max_retries: int = 3) -> bool:
-    """Push to origin with retry. Returns True on success."""
+def _push_with_retry(repo: Repo, branch: str, max_retries: int = 3, set_upstream: bool = False) -> bool:
+    """Push to origin with retry. Returns True on success.
+
+    Args:
+        repo: Git repository
+        branch: Branch name to push
+        max_retries: Maximum retry attempts
+        set_upstream: If True, use -u flag to set upstream tracking (for first push)
+    """
     for attempt in range(max_retries):
         try:
-            repo.git.push("origin", branch)
+            if set_upstream:
+                repo.git.push("-u", "origin", branch)
+            else:
+                repo.git.push("origin", branch)
             return True
         except GitCommandError as e:
             error_text = str(e).lower()
@@ -566,10 +576,10 @@ def run_preflight(
 
         if code_on_origin and not threads_on_origin:
             if auto_fix:
-                # Push threads branch to origin
-                log_debug(f"[PARITY] Threads branch {code_branch} not on origin, pushing")
-                if _push_with_retry(threads_repo, code_branch):
-                    actions_taken.append(f"Pushed threads branch {code_branch} to origin")
+                # Push threads branch to origin (with -u to set upstream tracking)
+                log_debug(f"[PARITY] Threads branch {code_branch} not on origin, pushing with upstream")
+                if _push_with_retry(threads_repo, code_branch, set_upstream=True):
+                    actions_taken.append(f"Pushed threads branch {code_branch} to origin (upstream set)")
                     threads_on_origin = True
                 else:
                     state.status = ParityStatus.PENDING_PUSH.value
