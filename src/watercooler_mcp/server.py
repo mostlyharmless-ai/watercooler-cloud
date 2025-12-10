@@ -2343,6 +2343,138 @@ def baseline_graph_build(
         return f"Error building baseline graph: {str(e)}"
 
 
+@mcp.tool(name="watercooler_v1_search")
+def search_graph_tool(
+    ctx: Context,
+    code_path: str = "",
+    query: str = "",
+    start_time: str = "",
+    end_time: str = "",
+    thread_status: str = "",
+    thread_topic: str = "",
+    role: str = "",
+    entry_type: str = "",
+    agent: str = "",
+    limit: int = 10,
+    combine: str = "AND",
+    include_threads: bool = True,
+    include_entries: bool = True,
+) -> str:
+    """Unified search across threads and entries in the baseline graph.
+
+    Supports keyword search, time-based filtering, and metadata filters.
+    All filters can be combined with AND or OR logic.
+
+    Args:
+        code_path: Path to code repository (for resolving threads dir).
+        query: Optional keyword search (searches title, body, summary).
+        start_time: Filter results after this ISO timestamp.
+        end_time: Filter results before this ISO timestamp.
+        thread_status: Filter threads by status (OPEN, CLOSED, etc.).
+        thread_topic: Filter entries by specific thread topic.
+        role: Filter entries by role (planner, implementer, etc.).
+        entry_type: Filter entries by type (Note, Plan, Decision, etc.).
+        agent: Filter entries by agent name (partial match).
+        limit: Maximum results to return (default: 10, max: 100).
+        combine: How to combine filters - "AND" or "OR" (default: AND).
+        include_threads: Include thread nodes in results (default: True).
+        include_entries: Include entry nodes in results (default: True).
+
+    Returns:
+        JSON with search results including matched nodes and metadata.
+    """
+    try:
+        from watercooler.baseline_graph.search import SearchQuery, search_graph
+        from watercooler.baseline_graph.reader import is_graph_available
+
+        error, context = _require_context(code_path)
+        if error:
+            return error
+        if context is None or not context.threads_dir:
+            return "Error: Unable to resolve threads directory."
+
+        threads_dir = context.threads_dir
+        if not threads_dir.exists():
+            return f"Threads directory not found: {threads_dir}"
+
+        # Check if graph is available
+        if not is_graph_available(threads_dir):
+            return json.dumps({
+                "error": "Graph not available",
+                "message": "No baseline graph found. Run watercooler_v1_baseline_graph_build first.",
+                "results": [],
+                "count": 0,
+            })
+
+        # Validate and constrain limit
+        limit = max(1, min(limit, 100))
+
+        # Build search query
+        search_query = SearchQuery(
+            query=query if query else None,
+            start_time=start_time if start_time else None,
+            end_time=end_time if end_time else None,
+            thread_status=thread_status if thread_status else None,
+            thread_topic=thread_topic if thread_topic else None,
+            role=role if role else None,
+            entry_type=entry_type if entry_type else None,
+            agent=agent if agent else None,
+            limit=limit,
+            combine=combine.upper() if combine.upper() in ("AND", "OR") else "AND",
+            include_threads=include_threads,
+            include_entries=include_entries,
+        )
+
+        # Execute search
+        results = search_graph(threads_dir, search_query)
+
+        # Format results for JSON output
+        output = {
+            "count": results.count,
+            "total_scanned": results.total_scanned,
+            "results": [],
+        }
+
+        for result in results.results:
+            item = {
+                "type": result.node_type,
+                "id": result.node_id,
+                "score": result.score,
+                "matched_fields": result.matched_fields,
+            }
+
+            if result.thread:
+                item["thread"] = {
+                    "topic": result.thread.topic,
+                    "title": result.thread.title,
+                    "status": result.thread.status,
+                    "ball": result.thread.ball,
+                    "last_updated": result.thread.last_updated,
+                    "entry_count": result.thread.entry_count,
+                    "summary": result.thread.summary,
+                }
+
+            if result.entry:
+                item["entry"] = {
+                    "entry_id": result.entry.entry_id,
+                    "thread_topic": result.entry.thread_topic,
+                    "index": result.entry.index,
+                    "agent": result.entry.agent,
+                    "role": result.entry.role,
+                    "entry_type": result.entry.entry_type,
+                    "title": result.entry.title,
+                    "timestamp": result.entry.timestamp,
+                    "summary": result.entry.summary,
+                }
+
+            output["results"].append(item)
+
+        return json.dumps(output, indent=2)
+
+    except Exception as e:
+        return f"Error searching graph: {str(e)}"
+
+
 # ============================================================================
 # Branch Sync Enforcement Tools
 # ============================================================================
