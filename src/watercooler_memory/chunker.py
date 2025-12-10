@@ -39,6 +39,24 @@ class ChunkerConfig:
     max_tokens: int = DEFAULT_MAX_TOKENS
     overlap: int = DEFAULT_OVERLAP
     encoding_name: str = DEFAULT_ENCODING
+    include_header: bool = False
+    mode: str = "default"
+
+    @classmethod
+    def watercooler_preset(
+        cls,
+        max_tokens: int = 768,
+        overlap: int = 64,
+        encoding_name: str = DEFAULT_ENCODING,
+    ) -> "ChunkerConfig":
+        """Preset tuned for watercooler threads."""
+        return cls(
+            max_tokens=max_tokens,
+            overlap=overlap,
+            encoding_name=encoding_name,
+            include_header=True,
+            mode="watercooler",
+        )
 
 
 def _get_encoder(encoding_name: str = DEFAULT_ENCODING):
@@ -220,18 +238,47 @@ def chunk_entry(
     chunks = chunk_text(entry.body, config)
 
     chunk_nodes: list[ChunkNode] = []
-    for i, (text, token_count) in enumerate(chunks):
-        chunk_id = _generate_chunk_id(text, entry.entry_id, i)
+    chunk_index = 0
+
+    # Optional header chunk capturing metadata (agent/role/type/title)
+    if config and config.include_header:
+        header_fields = [
+            f"agent: {entry.agent or ''}",
+            f"role: {entry.role or ''}",
+            f"type: {entry.entry_type or ''}",
+            f"title: {entry.title or ''}",
+            f"timestamp: {entry.timestamp or ''}",
+        ]
+        header_text = "\n".join(header_fields).strip()
+        if header_text:
+            header_tokens = count_tokens(header_text, config.encoding_name)
+            chunk_id = _generate_chunk_id(header_text, entry.entry_id, chunk_index)
+            chunk_nodes.append(
+                ChunkNode(
+                    chunk_id=chunk_id,
+                    entry_id=entry.entry_id,
+                    thread_id=entry.thread_id,
+                    index=chunk_index,
+                    text=header_text,
+                    token_count=header_tokens,
+                    event_time=entry.timestamp,
+                )
+            )
+            chunk_index += 1
+
+    for text, token_count in chunks:
+        chunk_id = _generate_chunk_id(text, entry.entry_id, chunk_index)
         chunk_node = ChunkNode(
             chunk_id=chunk_id,
             entry_id=entry.entry_id,
             thread_id=entry.thread_id,
-            index=i,
+            index=chunk_index,
             text=text,
             token_count=token_count,
             event_time=entry.timestamp,
         )
         chunk_nodes.append(chunk_node)
+        chunk_index += 1
 
     return chunk_nodes
 

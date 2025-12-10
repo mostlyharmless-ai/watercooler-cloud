@@ -238,6 +238,10 @@ def test_feature_name():
 6. Isolate tests (no dependencies between tests)
 7. Keep tests fast (use mocks for expensive operations)
 
+### Timeouts
+
+- Do not add tiny timeouts to commands or subprocesses; they are not helpful here. Use generous defaults (minutes, not seconds) for end-to-end pipelines and integration tests.
+
 ## Codex Watercooler Protocol (Session Rules)
 
 ### Purpose

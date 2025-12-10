@@ -39,6 +39,95 @@ manifest = export_to_leanrag(graph, "/path/to/output")
 graph.save("/path/to/graph.json")
 ```
 
+## Backend Adapters
+
+The memory module supports multiple backend implementations through a pluggable adapter architecture. Each backend provides different memory and retrieval capabilities.
+
+### Available Backends
+
+#### LeanRAG - Hierarchical Graph RAG
+
+**Type:** Entity extraction + Semantic graph
+**Version:** Pinned to commit `1ea1360caa50bec5531ac665d39a73bb152d8fb4`
+**License:** AAAI-26 acceptance pending
+**Graph DB:** FalkorDB (Redis-compatible)
+**Vector DB:** Milvus (optional)
+
+**Capabilities:**
+- Entity and relation extraction from documents
+- Hierarchical semantic clustering (GMM + UMAP)
+- Multi-layer graph construction
+- Reduced redundancy (~46% vs flat baselines)
+- Batch document processing
+
+**Use Cases:**
+- Large document corpus indexing
+- Knowledge base construction
+- Semantic search with redundancy reduction
+
+**Setup Guide:** [LEANRAG_SETUP.md](LEANRAG_SETUP.md)
+
+---
+
+#### Graphiti - Episodic Memory + Hybrid Search
+
+**Type:** Episodic memory + Temporal graph
+**Version:** Pinned to commit `1de752646a9557682c762b83a679d46ffc67e821`
+**License:** Apache-2.0
+**Graph DB:** FalkorDB or Neo4j
+**Vector DB:** Built-in (embeddings in graph nodes)
+
+**Capabilities:**
+- Episodic ingestion (one episode per entry)
+- Temporal entity tracking with time-aware edges
+- Automatic fact extraction and deduplication
+- Hybrid search (semantic + graph traversal)
+- Chronological reasoning
+
+**Use Cases:**
+- Conversation tracking and audit trails
+- Time-sensitive knowledge retrieval
+- Who-said-what-when queries
+
+**Setup Guide:** [GRAPHITI_SETUP.md](GRAPHITI_SETUP.md)
+
+---
+
+### Comparison Matrix
+
+| Feature | LeanRAG | Graphiti |
+|---------|---------|----------|
+| **Memory Model** | Entity extraction + clustering | Episodic temporal events |
+| **Ingestion** | Batch documents | Sequential episodes |
+| **Graph Structure** | Hierarchical semantic layers | Entities + temporal edges |
+| **Search** | Hierarchical retrieval | Hybrid (semantic + graph) |
+| **Time Awareness** | No | Yes (built-in) |
+| **Deduplication** | Clustering-based | Automatic fact merging |
+| **LLM Requirement** | Optional (local models) | Required (OpenAI/compatible) |
+| **Best For** | Knowledge bases | Conversation tracking |
+
+### Backend Contract (Coming in Phase 2)
+
+A unified `MemoryBackend` protocol will provide a consistent interface across all adapters:
+
+```python
+class MemoryBackend(Protocol):
+    def prepare(self, corpus: CorpusPayload) -> PrepareResult
+    def index(self, chunks: ChunkPayload) -> IndexResult
+    def query(self, query_obj: QueryPayload) -> QueryResult
+    def healthcheck(self) -> HealthStatus
+    def get_capabilities(self) -> CapabilityFlags
+```
+
+This architecture enables:
+- **Pluggability**: Swap backends without changing watercooler code
+- **Testability**: Mock backends for unit tests
+- **Extensibility**: Add new backends by implementing the protocol
+
+See the ADR (coming soon) for full contract specification.
+
+---
+
 ## Architecture
 
 The graph uses a hierarchical structure:
