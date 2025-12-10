@@ -811,7 +811,7 @@ def health(ctx: Context, code_path: str = "") -> str:
     """
     try:
         agent = get_agent_name(ctx.client_id)
-        context = resolve_thread_context(code_path=code_path if code_path else None)
+        context = resolve_thread_context(Path(code_path) if code_path else None)
         threads_dir = context.threads_dir
         version = get_version()
 

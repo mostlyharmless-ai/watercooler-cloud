@@ -39,8 +39,8 @@ def test_health_creates_directory_if_missing(temp_project_dir, mock_context, mon
     # Mock get_threads_dir to return our test directory
     monkeypatch.setenv("WATERCOOLER_DIR", str(watercooler_dir))
 
-    # Call health - access the underlying function
-    result = health.fn(mock_context)
+    # Call health - access the underlying function with code_path
+    result = health.fn(mock_context, code_path=str(temp_project_dir))
 
     # Verify directory was created
     assert watercooler_dir.exists()

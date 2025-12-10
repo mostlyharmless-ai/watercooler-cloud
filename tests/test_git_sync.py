@@ -24,8 +24,12 @@ def init_remote_repo(remote_path: Path) -> Repo:
 
 
 def seed_remote_with_main(remote_path: Path) -> None:
-    """Create a bare remote with a seeded main branch."""
-    init_remote_repo(remote_path)
+    """Create a bare remote with a seeded main branch.
+
+    This function also sets the remote's HEAD to point to 'main' to ensure
+    clones default to 'main' regardless of the system's git default branch setting.
+    """
+    bare_repo = init_remote_repo(remote_path)
     workdir = remote_path.parent / "seed"
     repo = Repo.init(workdir)
     (workdir / "README.md").write_text("seed\n")
@@ -34,6 +38,8 @@ def seed_remote_with_main(remote_path: Path) -> None:
     repo.git.branch('-M', 'main')
     repo.create_remote('origin', remote_path.as_posix())
     repo.remotes.origin.push('main:main')
+    # Set the bare repo's HEAD to point to main (ensures clones default to 'main')
+    bare_repo.head.reference = bare_repo.heads['main']
     shutil.rmtree(workdir)
 
 
