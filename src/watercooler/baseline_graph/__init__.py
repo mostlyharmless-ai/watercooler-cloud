@@ -45,6 +45,9 @@ from .reader import (
     get_entries_range_from_graph,
     format_thread_markdown,
     format_entry_json,
+    increment_access_count,
+    get_access_count,
+    get_most_accessed,
 )
 
 from .sync import (
@@ -97,6 +100,10 @@ __all__ = [
     "get_entries_range_from_graph",
     "format_thread_markdown",
     "format_entry_json",
+    # Odometer (access tracking)
+    "increment_access_count",
+    "get_access_count",
+    "get_most_accessed",
     # Sync
     "sync_entry_to_graph",
     "sync_thread_to_graph",

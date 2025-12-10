@@ -41,6 +41,7 @@ from watercooler.baseline_graph.reader import (
     read_thread_from_graph,
     get_entry_from_graph,
     get_entries_range_from_graph,
+    increment_access_count,
     GraphThread,
     GraphEntry,
 )
@@ -602,6 +603,25 @@ def _use_graph_for_reads(threads_dir: Path) -> bool:
     if auto_use:
         return is_graph_available(threads_dir)
     return False
+
+
+def _track_access(threads_dir: Path, node_type: str, node_id: str) -> None:
+    """Safely track access to a node (thread or entry).
+
+    This is a non-blocking operation - errors are logged but don't fail the read.
+    Only tracks if graph features are enabled.
+
+    Args:
+        threads_dir: Threads directory
+        node_type: "thread" or "entry"
+        node_id: Topic (for threads) or entry_id (for entries)
+    """
+    if not _use_graph_for_reads(threads_dir):
+        return
+    try:
+        increment_access_count(threads_dir, node_type, node_id)
+    except Exception as e:
+        log_debug(f"[ODOMETER] Failed to track {node_type}:{node_id} access: {e}")
 
 
 def _graph_entry_to_thread_entry(graph_entry: GraphEntry, full_body: str | None = None) -> ThreadEntry:
@@ -1451,6 +1471,9 @@ def read_thread(
         if not thread_path.exists():
             return f"Error: Thread '{topic}' not found in {threads_dir}\n\nAvailable threads: {', '.join(p.stem for p in threads_dir.glob('*.md')) if threads_dir.exists() else 'none'}"
 
+        # Track thread access (non-blocking)
+        _track_access(threads_dir, "thread", topic)
+
         # Read full thread content
         content = fs.read_body(thread_path)
         if resolved_format == "markdown":
@@ -1591,6 +1614,10 @@ def get_thread_entry(
     if selected is None:
         return ToolResult(content=[TextContent(type="text", text="Error: failed to resolve the requested entry.")])
 
+    # Track entry access (non-blocking)
+    if selected.entry_id and context.threads_dir:
+        _track_access(context.threads_dir, "entry", selected.entry_id)
+
     payload = {
         "topic": topic,
         "entry_count": len(entries),
@@ -1647,6 +1674,12 @@ def get_thread_entry_range(
         return ToolResult(content=[TextContent(type="text", text="Error: computed end index is before start index.")])
 
     selected_entries = entries[start_index : effective_end + 1] if total else []
+
+    # Track entry access for all entries in range (non-blocking)
+    if context.threads_dir:
+        for entry in selected_entries:
+            if entry.entry_id:
+                _track_access(context.threads_dir, "entry", entry.entry_id)
 
     payload = {
         "topic": topic,
@@ -2473,6 +2506,207 @@ def search_graph_tool(
 
     except Exception as e:
         return f"Error searching graph: {str(e)}"
+
+
+@mcp.tool(name="watercooler_v1_graph_health")
+def graph_health_tool(
+    ctx: Context,
+    code_path: str = "",
+) -> str:
+    """Check graph synchronization health and report any issues.
+
+    Reports the status of all threads in the graph:
+    - Synced threads (graph matches markdown)
+    - Stale threads (need sync)
+    - Error threads (sync failed)
+    - Pending threads (sync in progress)
+
+    Use this to diagnose graph sync issues before running reconcile.
+
+    Args:
+        code_path: Path to code repository (for resolving threads dir).
+
+    Returns:
+        JSON health report with thread statuses and recommendations.
+    """
+    try:
+        from watercooler.baseline_graph.sync import check_graph_health
+        from watercooler.baseline_graph.reader import is_graph_available
+
+        error, context = _require_context(code_path)
+        if error:
+            return error
+        if context is None or not context.threads_dir:
+            return "Error: Unable to resolve threads directory."
+
+        threads_dir = context.threads_dir
+        if not threads_dir.exists():
+            return f"Threads directory not found: {threads_dir}"
+
+        # Check if graph exists at all
+        graph_available = is_graph_available(threads_dir)
+
+        # Get health report
+        health = check_graph_health(threads_dir)
+
+        output = {
+            "graph_available": graph_available,
+            "healthy": health.healthy,
+            "total_threads": health.total_threads,
+            "synced_threads": health.synced_threads,
+            "stale_threads": health.stale_threads,
+            "error_threads": health.error_threads,
+            "pending_threads": health.pending_threads,
+            "error_details": health.error_details,
+            "recommendations": [],
+        }
+
+        # Add recommendations
+        if not graph_available:
+            output["recommendations"].append(
+                "Graph not available. Run watercooler_v1_baseline_graph_build to create it."
+            )
+        if health.stale_threads:
+            output["recommendations"].append(
+                f"{len(health.stale_threads)} threads need sync. Run watercooler_v1_reconcile_graph."
+            )
+        if health.error_threads:
+            output["recommendations"].append(
+                f"{health.error_threads} threads have sync errors. Check error_details and run reconcile."
+            )
+
+        return json.dumps(output, indent=2)
+
+    except Exception as e:
+        return f"Error checking graph health: {str(e)}"
+
+
+@mcp.tool(name="watercooler_v1_reconcile_graph")
+def reconcile_graph_tool(
+    ctx: Context,
+    code_path: str = "",
+    topics: str = "",
+    generate_summaries: bool = False,
+) -> str:
+    """Reconcile graph with markdown files to fix sync issues.
+
+    Rebuilds graph nodes and edges for threads that are stale, have errors,
+    or are explicitly specified. This is a repair operation for when the
+    graph gets out of sync with markdown.
+
+    Args:
+        code_path: Path to code repository (for resolving threads dir).
+        topics: Comma-separated list of topics to reconcile. If empty,
+                reconciles all stale/error topics.
+        generate_summaries: Whether to regenerate LLM summaries (slower).
+
+    Returns:
+        JSON report with reconciliation results per topic.
+    """
+    try:
+        from watercooler.baseline_graph.sync import reconcile_graph
+
+        error, context = _require_context(code_path)
+        if error:
+            return error
+        if context is None or not context.threads_dir:
+            return "Error: Unable to resolve threads directory."
+
+        threads_dir = context.threads_dir
+        if not threads_dir.exists():
+            return f"Threads directory not found: {threads_dir}"
+
+        # Parse topics list
+        topic_list = None
+        if topics:
+            topic_list = [t.strip() for t in topics.split(",") if t.strip()]
+
+        # Run reconciliation
+        results = reconcile_graph(
+            threads_dir=threads_dir,
+            topics=topic_list,
+            generate_summaries=generate_summaries,
+        )
+
+        # Build output
+        successes = [t for t, ok in results.items() if ok]
+        failures = [t for t, ok in results.items() if not ok]
+
+        output = {
+            "total_reconciled": len(results),
+            "successes": len(successes),
+            "failures": len(failures),
+            "success_topics": successes,
+            "failure_topics": failures,
+        }
+
+        return json.dumps(output, indent=2)
+
+    except Exception as e:
+        return f"Error reconciling graph: {str(e)}"
+
+
+@mcp.tool(name="watercooler_v1_access_stats")
+def access_stats_tool(
+    ctx: Context,
+    code_path: str = "",
+    node_type: str = "",
+    limit: int = 10,
+) -> str:
+    """Get access statistics from the graph odometer.
+
+    Returns the most frequently accessed threads and entries, useful for
+    understanding usage patterns and identifying popular content.
+
+    Args:
+        code_path: Path to code repository (for resolving threads dir).
+        node_type: Filter by "thread" or "entry". Empty string returns both.
+        limit: Maximum number of results to return (default 10).
+
+    Returns:
+        JSON with most accessed nodes including type, id, and access count.
+    """
+    try:
+        from watercooler.baseline_graph.reader import get_most_accessed
+
+        error, context = _require_context(code_path)
+        if error:
+            return error
+        if context is None or not context.threads_dir:
+            return "Error: Unable to resolve threads directory."
+
+        threads_dir = context.threads_dir
+        if not threads_dir.exists():
+            return f"Threads directory not found: {threads_dir}"
+
+        # Validate node_type
+        filter_type = None
+        if node_type:
+            if node_type.lower() not in ("thread", "entry"):
+                return f"Invalid node_type: {node_type}. Must be 'thread', 'entry', or empty."
+            filter_type = node_type.lower()
+
+        # Get most accessed
+        results = get_most_accessed(
+            threads_dir=threads_dir,
+            node_type=filter_type,
+            limit=max(1, min(limit, 100)),  # Clamp to 1-100
+        )
+
+        # Format output
+        output = {
+            "total_results": len(results),
+            "filter": filter_type or "all",
+            "stats": [
+                {"type": t, "id": nid, "access_count": count}
+                for t, nid, count in results
+            ],
+        }
+
+        return json.dumps(output, indent=2)
+
+    except Exception as e:
+        return f"Error getting access stats: {str(e)}"
 
 
 # ============================================================================
