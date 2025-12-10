@@ -490,6 +490,41 @@ Recover from branch state inconsistencies.
 3. Run again with `auto_fix=True` to apply safe fixes automatically
 4. Use `watercooler_v1_sync_branch_state` for manual fixes if needed
 
+#### `watercooler_v1_reconcile_parity`
+Reconcile branch parity state when preflight blocks.
+
+When a write operation (say, ack, handoff, set_status) fails due to branch parity issues (threads behind origin, pending push failed, etc.), use this tool to attempt automatic recovery.
+
+**Parameters:**
+- `code_path` (str): Path to code repository directory (required)
+
+**Actions performed:**
+1. **Pull threads if behind origin**: If threads is behind, pulls with rebase to sync
+2. **Run preflight with auto-fix**: Reruns parity checks with auto-remediation enabled
+3. **Push pending commits**: If there are local commits waiting to be pushed, attempts push with retry
+
+**Returns:** JSON object with:
+- `success` (bool): Whether reconciliation succeeded
+- `status` (str): Final parity status after reconciliation
+- `actions` (list): Actions taken during reconciliation
+- `push_result` (object): Result of push attempt if applicable (success, error)
+- `error` (str): Error message if reconciliation failed
+- `blocking_reason` (str): Reason if still blocked after reconciliation
+
+**Example Usage:**
+```python
+# When say() fails with "Threads branch is 2 commits behind origin"
+result = watercooler_v1_reconcile_parity(code_path=".")
+if result["success"]:
+    # Retry the original write operation
+    watercooler_v1_say(topic="my-topic", title="Entry", body="...", code_path=".")
+```
+
+**Common Scenarios:**
+- **Threads behind origin**: Another agent pushed commits; reconcile pulls them
+- **Push failed**: Network issue during push; reconcile retries the push
+- **Branch mismatch after checkout**: Auto-fixes branch alignment
+
 ## Configuration
 
 ### Environment Variables

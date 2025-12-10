@@ -544,3 +544,151 @@ def test_preflight_threads_ahead_no_auto_fix(repos_with_remotes: tuple[Path, Pat
     ahead_behind = threads.git.rev_list("--left-right", "--count", "main...origin/main")
     ahead, behind = [int(x) for x in ahead_behind.split()]
     assert ahead == 1  # Still ahead
+
+
+# =============================================================================
+# Inverse Main Protection Tests
+# =============================================================================
+
+
+def test_preflight_inverse_main_protection(code_repo: Path, threads_repo: Path) -> None:
+    """Test preflight blocks when code=main but threads=feature.
+
+    This is the inverse of main protection. When code is on main but threads
+    is on a feature branch, we block because entries would have incorrect
+    Code-Branch metadata.
+    """
+    # Code stays on main
+    # Put threads on a feature branch
+    threads = Repo(threads_repo)
+    threads.git.checkout("-b", "feature-orphan")
+
+    result = run_preflight(
+        code_repo_path=code_repo,
+        threads_repo_path=threads_repo,
+        auto_fix=False,  # No auto-fix for this case
+        fetch_first=False,
+    )
+
+    assert result.success is False
+    assert result.can_proceed is False
+    assert result.state.status == ParityStatus.MAIN_PROTECTION.value
+    assert "main" in result.blocking_reason
+    assert "feature-orphan" in result.blocking_reason
+    assert "incorrect Code-Branch metadata" in result.blocking_reason
+
+
+def test_preflight_inverse_main_protection_not_auto_fixed(code_repo: Path, threads_repo: Path) -> None:
+    """Test that inverse main protection is NOT auto-fixed even with auto_fix=True.
+
+    Unlike the forward case (threads=main, code=feature), the inverse case
+    (code=main, threads=feature) should NOT be auto-fixed. The user must
+    explicitly decide whether to checkout code to the feature branch or
+    merge the threads branch.
+    """
+    threads = Repo(threads_repo)
+    threads.git.checkout("-b", "stale-feature")
+
+    # Even with auto_fix=True, should block
+    result = run_preflight(
+        code_repo_path=code_repo,
+        threads_repo_path=threads_repo,
+        auto_fix=True,  # Even with auto-fix, this case blocks
+        fetch_first=False,
+    )
+
+    assert result.success is False
+    assert result.can_proceed is False
+    assert result.state.status == ParityStatus.MAIN_PROTECTION.value
+
+
+# =============================================================================
+# Divergence Blocking Tests
+# =============================================================================
+
+
+def test_preflight_threads_behind_origin_blocks(repos_with_remotes: tuple[Path, Path, Path, Path]) -> None:
+    """Test preflight blocks when threads is behind origin.
+
+    When threads repo is behind origin, we block to prevent auto-pulling
+    changes that may conflict or that the user may not be aware of.
+    Use reconcile_parity to fix.
+    """
+    code_path, threads_path, code_bare, threads_bare = repos_with_remotes
+
+    # Push a commit to threads origin from another "clone"
+    # This simulates another agent having pushed commits
+    other_threads = Repo.clone_from(str(threads_bare), str(threads_path.parent / "other-threads"))
+    # Ensure on main branch
+    try:
+        other_threads.git.checkout("main")
+    except Exception:
+        other_threads.git.checkout("-b", "main")
+    author = Actor("Other", "other@example.com")
+    (Path(other_threads.working_dir) / "other-thread.md").write_text("# Other Thread\n")
+    other_threads.index.add(["other-thread.md"])
+    other_threads.index.commit("Other agent entry", author=author)
+    other_threads.git.push("origin", "main")
+
+    # Now our local threads is behind origin by 1 commit
+    # Fetch to detect the difference
+    threads = Repo(threads_path)
+    threads.git.fetch("origin")
+
+    result = run_preflight(
+        code_repo_path=code_path,
+        threads_repo_path=threads_path,
+        auto_fix=True,  # Even with auto_fix, should block
+        fetch_first=False,  # We already fetched
+    )
+
+    assert result.success is False
+    assert result.can_proceed is False
+    assert result.state.status == ParityStatus.DIVERGED.value
+    assert "behind origin" in result.blocking_reason
+    assert "reconcile_parity" in result.blocking_reason
+
+
+def test_preflight_threads_diverged_blocks(repos_with_remotes: tuple[Path, Path, Path, Path]) -> None:
+    """Test preflight blocks when threads has diverged (both ahead and behind origin).
+
+    When threads has local commits AND is behind origin, we have a diverged
+    state that requires manual resolution.
+    """
+    code_path, threads_path, code_bare, threads_bare = repos_with_remotes
+
+    # Push a commit to threads origin from another "clone"
+    other_threads = Repo.clone_from(str(threads_bare), str(threads_path.parent / "other-threads-2"))
+    # Ensure on main branch
+    try:
+        other_threads.git.checkout("main")
+    except Exception:
+        other_threads.git.checkout("-b", "main")
+    author = Actor("Other", "other@example.com")
+    (Path(other_threads.working_dir) / "other.md").write_text("# Other\n")
+    other_threads.index.add(["other.md"])
+    other_threads.index.commit("Other commit", author=author)
+    other_threads.git.push("origin", "main")
+
+    # Add local commit to our threads (not pushed)
+    threads = Repo(threads_path)
+    author = Actor("Test", "test@example.com")
+    (threads_path / "local.md").write_text("# Local\n")
+    threads.index.add(["local.md"])
+    threads.index.commit("Local commit", author=author)
+
+    # Now threads is both ahead (local commit) and behind (other's commit)
+    # Fetch to detect the difference
+    threads.git.fetch("origin")
+
+    result = run_preflight(
+        code_repo_path=code_path,
+        threads_repo_path=threads_path,
+        auto_fix=True,
+        fetch_first=False,
+    )
+
+    # Should block - we're behind origin
+    assert result.success is False
+    assert result.can_proceed is False
+    assert result.state.status == ParityStatus.DIVERGED.value

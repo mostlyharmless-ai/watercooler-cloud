@@ -654,13 +654,34 @@ def run_with_sync(
         commit_message = commit_title if not footers else f"{commit_title}\n\n" + "\n".join(footers)
 
         # Execute operation with git sync (pull → operation → commit → push)
-        return sync.with_sync(
+        result = sync.with_sync(
             operation,
             commit_message,
             topic=topic,
             entry_id=entry_id,
             priority_flush=priority_flush,
         )
+
+        # Update parity state file after successful write
+        if context.code_root and context.threads_dir:
+            try:
+                from watercooler_mcp.branch_parity import (
+                    read_parity_state,
+                    write_parity_state,
+                    _now_iso,
+                    ParityStatus,
+                )
+                state = read_parity_state(context.threads_dir)
+                # Mark as clean after successful sync
+                state.status = ParityStatus.CLEAN.value
+                state.pending_push = False
+                state.last_check_at = _now_iso()
+                state.last_error = None
+                write_parity_state(context.threads_dir, state)
+            except Exception as state_err:
+                log_debug(f"[PARITY] Failed to update state after write: {state_err}")
+
+        return result
     finally:
         if lock:
             lock.release()
@@ -863,6 +884,145 @@ def whoami(ctx: Context) -> str:
         return f"You are: {agent}{debug_info}"
     except Exception as e:
         return f"Error determining identity: {str(e)}"
+
+
+@mcp.tool(name="watercooler_v1_reconcile_parity")
+def reconcile_parity(
+    ctx: Context,
+    code_path: str = "",
+) -> ToolResult:
+    """Rerun branch parity preflight with auto-remediation and retry pending push.
+
+    Use this tool to:
+    - Recover from failed pushes (e.g., network issues, conflicts)
+    - Sync threads branch when it's behind origin
+    - Force a sync after manual thread edits outside MCP
+    - Proactively ensure parity before starting work on a branch
+    - Debug branch state issues by inspecting the detailed response
+
+    Args:
+        code_path: Path to code repository directory (default: current directory)
+
+    Returns:
+        JSON with parity status, actions taken, and push result if applicable.
+    """
+    try:
+        error, context = _require_context(code_path)
+        if error:
+            return ToolResult(content=[TextContent(type="text", text=error)])
+        if context is None or not context.code_root or not context.threads_dir:
+            return ToolResult(content=[TextContent(
+                type="text",
+                text="Error: Unable to resolve code and threads repo paths."
+            )])
+
+        from watercooler_mcp.branch_parity import (
+            get_branch_health,
+            run_preflight,
+            push_after_commit,
+            read_parity_state,
+            write_parity_state,
+            _pull_ff_only,
+            _pull_rebase,
+            ParityStatus,
+        )
+        from git import Repo
+
+        # First, try to sync threads if behind origin (the reconcile part)
+        threads_repo = Repo(context.threads_dir, search_parent_directories=True)
+        actions_taken = []
+
+        # Get current health before reconcile
+        health_before = get_branch_health(context.code_root, context.threads_dir)
+
+        # If threads is behind, pull it (this is the "reconcile" operation)
+        threads_behind = health_before.get('threads_behind_origin', 0)
+        if threads_behind > 0:
+            log_debug(f"[RECONCILE] Threads behind origin by {threads_behind} commits, pulling")
+            if _pull_ff_only(threads_repo):
+                actions_taken.append(f"Pulled threads (ff-only, {threads_behind} commits)")
+            else:
+                log_debug("[RECONCILE] FF-only pull failed, trying rebase")
+                if _pull_rebase(threads_repo):
+                    actions_taken.append(f"Pulled threads (rebase, {threads_behind} commits)")
+                else:
+                    return ToolResult(content=[TextContent(
+                        type="text",
+                        text=json.dumps({
+                            "status": "error",
+                            "error": "Failed to pull threads - rebase conflict detected. "
+                                     "Please resolve manually with: cd <threads-dir> && git rebase --abort",
+                            "threads_dir": str(context.threads_dir),
+                        }, indent=2)
+                    )])
+
+        # Run preflight with auto-fix enabled
+        preflight_result = run_preflight(
+            context.code_root,
+            context.threads_dir,
+            auto_fix=True,
+            fetch_first=True,
+        )
+
+        # Collect preflight actions
+        if preflight_result.state.actions_taken:
+            actions_taken.extend(preflight_result.state.actions_taken)
+
+        # Get updated health status
+        health = get_branch_health(context.code_root, context.threads_dir)
+
+        # If there are pending commits, try to push them
+        push_result = None
+        if health.get('pending_push') or health.get('threads_ahead_origin', 0) > 0:
+            try:
+                # Use threads_branch from health (correct branch)
+                branch_name = health.get('threads_branch') or context.code_branch or "main"
+                push_success, push_error = push_after_commit(
+                    context.threads_dir,
+                    branch_name,
+                    max_retries=3
+                )
+                if push_success:
+                    push_result = "pushed successfully"
+                    actions_taken.append(f"Pushed threads to origin/{branch_name}")
+                else:
+                    push_result = f"push failed: {push_error}"
+                # Refresh health after push
+                health = get_branch_health(context.code_root, context.threads_dir)
+            except Exception as push_err:
+                push_result = f"push error: {push_err}"
+
+        output = {
+            "status": health.get('status', 'unknown'),
+            "code_branch": health.get('code_branch', 'unknown'),
+            "threads_branch": health.get('threads_branch', 'unknown'),
+            "code_ahead_origin": health.get('code_ahead_origin', 0),
+            "code_behind_origin": health.get('code_behind_origin', 0),
+            "threads_ahead_origin": health.get('threads_ahead_origin', 0),
+            "threads_behind_origin": health.get('threads_behind_origin', 0),
+            "pending_push": health.get('pending_push', False),
+            "actions_taken": actions_taken,
+            "push_result": push_result,
+            "last_error": health.get('last_error'),
+            "preflight_success": preflight_result.success,
+            "preflight_can_proceed": preflight_result.can_proceed,
+        }
+
+        return ToolResult(content=[TextContent(
+            type="text",
+            text=json.dumps(output, indent=2)
+        )])
+
+    except InvalidGitRepositoryError as e:
+        return ToolResult(content=[TextContent(
+            type="text",
+            text=f"Error: Not a git repository: {str(e)}"
+        )])
+    except Exception as e:
+        return ToolResult(content=[TextContent(
+            type="text",
+            text=f"Error reconciling parity: {str(e)}"
+        )])
 
 
 # ============================================================================

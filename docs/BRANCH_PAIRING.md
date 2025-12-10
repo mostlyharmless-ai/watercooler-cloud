@@ -167,6 +167,7 @@ git push origin main
 - `watercooler_v1_sync_branch_state` - Synchronize branch state (create, delete, merge, checkout)
 - `watercooler_v1_audit_branch_pairing` - Comprehensive audit of all branches across repo pair
 - `watercooler_v1_recover_branch_state` - Diagnose and recover from branch state inconsistencies
+- `watercooler_v1_reconcile_parity` - Reconcile parity state (pull threads if behind, retry push)
 
 **Enforcement Rules**:
 
@@ -180,6 +181,8 @@ git push origin main
 - **Branch mismatch detected**: Use `watercooler_v1_sync_branch_state` with `operation="checkout"` to sync
 - **Orphaned threads branch**: Use `watercooler_v1_audit_branch_pairing` to identify, then `sync_branch_state` with `operation="delete"` to clean up
 - **Git state issues**: Use `watercooler_v1_recover_branch_state` to diagnose and fix rebase conflicts, detached HEAD, etc.
+- **Threads behind origin**: Use `watercooler_v1_reconcile_parity` to pull latest commits and sync state
+- **Push failed / pending push**: Use `watercooler_v1_reconcile_parity` to retry the push with rebase-on-reject
 
 ## Auto-Remediation System
 
@@ -201,15 +204,19 @@ The preflight system tracks these states:
 | `clean` | Branches are aligned, no action needed | N/A |
 | `pending_push` | Commit made, awaiting push | Yes - push with retry |
 | `branch_mismatch` | Code and threads on different branches | Yes - checkout/create |
-| `main_protection` | Would write to threads:main from feature branch | Yes - create threads branch |
+| `main_protection` | Branch mismatch involving main (see below) | Partial - see details |
 | `code_behind_origin` | Code repo is behind origin | No - manual pull required |
 | `remote_unreachable` | Cannot reach git remote | No - retry later |
 | `rebase_in_progress` | Git rebase not completed | No - abort/continue manually |
 | `detached_head` | Code repo in detached HEAD state | No - checkout a branch |
-| `diverged` | Branches have diverged, needs merge/rebase | No - manual resolution |
+| `diverged` | Threads is behind origin | No - use `reconcile_parity` |
 | `needs_manual_recover` | Complex issue detected | No - use recover tools |
 | `orphan_branch` | Threads branch exists but code branch deleted | No - use sync tools |
 | `error` | Unexpected error occurred | No - check logs |
+
+**Note on `main_protection`**: This state covers two scenarios:
+1. **Forward** (code=feature, threads=main): Auto-fixed by creating/checking out threads feature branch
+2. **Inverse** (code=main, threads=feature): Blocks - user must decide whether to checkout code to feature or merge threads to main
 
 ### Auto-Remediation Behaviors
 
@@ -219,7 +226,7 @@ When `WATERCOOLER_AUTO_BRANCH=1` (default), the preflight automatically:
    - If threads branch exists: `git checkout <branch>`
    - If threads branch missing: `git checkout -b <branch>` from current position
 
-2. **Main Protection → Create Feature Branch**
+2. **Main Protection (Forward) → Create Feature Branch**
    - Detects when code is on a feature branch but threads would write to main
    - Creates the matching threads branch before proceeding
 
@@ -231,6 +238,25 @@ When `WATERCOOLER_AUTO_BRANCH=1` (default), the preflight automatically:
 4. **Fetch Before Check**
    - Optionally fetches from origin before running checks
    - Ensures state reflects remote reality
+
+### Blocking Behaviors (Require Manual Intervention)
+
+The following states block writes and require explicit action:
+
+1. **Main Protection (Inverse) → Block**
+   - Detects when code is on main but threads is on a feature branch
+   - Blocks to prevent entries with incorrect `Code-Branch` metadata
+   - User must either checkout code to the feature branch or merge threads to main
+
+2. **Threads Behind Origin → Block (use `reconcile_parity`)**
+   - Detects when threads repo is behind origin (another agent pushed commits)
+   - Blocks to prevent auto-pulling changes that may conflict
+   - Use `watercooler_v1_reconcile_parity` to pull and sync, then retry
+
+3. **Code Behind Origin → Block**
+   - Detects when code repo is behind origin
+   - Blocks because we never mutate the code repo
+   - User must `git pull` in the code repo manually
 
 ### State Persistence
 
@@ -287,6 +313,70 @@ When blocked, the error message includes:
 - The detected issue
 - Specific recovery steps
 - Which MCP tool can help (e.g., `recover_branch_state`)
+
+### Offline / Remote Unreachable Policy
+
+When the git remote is unreachable (network issues, VPN disconnected, etc.):
+
+**Default Behavior**: Write operations are **blocked**.
+
+**Rationale**: Without remote access, the preflight cannot:
+- Verify the current state of origin
+- Push commits after write operations
+- Detect divergence or conflicts with other agents
+
+**Error Message**: `"Cannot reach origin for either repository"`
+
+**Recovery**:
+1. Restore network connectivity
+2. Retry the write operation
+3. If commits were made locally before disconnect, use `watercooler_v1_reconcile_parity` to push pending commits
+
+**Future Enhancement** (not implemented): Opt-in local-only mode for offline work with explicit sync on reconnect.
+
+### Force-Push Detection
+
+Force-push scenarios are detected through **divergence detection**: when the local threads branch is both ahead AND behind origin, or when it's behind origin after a remote force-push.
+
+**Detection Mechanism**:
+- Preflight checks `threads_behind_origin` count
+- If `threads_behind > 0`, status is set to `DIVERGED`
+- This covers both regular divergence and force-push scenarios
+
+**Behavior**: Write operations are **blocked** with status `diverged`.
+
+**Error Message**:
+```
+Threads branch is N commits behind origin.
+Use watercooler_v1_reconcile_parity or
+watercooler_v1_sync_branch_state with operation='recover' to sync.
+```
+
+**Recovery Options**:
+1. `watercooler_v1_reconcile_parity` - Pulls threads with rebase and pushes pending commits
+2. `watercooler_v1_sync_branch_state(operation='recover')` - More comprehensive recovery for complex divergence
+
+**Note**: The system never force-pushes (neutral origin principle). If remote was force-pushed, the local agent must explicitly recover.
+
+### Async Path Scope (Known Limitation)
+
+The async write path (`_with_sync_async`) currently uses the legacy push mechanism rather than `push_after_commit()` with rebase-on-reject retry.
+
+**Current Behavior**:
+- Async path commits locally and enqueues for background push
+- Background worker uses `push_pending()` which has basic retry logic
+- Does not update parity state file after push
+
+**Implications**:
+- Async writes may not immediately reflect push failures in parity state
+- State file may show `pending_push=False` even when background push failed
+- CLI parity output may be stale until next sync write or manual reconcile
+
+**Workaround**:
+- Use `watercooler_v1_sync(action='status')` to check actual async queue state
+- Use `watercooler_v1_reconcile_parity` to force sync and update parity state
+
+**Future Enhancement**: Upgrade async path to use unified `push_after_commit()` and update parity state on completion
 
 ### Environment Variables
 

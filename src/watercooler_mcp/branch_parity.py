@@ -499,6 +499,24 @@ def run_preflight(
                         blocking_reason=state.last_error,
                     )
 
+            # Inverse main protection: block if code=main and threads=feature
+            # This prevents writing entries with wrong Code-Branch metadata.
+            # Unlike the forward case, we do NOT auto-fix - the user must explicitly
+            # decide whether to checkout code to the feature branch or merge threads.
+            if code_branch == main_branch and threads_branch != main_branch:
+                state.status = ParityStatus.MAIN_PROTECTION.value
+                state.last_error = (
+                    f"Code repo is on '{main_branch}' but threads is on '{threads_branch}'. "
+                    f"This would create entries with incorrect Code-Branch metadata. "
+                    f"Either checkout code to '{threads_branch}' or merge threads to '{main_branch}'."
+                )
+                return PreflightResult(
+                    success=False,
+                    state=state,
+                    can_proceed=False,
+                    blocking_reason=state.last_error,
+                )
+
         # Branch name parity check
         if code_branch != threads_branch:
             if auto_fix:
@@ -582,33 +600,22 @@ def run_preflight(
                 blocking_reason=state.last_error,
             )
 
-        # Threads behind origin: auto-pull with ff-only
+        # Threads behind origin: BLOCK - require explicit recover
+        # This is a safety measure to prevent auto-pulling changes that may conflict
+        # or that the user may not be aware of. Use watercooler_v1_reconcile_parity to fix.
         if threads_behind > 0:
-            if auto_fix:
-                log_debug(f"[PARITY] Threads behind origin by {threads_behind} commits, pulling")
-                if _pull_ff_only(threads_repo):
-                    actions_taken.append(f"Pulled threads (ff-only, {threads_behind} commits)")
-                    threads_behind = 0
-                    state.threads_behind_origin = 0
-                else:
-                    # FF failed, might need rebase
-                    log_debug("[PARITY] FF-only pull failed, trying rebase")
-                    if _pull_rebase(threads_repo):
-                        actions_taken.append(f"Pulled threads (rebase, {threads_behind} commits)")
-                        threads_behind = 0
-                        state.threads_behind_origin = 0
-                    else:
-                        state.status = ParityStatus.DIVERGED.value
-                        state.last_error = (
-                            f"Threads branch has diverged from origin. "
-                            f"Use watercooler_v1_sync_branch_state with operation='recover' to fix."
-                        )
-                        return PreflightResult(
-                            success=False,
-                            state=state,
-                            can_proceed=False,
-                            blocking_reason=state.last_error,
-                        )
+            state.status = ParityStatus.DIVERGED.value
+            state.last_error = (
+                f"Threads branch is {threads_behind} commits behind origin. "
+                f"Use watercooler_v1_reconcile_parity or "
+                f"watercooler_v1_sync_branch_state with operation='recover' to sync."
+            )
+            return PreflightResult(
+                success=False,
+                state=state,
+                can_proceed=False,
+                blocking_reason=state.last_error,
+            )
 
         # Threads ahead of origin: auto-push when code is synced
         # This is the key parity check: if code is pushed, threads should be too
