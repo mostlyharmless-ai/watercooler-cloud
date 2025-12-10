@@ -39,6 +39,7 @@ class GraphThread:
     last_updated: str
     summary: str
     entry_count: int
+    access_count: int = 0
 
 
 @dataclass
@@ -58,6 +59,7 @@ class GraphEntry:
     file_refs: List[str] = None
     pr_refs: List[str] = None
     commit_refs: List[str] = None
+    access_count: int = 0
 
     def __post_init__(self):
         if self.file_refs is None:
@@ -181,6 +183,7 @@ def _node_to_thread(node: Dict[str, Any]) -> GraphThread:
         last_updated=node.get("last_updated", ""),
         summary=node.get("summary", ""),
         entry_count=node.get("entry_count", 0),
+        access_count=node.get("access_count", 0),
     )
 
 
@@ -200,6 +203,7 @@ def _node_to_entry(node: Dict[str, Any]) -> GraphEntry:
         file_refs=node.get("file_refs", []),
         pr_refs=node.get("pr_refs", []),
         commit_refs=node.get("commit_refs", []),
+        access_count=node.get("access_count", 0),
     )
 
 
@@ -448,4 +452,121 @@ def format_entry_json(entry: GraphEntry) -> Dict[str, Any]:
         "file_refs": entry.file_refs,
         "pr_refs": entry.pr_refs,
         "commit_refs": entry.commit_refs,
+        "access_count": entry.access_count,
     }
+
+
+# ============================================================================
+# Odometer (Access Tracking)
+# ============================================================================
+
+
+def _get_counters_file(threads_dir: Path) -> Path:
+    """Get path to access counters file."""
+    return get_graph_dir(threads_dir) / "counters.json"
+
+
+def _load_counters(threads_dir: Path) -> Dict[str, int]:
+    """Load access counters from file.
+
+    Returns:
+        Dict mapping node_id to access_count
+    """
+    counters_file = _get_counters_file(threads_dir)
+    if not counters_file.exists():
+        return {}
+
+    try:
+        return json.loads(counters_file.read_text(encoding="utf-8"))
+    except Exception:
+        return {}
+
+
+def _save_counters(threads_dir: Path, counters: Dict[str, int]) -> None:
+    """Save access counters to file atomically."""
+    counters_file = _get_counters_file(threads_dir)
+    counters_file.parent.mkdir(parents=True, exist_ok=True)
+
+    # Atomic write via temp file
+    temp_file = counters_file.with_suffix(".tmp")
+    try:
+        temp_file.write_text(json.dumps(counters, indent=2), encoding="utf-8")
+        temp_file.replace(counters_file)
+    except Exception:
+        if temp_file.exists():
+            temp_file.unlink()
+        raise
+
+
+def increment_access_count(
+    threads_dir: Path,
+    node_type: str,
+    node_id: str,
+) -> int:
+    """Increment access count for a node.
+
+    Args:
+        threads_dir: Threads directory
+        node_type: "thread" or "entry"
+        node_id: Topic (for threads) or entry_id (for entries)
+
+    Returns:
+        New access count
+    """
+    key = f"{node_type}:{node_id}"
+    counters = _load_counters(threads_dir)
+    counters[key] = counters.get(key, 0) + 1
+    _save_counters(threads_dir, counters)
+    return counters[key]
+
+
+def get_access_count(
+    threads_dir: Path,
+    node_type: str,
+    node_id: str,
+) -> int:
+    """Get access count for a node.
+
+    Args:
+        threads_dir: Threads directory
+        node_type: "thread" or "entry"
+        node_id: Topic (for threads) or entry_id (for entries)
+
+    Returns:
+        Access count (0 if not tracked)
+    """
+    key = f"{node_type}:{node_id}"
+    counters = _load_counters(threads_dir)
+    return counters.get(key, 0)
+
+
+def get_most_accessed(
+    threads_dir: Path,
+    node_type: Optional[str] = None,
+    limit: int = 10,
+) -> List[tuple[str, str, int]]:
+    """Get most accessed nodes.
+
+    Args:
+        threads_dir: Threads directory
+        node_type: Filter by "thread" or "entry" (or None for all)
+        limit: Maximum results
+
+    Returns:
+        List of (node_type, node_id, access_count) tuples sorted by count
+    """
+    counters = _load_counters(threads_dir)
+
+    results = []
+    for key, count in counters.items():
+        if ":" not in key:
+            continue
+        n_type, n_id = key.split(":", 1)
+        if node_type and n_type != node_type:
+            continue
+        results.append((n_type, n_id, count))
+
+    # Sort by count descending
+    results.sort(key=lambda x: x[2], reverse=True)
+
+    return results[:limit]
