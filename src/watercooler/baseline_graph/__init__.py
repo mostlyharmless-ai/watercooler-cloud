@@ -34,6 +34,27 @@ from .export import (
     load_graph,
 )
 
+from .reader import (
+    GraphThread,
+    GraphEntry,
+    is_graph_available,
+    get_graph_staleness,
+    list_threads_from_graph,
+    read_thread_from_graph,
+    get_entry_from_graph,
+    get_entries_range_from_graph,
+    format_thread_markdown,
+    format_entry_json,
+)
+
+from .sync import (
+    sync_entry_to_graph,
+    sync_thread_to_graph,
+    record_graph_sync_error,
+    check_graph_health,
+    reconcile_graph,
+)
+
 __all__ = [
     # Summarizer
     "summarize_entry",
@@ -54,4 +75,21 @@ __all__ = [
     "load_nodes",
     "load_edges",
     "load_graph",
+    # Reader
+    "GraphThread",
+    "GraphEntry",
+    "is_graph_available",
+    "get_graph_staleness",
+    "list_threads_from_graph",
+    "read_thread_from_graph",
+    "get_entry_from_graph",
+    "get_entries_range_from_graph",
+    "format_thread_markdown",
+    "format_entry_json",
+    # Sync
+    "sync_entry_to_graph",
+    "sync_thread_to_graph",
+    "record_graph_sync_error",
+    "check_graph_health",
+    "reconcile_graph",
 ]
