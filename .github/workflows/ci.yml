@@ -29,4 +29,4 @@ jobs:
       run: python -c "import watercooler; print(f'watercooler {watercooler.__version__}')"
 
     - name: Run tests
-      run: pytest tests/ -v
+      run: pytest tests/ -v -m "not integration_falkor and not integration_leanrag_llm"
