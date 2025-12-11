@@ -13,10 +13,13 @@ Key principle: neutral origin - no force-push, no history rewrites, no auto-merg
 
 from __future__ import annotations
 
+import hashlib
 import json
 import os
+import re
 import tempfile
 import time
+import unicodedata
 from dataclasses import asdict, dataclass, field
 from enum import Enum
 from pathlib import Path
@@ -146,10 +149,6 @@ def _sanitize_topic_for_filename(topic: str) -> str:
     Returns:
         Safe filename string (without extension)
     """
-    import hashlib
-    import re
-    import unicodedata
-
     if not topic:
         return "_empty_"
 
@@ -201,8 +200,6 @@ def _validate_branch_name(branch: str) -> None:
     Raises:
         ValueError: If branch name is invalid or potentially dangerous
     """
-    import re
-
     if not branch:
         raise ValueError("Branch name cannot be empty")
 
@@ -942,7 +939,16 @@ def push_after_commit(
     branch: str,
     max_retries: int = MAX_PUSH_RETRIES,
 ) -> tuple[bool, Optional[str]]:
-    """Push threads repo after commit. Returns (success, error_message)."""
+    """Push threads repo after commit. Returns (success, error_message).
+
+    Note:
+        Branch name is validated to prevent flag injection before git operations.
+    """
+    try:
+        _validate_branch_name(branch)
+    except ValueError as e:
+        return (False, f"Invalid branch name: {e}")
+
     try:
         threads_repo = Repo(threads_repo_path, search_parent_directories=True)
 
