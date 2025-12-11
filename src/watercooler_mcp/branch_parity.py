@@ -166,13 +166,33 @@ def write_parity_state(threads_dir: Path, state: ParityState) -> bool:
 def acquire_topic_lock(
     threads_dir: Path, topic: str, timeout: int = 30
 ) -> AdvisoryLock:
-    """Acquire lock for a specific topic. Returns lock (caller must release)."""
+    """Acquire lock for a specific topic. Returns lock (caller must release).
+
+    The lock has a TTL of 60 seconds - if a process crashes while holding the lock,
+    it will be automatically cleaned up after the TTL expires. This ensures that
+    stale locks from crashed processes don't block other agents indefinitely.
+    """
     lock_path = _topic_lock_path(threads_dir, topic)
     # Ensure locks directory exists
     lock_path.parent.mkdir(parents=True, exist_ok=True)
     lock = AdvisoryLock(lock_path, ttl=60, timeout=timeout)
     if not lock.acquire():
-        raise TimeoutError(f"Failed to acquire lock for topic '{topic}' within {timeout}s")
+        # Get lock holder info for better error message
+        lock_info = lock.get_lock_info()
+        if lock_info:
+            holder_pid = lock_info.get("pid", "unknown")
+            holder_time = lock_info.get("time", "unknown")
+            holder_user = lock_info.get("user", "unknown")
+            raise TimeoutError(
+                f"Failed to acquire lock for topic '{topic}' within {timeout}s. "
+                f"Lock held by: pid={holder_pid}, user={holder_user}, since={holder_time}. "
+                f"If this lock is stale (holder crashed), it will auto-expire after TTL (60s). "
+                f"To force unlock: rm {lock_path}"
+            )
+        raise TimeoutError(
+            f"Failed to acquire lock for topic '{topic}' within {timeout}s. "
+            f"Lock file exists but metadata unavailable. To force unlock: rm {lock_path}"
+        )
     return lock
 
 
@@ -629,13 +649,27 @@ def run_preflight(
 
         # Threads ahead of origin: auto-push when code is synced
         # This is the key parity check: if code is pushed, threads should be too
+        #
+        # Race condition note: Between checking threads_ahead and calling _push_with_retry,
+        # another agent could push to origin. This is handled by _push_with_retry which
+        # does pull --rebase and retries on rejection. The commit count in actions_taken
+        # reflects the pre-push state; the actual pushed count may differ after rebase.
         if threads_ahead > 0 and code_ahead == 0:
             if auto_fix:
+                original_ahead = threads_ahead
                 log_debug(f"[PARITY] Threads ahead of origin by {threads_ahead} commits, pushing")
                 if _push_with_retry(threads_repo, code_branch):
-                    actions_taken.append(f"Pushed threads ({threads_ahead} commits to origin)")
-                    threads_ahead = 0
-                    state.threads_ahead_origin = 0
+                    # Re-check ahead count after push (may differ if rebase occurred)
+                    new_ahead, _ = _get_ahead_behind(threads_repo, code_branch)
+                    if new_ahead == 0:
+                        actions_taken.append(f"Pushed threads (was {original_ahead} commits ahead)")
+                    else:
+                        # Partial push - some commits still unpushed (rare edge case)
+                        actions_taken.append(
+                            f"Pushed threads (was {original_ahead} ahead, now {new_ahead} ahead)"
+                        )
+                    threads_ahead = new_ahead
+                    state.threads_ahead_origin = new_ahead
                 else:
                     # Push failed - mark as pending but allow operation to proceed
                     # The write will add more commits; we'll try again next time

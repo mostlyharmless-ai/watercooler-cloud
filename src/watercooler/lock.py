@@ -45,8 +45,44 @@ class AdvisoryLock:
         )
 
     def _pid_of_lock(self) -> int | None:
+        """Extract PID from lock file (supports legacy format and new metadata format)."""
         try:
-            return int(self.path.read_text(encoding="utf-8").strip() or 0) or None
+            content = self.path.read_text(encoding="utf-8").strip()
+            if not content:
+                return None
+            # New format: pid=12345 time=... user=... cwd=...
+            if content.startswith("pid="):
+                pid_part = content.split()[0]  # "pid=12345"
+                return int(pid_part.split("=")[1])
+            # Legacy format: just the PID number
+            return int(content) or None
+        except Exception:
+            return None
+
+    def get_lock_info(self) -> dict | None:
+        """Get full lock metadata including PID, timestamp, user, and cwd.
+
+        Returns dict with keys: pid, time, user, cwd, or None if lock doesn't exist.
+        """
+        try:
+            if not self.path.exists():
+                return None
+            content = self.path.read_text(encoding="utf-8").strip()
+            if not content:
+                return None
+            # Parse metadata format: pid=12345 time=2025-01-01T00:00:00Z user=alice cwd=/path
+            info = {}
+            for part in content.split():
+                if "=" in part:
+                    key, value = part.split("=", 1)
+                    info[key] = value
+            # Convert pid to int if present
+            if "pid" in info:
+                try:
+                    info["pid"] = int(info["pid"])
+                except ValueError:
+                    pass
+            return info if info else None
         except Exception:
             return None
 

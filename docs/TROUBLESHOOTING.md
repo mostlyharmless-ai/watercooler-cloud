@@ -468,12 +468,42 @@ git rebase --abort  # or complete the rebase
 ```
 
 **Lock Timeout**
-- Another MCP operation is in progress on the same topic
-- Wait for it to complete, or if stuck:
-  ```bash
-  # Remove stale lock (only if you're sure no operation is running)
-  rm ../repo-threads/.wc-locks/<topic>.lock
-  ```
+
+Per-topic advisory locks prevent concurrent writes to the same thread. If you see a lock timeout error, it means another operation is in progress or a previous operation crashed.
+
+**Lock Mechanism:**
+- Locks are stored in `<threads-repo>/.wc-locks/<topic>.lock`
+- Each lock file contains metadata: `pid=<PID> time=<ISO timestamp> user=<user> cwd=<path>`
+- **Automatic TTL cleanup**: Locks expire after 60 seconds. If a process crashes while holding a lock, the next acquire attempt will automatically clean it up after TTL expires.
+
+**Error Message Format:**
+```
+Failed to acquire lock for topic 'feature-auth' within 30s.
+Lock held by: pid=12345, user=alice, since=2025-01-01T12:00:00Z.
+If this lock is stale (holder crashed), it will auto-expire after TTL (60s).
+To force unlock: rm /path/to/.wc-locks/feature-auth.lock
+```
+
+**Resolution:**
+1. **Wait**: If another operation is genuinely in progress, wait for it to complete (locks typically held for <1 second)
+2. **Wait for TTL**: If the holder crashed, wait up to 60 seconds for auto-cleanup
+3. **Force unlock** (only if certain no operation is running):
+   ```bash
+   # Check if the process is still running
+   ps aux | grep <PID from error message>
+
+   # If process is dead, remove the stale lock
+   rm ../repo-threads/.wc-locks/<topic>.lock
+   ```
+
+**CLI unlock command:**
+```bash
+# Show lock status
+watercooler unlock <topic> --threads-dir ../repo-threads
+
+# Force remove lock (with --force)
+watercooler unlock <topic> --threads-dir ../repo-threads --force
+```
 
 ### Using Recovery Tools
 
