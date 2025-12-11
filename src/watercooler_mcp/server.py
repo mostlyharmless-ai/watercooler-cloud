@@ -847,7 +847,7 @@ def run_with_sync(
 
         # Sync to baseline graph (non-blocking - failures don't stop the write)
         if topic and context.threads_dir:
-            log_info(f"[GRAPH] Attempting graph sync for {topic}/{entry_id}")
+            log_warning(f"[GRAPH] Attempting graph sync for {topic}/{entry_id}")
             try:
                 from watercooler.baseline_graph.sync import sync_entry_to_graph
                 from watercooler_mcp.config import get_watercooler_config
@@ -855,7 +855,7 @@ def run_with_sync(
                 # Get graph config for summary/embedding generation
                 wc_config = get_watercooler_config()
                 graph_config = wc_config.mcp.graph
-                log_info(f"[GRAPH] Config: summaries={graph_config.generate_summaries}, embeddings={graph_config.generate_embeddings}")
+                log_warning(f"[GRAPH] Config: summaries={graph_config.generate_summaries}, embeddings={graph_config.generate_embeddings}")
 
                 sync_result = sync_entry_to_graph(
                     threads_dir=context.threads_dir,
@@ -864,10 +864,10 @@ def run_with_sync(
                     generate_summaries=graph_config.generate_summaries,
                     generate_embeddings=graph_config.generate_embeddings,
                 )
-                log_info(f"[GRAPH] Sync result for {topic}/{entry_id}: {sync_result}")
+                log_warning(f"[GRAPH] Sync result for {topic}/{entry_id}: {sync_result}")
             except Exception as graph_err:
                 # Graph sync failure should not block the write operation
-                log_info(f"[GRAPH] Sync failed (non-blocking): {graph_err}")
+                log_warning(f"[GRAPH] Sync failed (non-blocking): {graph_err}")
                 try:
                     from watercooler.baseline_graph.sync import record_graph_sync_error
 
