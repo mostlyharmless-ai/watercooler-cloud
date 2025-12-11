@@ -686,6 +686,9 @@ git push origin main
 - Used for versioning releases
 - Users install from tags for reproducibility
 
+**Important: Tags must be created on `stable` branch only.**
+The release workflow triggers on any `v*` tag push. Creating a tag from the wrong branch (e.g., `main` or a feature branch) will create a broken release.
+
 **Tag naming:**
 - `v0.1.2` - Production release
 - `v0.1.2-rc1` - Release candidate (optional)
@@ -700,21 +703,35 @@ The release workflow automatically marks tags containing `-` as prereleases:
 
 If a release has critical issues:
 
+**Option 1: Release a patch (recommended)**
 ```bash
-# Option 1: Release a patch
-# Fix the bug, release v0.1.3
+# Fix the bug on main, then follow normal release process
+# This creates v0.1.3 which supersedes the broken v0.1.2
+```
 
-# Option 2: Revert to previous release (emergency only)
-git checkout stable
-git reset --hard v0.1.1
-git push --force-with-lease origin stable
+**Option 2: Delete bad release and re-release (minor issues)**
+```bash
+# Delete the GitHub release via web UI or:
+gh release delete v0.1.2 --yes
 
 # Delete the bad tag
 git tag -d v0.1.2
 git push origin --delete v0.1.2
+
+# Fix the issue, then re-tag and re-release
 ```
 
-> **Warning**: Force-pushing to `stable` affects users with cached installations. Only use for critical security issues. Prefer releasing a patch version instead.
+**Option 3: Revert stable branch (emergency only, requires admin)**
+```bash
+# NOTE: Force-push is blocked by branch protection.
+# An admin must temporarily disable protection, then re-enable after.
+
+git checkout stable
+git reset --hard v0.1.1
+git push --force-with-lease origin stable  # Requires admin override
+```
+
+> **Warning**: Force-pushing to `stable` affects users with cached installations (they may need to clear uvx cache). Only use for critical security issues. Prefer releasing a patch version instead.
 
 ---
 

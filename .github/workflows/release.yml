@@ -26,6 +26,14 @@ jobs:
           PYPROJECT_VERSION=$(grep -E "^version = " pyproject.toml | sed 's/version = "\(.*\)"/\1/')
           echo "Tag version: $TAG_VERSION"
           echo "pyproject.toml version: $PYPROJECT_VERSION"
+
+          # Fail if pyproject.toml still contains -dev suffix
+          if echo "$PYPROJECT_VERSION" | grep -q -- '-dev'; then
+            echo "ERROR: pyproject.toml still contains -dev suffix ($PYPROJECT_VERSION)"
+            echo "Did you forget to bump the version before tagging?"
+            exit 1
+          fi
+
           if [ "$TAG_VERSION" != "$PYPROJECT_VERSION" ]; then
             echo "ERROR: Tag version ($TAG_VERSION) does not match pyproject.toml version ($PYPROJECT_VERSION)"
             exit 1
