@@ -32,9 +32,174 @@ from watercooler.baseline_graph.parser import (
     ParsedThread,
     parse_thread_file,
 )
-from watercooler.baseline_graph.summarizer import create_summarizer_config
+from watercooler.baseline_graph.summarizer import (
+    SummarizerConfig,
+    create_summarizer_config,
+    summarize_entry,
+    summarize_thread,
+)
 
 logger = logging.getLogger(__name__)
+
+
+# ============================================================================
+# Embedding Configuration & Generation
+# ============================================================================
+
+
+@dataclass
+class EmbeddingConfig:
+    """Embedding server configuration for real-time sync.
+
+    Consistent with pipeline.config.EmbeddingConfig defaults.
+    """
+
+    api_base: str = "http://localhost:8080/v1"
+    model: str = "bge-m3"
+    timeout: float = 30.0
+
+    @classmethod
+    def from_env(cls) -> "EmbeddingConfig":
+        """Load from environment or credentials config."""
+        try:
+            from watercooler.credentials import get_server_config
+            config = get_server_config("embedding")
+        except ImportError:
+            config = {}
+
+        return cls(
+            api_base=config.get("api_base", os.environ.get("EMBEDDING_API_BASE", cls.api_base)),
+            model=config.get("model", os.environ.get("EMBEDDING_MODEL", cls.model)),
+            timeout=config.get("timeout", float(os.environ.get("EMBEDDING_TIMEOUT", cls.timeout))),
+        )
+
+
+def is_embedding_available(config: Optional[EmbeddingConfig] = None) -> bool:
+    """Check if embedding service is available."""
+    config = config or EmbeddingConfig.from_env()
+
+    try:
+        import httpx
+        url = f"{config.api_base.rstrip('/')}/models"
+        with httpx.Client(timeout=5.0) as client:
+            response = client.get(url)
+            return response.status_code == 200
+    except Exception as e:
+        logger.debug(f"Embedding service not available: {e}")
+        return False
+
+
+def generate_embedding(
+    text: str,
+    config: Optional[EmbeddingConfig] = None,
+) -> Optional[List[float]]:
+    """Generate embedding vector for text.
+
+    Args:
+        text: Text to embed (summary preferred, or truncated body)
+        config: Embedding configuration
+
+    Returns:
+        Embedding vector or None on failure
+    """
+    config = config or EmbeddingConfig.from_env()
+
+    try:
+        import httpx
+        url = f"{config.api_base.rstrip('/')}/embeddings"
+
+        with httpx.Client(timeout=config.timeout) as client:
+            response = client.post(url, json={
+                "model": config.model,
+                "input": text[:2000],
+            })
+            response.raise_for_status()
+            data = response.json()
+            return data["data"][0]["embedding"]
+    except Exception as e:
+        logger.debug(f"Failed to generate embedding: {e}")
+        return None
+
+
+# ============================================================================
+# Arc Change Detection for Thread Summary Updates
+# ============================================================================
+
+
+def should_update_thread_summary(
+    parsed: ParsedThread,
+    new_entry: ParsedEntry,
+    previous_entry_count: int,
+) -> bool:
+    """Determine if thread summary should be regenerated.
+
+    Thread summaries update when the arc changes significantly:
+    - Closure entries (thread conclusion)
+    - Decision entries (major milestones)
+    - Significant growth (50%+ more entries)
+    - First few entries (establishing context)
+
+    Args:
+        parsed: Parsed thread with all entries
+        new_entry: The newly added entry
+        previous_entry_count: Entry count before this addition
+
+    Returns:
+        True if thread summary should be regenerated
+    """
+    # Always generate for first 3 entries
+    if len(parsed.entries) <= 3:
+        return True
+
+    # Arc-changing entry types
+    arc_changing_types = {"Closure", "Decision", "Plan"}
+    if new_entry.entry_type in arc_changing_types:
+        return True
+
+    # Significant growth (50% more entries)
+    if previous_entry_count > 0:
+        growth_ratio = len(parsed.entries) / previous_entry_count
+        if growth_ratio >= 1.5:
+            return True
+
+    # Every 10th entry
+    if len(parsed.entries) % 10 == 0:
+        return True
+
+    return False
+
+
+def get_previous_thread_state(
+    threads_dir: Path,
+    topic: str,
+) -> tuple[int, Optional[str]]:
+    """Get previous thread state from graph.
+
+    Args:
+        threads_dir: Threads directory
+        topic: Thread topic
+
+    Returns:
+        Tuple of (entry_count, thread_summary) from existing graph
+    """
+    graph_dir = threads_dir / "graph" / "baseline"
+    nodes_file = graph_dir / "nodes.jsonl"
+
+    if not nodes_file.exists():
+        return 0, None
+
+    try:
+        with open(nodes_file, "r", encoding="utf-8") as f:
+            for line in f:
+                if not line.strip():
+                    continue
+                node = json.loads(line)
+                if node.get("type") == "thread" and node.get("topic") == topic:
+                    return node.get("entry_count", 0), node.get("summary")
+    except Exception as e:
+        logger.debug(f"Failed to read previous thread state: {e}")
+
+    return 0, None
 
 
 # ============================================================================
@@ -258,20 +423,25 @@ def sync_entry_to_graph(
     topic: str,
     entry_id: Optional[str] = None,
     generate_summaries: bool = False,
+    generate_embeddings: bool = False,
 ) -> bool:
     """Sync a single entry to the graph after an MCP write.
 
     This function:
     1. Parses the thread file
-    2. Upserts the entry node (and thread node)
-    3. Updates edges (contains, followed_by)
-    4. Updates sync state
+    2. Generates entry summary (if enabled)
+    3. Generates entry embedding (if enabled)
+    4. Optionally updates thread summary (if arc changed)
+    5. Upserts the entry node (and thread node)
+    6. Updates edges (contains, followed_by)
+    7. Updates sync state
 
     Args:
         threads_dir: Threads directory
         topic: Thread topic
         entry_id: Specific entry ID to sync (or None for latest)
-        generate_summaries: Whether to generate LLM summaries (slow)
+        generate_summaries: Whether to generate LLM summaries
+        generate_embeddings: Whether to generate embedding vectors
 
     Returns:
         True if sync succeeded, False otherwise
@@ -282,12 +452,14 @@ def sync_entry_to_graph(
         return False
 
     try:
-        # Parse thread
-        config = create_summarizer_config() if generate_summaries else None
+        # Get previous thread state for arc change detection
+        prev_entry_count, prev_thread_summary = get_previous_thread_state(threads_dir, topic)
+
+        # Parse thread (without generating summaries during parse - we do it here)
         parsed = parse_thread_file(
             thread_path,
-            config=config,
-            generate_summaries=generate_summaries,
+            config=None,
+            generate_summaries=False,  # Generate summaries in sync, not parse
         )
         if not parsed:
             logger.warning(f"Failed to parse thread for sync: {topic}")
@@ -299,7 +471,9 @@ def sync_entry_to_graph(
             if not entry:
                 # Entry ID not found, sync full thread
                 logger.debug(f"Entry {entry_id} not found, syncing full thread")
-                return sync_thread_to_graph(threads_dir, topic, generate_summaries)
+                return sync_thread_to_graph(
+                    threads_dir, topic, generate_summaries, generate_embeddings
+                )
         else:
             # Sync latest entry
             entry = parsed.entries[-1] if parsed.entries else None
@@ -308,15 +482,68 @@ def sync_entry_to_graph(
             logger.warning(f"No entries found in thread: {topic}")
             return False
 
+        # Generate entry summary if enabled
+        if generate_summaries and not entry.summary:
+            summarizer_config = create_summarizer_config()
+            entry.summary = summarize_entry(
+                entry.body,
+                entry_title=entry.title,
+                entry_type=entry.entry_type,
+                config=summarizer_config,
+            )
+            logger.debug(f"Generated summary for entry {entry.entry_id}")
+
+        # Generate entry embedding if enabled
+        entry_embedding = None
+        if generate_embeddings:
+            # Use summary for embedding if available, otherwise truncated body
+            embed_text = entry.summary if entry.summary else entry.body[:500]
+            entry_embedding = generate_embedding(embed_text)
+            if entry_embedding:
+                logger.debug(f"Generated embedding for entry {entry.entry_id}")
+
+        # Check if thread summary needs update (arc change detection)
+        update_thread_summary = False
+        if generate_summaries:
+            update_thread_summary = should_update_thread_summary(
+                parsed, entry, prev_entry_count
+            )
+            if update_thread_summary:
+                summarizer_config = create_summarizer_config()
+                # Convert entries to dict format for summarize_thread
+                entries_for_summary = [
+                    {
+                        "title": e.title,
+                        "body": e.body,
+                        "entry_type": e.entry_type,
+                        "agent": e.agent,
+                    }
+                    for e in parsed.entries
+                ]
+                parsed.summary = summarize_thread(
+                    entries_for_summary,
+                    thread_title=parsed.title,
+                    config=summarizer_config,
+                )
+                logger.debug(f"Updated thread summary for {topic} (arc change)")
+            elif prev_thread_summary:
+                # Preserve existing thread summary
+                parsed.summary = prev_thread_summary
+
         # Prepare graph output directory
         graph_dir = threads_dir / "graph" / "baseline"
         nodes_file = graph_dir / "nodes.jsonl"
         edges_file = graph_dir / "edges.jsonl"
 
+        # Build entry node with embedding if available
+        entry_node = entry_to_node(entry, topic)
+        if entry_embedding:
+            entry_node["embedding"] = entry_embedding
+
         # Build nodes (thread + entry)
         nodes = [
             thread_to_node(parsed),
-            entry_to_node(entry, topic),
+            entry_node,
         ]
 
         # Build edges for this entry
@@ -377,15 +604,18 @@ def sync_thread_to_graph(
     threads_dir: Path,
     topic: str,
     generate_summaries: bool = False,
+    generate_embeddings: bool = False,
 ) -> bool:
     """Sync an entire thread to the graph.
 
     This is a full resync - useful for reconciliation or initial build.
+    Generates summaries and embeddings for all entries if enabled.
 
     Args:
         threads_dir: Threads directory
         topic: Thread topic
         generate_summaries: Whether to generate LLM summaries
+        generate_embeddings: Whether to generate embedding vectors
 
     Returns:
         True if sync succeeded, False otherwise
@@ -396,26 +626,66 @@ def sync_thread_to_graph(
         return False
 
     try:
-        # Parse thread
-        config = create_summarizer_config() if generate_summaries else None
+        # Parse thread (summaries generated in sync, not parse)
         parsed = parse_thread_file(
             thread_path,
-            config=config,
-            generate_summaries=generate_summaries,
+            config=None,
+            generate_summaries=False,
         )
         if not parsed:
             logger.warning(f"Failed to parse thread for sync: {topic}")
             return False
+
+        # Generate summaries for all entries if enabled
+        if generate_summaries:
+            summarizer_config = create_summarizer_config()
+            for entry in parsed.entries:
+                if not entry.summary:
+                    entry.summary = summarize_entry(
+                        entry.body,
+                        entry_title=entry.title,
+                        entry_type=entry.entry_type,
+                        config=summarizer_config,
+                    )
+
+            # Generate thread summary
+            entries_for_summary = [
+                {
+                    "title": e.title,
+                    "body": e.body,
+                    "entry_type": e.entry_type,
+                    "agent": e.agent,
+                }
+                for e in parsed.entries
+            ]
+            parsed.summary = summarize_thread(
+                entries_for_summary,
+                thread_title=parsed.title,
+                config=summarizer_config,
+            )
+            logger.debug(f"Generated summaries for {len(parsed.entries)} entries in {topic}")
 
         # Prepare graph output directory
         graph_dir = threads_dir / "graph" / "baseline"
         nodes_file = graph_dir / "nodes.jsonl"
         edges_file = graph_dir / "edges.jsonl"
 
-        # Build all nodes
+        # Build all nodes with optional embeddings
         nodes = [thread_to_node(parsed)]
         for entry in parsed.entries:
-            nodes.append(entry_to_node(entry, topic))
+            entry_node = entry_to_node(entry, topic)
+
+            # Generate embedding if enabled
+            if generate_embeddings:
+                embed_text = entry.summary if entry.summary else entry.body[:500]
+                embedding = generate_embedding(embed_text)
+                if embedding:
+                    entry_node["embedding"] = embedding
+
+            nodes.append(entry_node)
+
+        if generate_embeddings:
+            logger.debug(f"Generated embeddings for entries in {topic}")
 
         # Build all edges
         edges = list(generate_edges(parsed))
@@ -560,6 +830,7 @@ def reconcile_graph(
     threads_dir: Path,
     topics: Optional[List[str]] = None,
     generate_summaries: bool = False,
+    generate_embeddings: bool = False,
 ) -> Dict[str, bool]:
     """Reconcile graph with markdown files.
 
@@ -569,6 +840,7 @@ def reconcile_graph(
         threads_dir: Threads directory
         topics: Specific topics to reconcile (or None for all stale/error)
         generate_summaries: Whether to generate LLM summaries
+        generate_embeddings: Whether to generate embedding vectors
 
     Returns:
         Dict mapping topic to success/failure
@@ -581,7 +853,9 @@ def reconcile_graph(
         topics = health.stale_threads + list(health.error_details.keys())
 
     for topic in topics:
-        success = sync_thread_to_graph(threads_dir, topic, generate_summaries)
+        success = sync_thread_to_graph(
+            threads_dir, topic, generate_summaries, generate_embeddings
+        )
         results[topic] = success
 
     return results

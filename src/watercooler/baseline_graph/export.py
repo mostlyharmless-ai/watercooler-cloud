@@ -314,6 +314,7 @@ def export_all_threads(
     output_dir: Path,
     config: Optional[SummarizerConfig] = None,
     skip_closed: bool = False,
+    generate_embeddings: bool = False,
 ) -> Dict[str, Any]:
     """Export all threads to JSONL graph format.
 
@@ -322,6 +323,7 @@ def export_all_threads(
         output_dir: Output directory for JSONL files
         config: Summarizer configuration
         skip_closed: Skip closed threads
+        generate_embeddings: Generate embedding vectors for entries
 
     Returns:
         Export statistics
@@ -337,12 +339,32 @@ def export_all_threads(
     if edges_file.exists():
         edges_file.unlink()
 
+    # Import embedding function if needed
+    embedding_func = None
+    if generate_embeddings:
+        try:
+            from .sync import generate_embedding
+            embedding_func = generate_embedding
+            logger.info("Embedding generation enabled")
+        except ImportError:
+            logger.warning("Embedding generation requested but sync module not available")
+
     total_threads = 0
     total_entries = 0
     total_nodes = 0
     total_edges = 0
+    total_embeddings = 0
 
     for thread in iter_threads(threads_dir, config, generate_summaries=True, skip_closed=skip_closed):
+        # Generate embeddings for entries if enabled
+        if embedding_func:
+            for entry in thread.entries:
+                embed_text = entry.summary if entry.summary else entry.body[:500]
+                embedding = embedding_func(embed_text)
+                if embedding:
+                    entry.embedding = embedding
+                    total_embeddings += 1
+
         nodes, edges = export_thread_graph(thread, output_dir, append=True)
         total_threads += 1
         total_entries += thread.entry_count
@@ -359,6 +381,7 @@ def export_all_threads(
         "entries_exported": total_entries,
         "nodes_written": total_nodes,
         "edges_written": total_edges,
+        "embeddings_generated": total_embeddings,
         "files": {
             "nodes": "nodes.jsonl",
             "edges": "edges.jsonl",

@@ -184,6 +184,43 @@ default_spec = "general-purpose"
 # disable_file = false
 
 
+# -----------------------------------------------------------------------------
+# Graph Settings
+# Baseline graph construction with summaries and embeddings for semantic search
+# -----------------------------------------------------------------------------
+[mcp.graph]
+
+# Generate LLM summaries for entries on write
+# Requires LLM service (Ollama, llama.cpp, etc.) at [servers.llm] endpoint
+# Env: WATERCOOLER_GRAPH_SUMMARIES
+generate_summaries = true
+
+# Generate embedding vectors for entries on write
+# Requires embedding service at [servers.embedding] endpoint
+# Env: WATERCOOLER_GRAPH_EMBEDDINGS
+generate_embeddings = true
+
+# Use extractive summaries only (no LLM calls, faster but less semantic)
+# Env: WATERCOOLER_GRAPH_EXTRACTIVE
+# prefer_extractive = false
+
+# LLM service endpoint override (defaults to [servers.llm].api_base)
+# Env: BASELINE_GRAPH_API_BASE
+# summarizer_api_base = "http://localhost:11434/v1"
+
+# LLM model override (defaults to [servers.llm].model)
+# Env: BASELINE_GRAPH_MODEL
+# summarizer_model = "llama3.2:3b"
+
+# Embedding service endpoint override (defaults to [servers.embedding].api_base)
+# Env: EMBEDDING_API_BASE
+# embedding_api_base = "http://localhost:8080/v1"
+
+# Embedding model override (defaults to [servers.embedding].model)
+# Env: EMBEDDING_MODEL
+# embedding_model = "bge-m3"
+
+
 # =============================================================================
 # DASHBOARD SETTINGS
 # Configuration for watercooler-site dashboard

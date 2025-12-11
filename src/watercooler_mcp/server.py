@@ -849,12 +849,18 @@ def run_with_sync(
         if topic and context.threads_dir:
             try:
                 from watercooler.baseline_graph.sync import sync_entry_to_graph
+                from watercooler_mcp.config import get_watercooler_config
+
+                # Get graph config for summary/embedding generation
+                wc_config = get_watercooler_config()
+                graph_config = wc_config.mcp.graph
 
                 sync_entry_to_graph(
                     threads_dir=context.threads_dir,
                     topic=topic,
                     entry_id=entry_id,
-                    generate_summaries=False,  # Fast mode - no LLM summaries
+                    generate_summaries=graph_config.generate_summaries,
+                    generate_embeddings=graph_config.generate_embeddings,
                 )
                 log_debug(f"[GRAPH] Synced entry to graph: {topic}/{entry_id}")
             except Exception as graph_err:
@@ -2327,6 +2333,7 @@ def baseline_graph_build(
     output_dir: str = "",
     extractive_only: bool = True,
     skip_closed: bool = False,
+    generate_embeddings: bool = False,
 ) -> str:
     """Build baseline graph from threads.
 
@@ -2340,6 +2347,7 @@ def baseline_graph_build(
         output_dir: Output directory for graph files (optional).
         extractive_only: Use extractive summaries only (no LLM). Default: True.
         skip_closed: Skip closed threads. Default: False.
+        generate_embeddings: Generate embedding vectors for entries. Default: False.
 
     Returns:
         JSON manifest with export statistics.
@@ -2367,7 +2375,11 @@ def baseline_graph_build(
         config = SummarizerConfig(prefer_extractive=extractive_only)
 
         manifest = export_all_threads(
-            threads_dir, out_path, config, skip_closed=skip_closed
+            threads_dir,
+            out_path,
+            config,
+            skip_closed=skip_closed,
+            generate_embeddings=generate_embeddings,
         )
 
         return json.dumps(manifest, indent=2)
@@ -2587,18 +2599,20 @@ def reconcile_graph_tool(
     code_path: str = "",
     topics: str = "",
     generate_summaries: bool = False,
+    generate_embeddings: bool = False,
 ) -> str:
     """Reconcile graph with markdown files to fix sync issues.
 
     Rebuilds graph nodes and edges for threads that are stale, have errors,
-    or are explicitly specified. This is a repair operation for when the
-    graph gets out of sync with markdown.
+    or are explicitly specified. This is the primary tool for ingesting
+    legacy markdown-only threads into the graph representation.
 
     Args:
         code_path: Path to code repository (for resolving threads dir).
         topics: Comma-separated list of topics to reconcile. If empty,
                 reconciles all stale/error topics.
-        generate_summaries: Whether to regenerate LLM summaries (slower).
+        generate_summaries: Whether to generate LLM summaries (slower).
+        generate_embeddings: Whether to generate embedding vectors (slower).
 
     Returns:
         JSON report with reconciliation results per topic.
@@ -2626,6 +2640,7 @@ def reconcile_graph_tool(
             threads_dir=threads_dir,
             topics=topic_list,
             generate_summaries=generate_summaries,
+            generate_embeddings=generate_embeddings,
         )
 
         # Build output
