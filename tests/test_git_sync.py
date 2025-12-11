@@ -585,8 +585,12 @@ def test_find_main_branch_returns_none_when_missing(tmp_path):
 # === Tests for _detect_behind_main_divergence ===
 
 def test_detect_behind_main_divergence_when_threads_behind(tmp_path):
-    """Test detection when threads/staging is behind threads/main but code is up-to-date."""
-    # Setup code repo with main and staging branches
+    """Test detection when threads/staging is behind threads/main but code IS synced with main.
+
+    Real scenario: Code branch was merged to main (so code/staging matches code/main),
+    but threads/staging was NOT rebased onto threads/main, so it's missing the closure entry.
+    """
+    # Setup code repo with main branch
     code_path = tmp_path / "code"
     code_repo = Repo.init(code_path)
     code_repo.config_writer().set_value("user", "email", "test@example.com").release()
@@ -596,15 +600,12 @@ def test_detect_behind_main_divergence_when_threads_behind(tmp_path):
     code_repo.index.commit("initial code")
     code_repo.git.branch("-M", "main")
 
-    # Create staging branch from main
+    # Create staging branch AT SAME COMMIT as main (simulates merged state)
+    # In real workflow: staging work was merged to main, staging now equals main
     code_repo.git.checkout("-b", "staging")
-    touch(code_path / "feature.py", "feature")
-    code_repo.index.add(["feature.py"])
-    code_repo.index.commit("staging commit")
+    # code/staging is now 0 ahead, 0 behind main - this is "synced"
 
-    # Now code/staging is ahead of code/main, so code is NOT behind main
-
-    # Setup threads repo
+    # Setup threads repo where staging IS behind main
     threads_path = tmp_path / "threads"
     threads_repo = Repo.init(threads_path)
     threads_repo.config_writer().set_value("user", "email", "test@example.com").release()
@@ -614,21 +615,24 @@ def test_detect_behind_main_divergence_when_threads_behind(tmp_path):
     threads_repo.index.commit("initial thread")
     threads_repo.git.branch("-M", "main")
 
-    # Add commit to main
-    touch(threads_path / "thread2.md", "new thread on main")
-    threads_repo.index.add(["thread2.md"])
-    threads_repo.index.commit("new thread on main")
+    # Add closure entry to threads/main (this happens when PR is merged)
+    touch(threads_path / "closure.md", "PR closure entry")
+    threads_repo.index.add(["closure.md"])
+    threads_repo.index.commit("PR closure on main")
 
-    # Create staging from an older commit (before thread2)
+    # Create staging from BEFORE the closure (simulates unrebased state)
     threads_repo.git.checkout("-b", "staging", "HEAD~1")
 
-    # Now threads/staging is behind threads/main by 1 commit
+    # State now:
+    # - code/staging: 0 ahead, 0 behind main (synced)
+    # - threads/staging: 0 ahead, 1 behind main (needs rebase)
+    # This is a real divergence that should be detected
 
     result = _detect_behind_main_divergence(
         code_repo, threads_repo, "staging", "staging"
     )
 
-    assert result is not None
+    assert result is not None, "Should detect divergence when code synced but threads behind"
     assert result.diverged is True
     assert result.commits_behind == 1
     assert result.needs_rebase is True
@@ -772,6 +776,75 @@ def test_detect_behind_main_divergence_with_squash_merge(tmp_path):
     assert result.commits_behind > 0
     assert result.needs_rebase is True
     assert "content-equivalent" in result.details, "Should indicate content-equivalent sync"
+
+
+def test_detect_behind_main_divergence_feature_branch_ahead_not_synced(tmp_path):
+    """Test that a feature branch ahead of main is NOT considered 'synced'.
+
+    This is a regression test for a bug where code_synced was computed as:
+        code_commit_synced = len(code_behind_main) == 0
+
+    The problem: being 0 behind main just means main is an ancestor, which is
+    the normal state for any feature branch. A branch 6 ahead / 0 behind is
+    NOT synced with main.
+
+    The fix: code_commit_synced should be True only when 0 behind AND 0 ahead.
+    """
+    # Setup code repo with main branch
+    code_path = tmp_path / "code"
+    code_repo = Repo.init(code_path)
+    code_repo.config_writer().set_value("user", "email", "test@example.com").release()
+    code_repo.config_writer().set_value("user", "name", "Tester").release()
+
+    touch(code_path / "file.txt", "initial")
+    code_repo.index.add(["file.txt"])
+    code_repo.index.commit("initial")
+    code_repo.git.branch("-M", "main")
+
+    # Create feature branch with commits AHEAD of main
+    code_repo.git.checkout("-b", "feature-branch")
+    touch(code_path / "feature.txt", "feature work")
+    code_repo.index.add(["feature.txt"])
+    code_repo.index.commit("feature commit 1")
+    touch(code_path / "feature2.txt", "more feature work")
+    code_repo.index.add(["feature2.txt"])
+    code_repo.index.commit("feature commit 2")
+
+    # Now code/feature-branch is 2 ahead, 0 behind main
+
+    # Setup threads repo in the same state
+    threads_path = tmp_path / "threads"
+    threads_repo = Repo.init(threads_path)
+    threads_repo.config_writer().set_value("user", "email", "test@example.com").release()
+    threads_repo.config_writer().set_value("user", "name", "Tester").release()
+
+    touch(threads_path / "thread.md", "initial")
+    threads_repo.index.add(["thread.md"])
+    threads_repo.index.commit("initial")
+    threads_repo.git.branch("-M", "main")
+
+    # Create feature branch with entries AHEAD of main
+    threads_repo.git.checkout("-b", "feature-branch")
+    touch(threads_path / "feature-thread.md", "feature thread")
+    threads_repo.index.add(["feature-thread.md"])
+    threads_repo.index.commit("feature thread entry 1")
+    touch(threads_path / "feature-thread2.md", "more feature thread")
+    threads_repo.index.add(["feature-thread2.md"])
+    threads_repo.index.commit("feature thread entry 2")
+
+    # Now threads/feature-branch is 2 ahead, 0 behind main
+    # Both are in the SAME state - no disparity should be detected
+
+    result = _detect_behind_main_divergence(
+        code_repo, threads_repo, "feature-branch", "feature-branch"
+    )
+
+    # Should return None - no disparity, both branches are in sync with each other
+    # (both are feature branches ahead of main)
+    assert result is None, (
+        "Feature branches ahead of main should NOT be flagged as 'synced with main'. "
+        f"Got: {result}"
+    )
 
 
 # === Tests for _rebase_branch_onto ===

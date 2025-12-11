@@ -1714,7 +1714,10 @@ def _detect_behind_main_divergence(
         code_tree_main = code_repo_obj.commit(code_main_ref).tree.hexsha
         code_tree_branch = code_repo_obj.commit(code_branch).tree.hexsha
         code_content_synced = (code_tree_main == code_tree_branch)
-        code_commit_synced = len(code_behind_main) == 0
+        # "Commit synced" means both 0 behind AND 0 ahead (same commit or same ancestor chain)
+        # Being 0 behind alone just means main is an ancestor - normal for feature branches
+        # A feature branch 6 ahead / 0 behind is NOT "synced with main"
+        code_commit_synced = len(code_behind_main) == 0 and len(code_ahead_main) == 0
         code_synced = code_content_synced or code_commit_synced
 
         log_debug(f"[PARITY] CODE: behind={len(code_behind_main)}, ahead={len(code_ahead_main)}, "
