@@ -415,6 +415,14 @@ If you enabled cloud sync via `WATERCOOLER_GIT_REPO`, here are common problems a
   - Apply exponential backoff and consider short batching windows
    - All other functionality works normally
 
+- Async push failures not visible
+  - By default, writes commit locally and push asynchronously in the background
+  - If the background push fails, the error may not be immediately visible
+  - Check queue status: `watercooler_v1_sync(action='status')`
+  - Force immediate push: `watercooler_v1_sync(action='now')` or set `priority_flush=True`
+  - For critical writes (ball handoffs, closures), use `WATERCOOLER_SYNC_MODE=sync`
+  - See [Async Path Scope](BRANCH_PAIRING.md#async-path-scope-known-limitation) for details
+
 ## Branch Parity Errors
 
 ### Symptom

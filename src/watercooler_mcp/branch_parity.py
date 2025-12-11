@@ -99,6 +99,65 @@ class PreflightResult:
 STATE_FILE_NAME = "branch_parity_state.json"
 LOCKS_DIR_NAME = ".wc-locks"
 
+# Lock configuration constants
+LOCK_TIMEOUT_SECONDS = 30  # How long to wait for lock acquisition
+LOCK_TTL_SECONDS = 60  # How long before a lock is considered stale
+
+# Topic name constraints
+MAX_TOPIC_LENGTH = 200  # Maximum length for sanitized topic names
+# Characters that are invalid in filenames on Windows or could cause issues
+UNSAFE_TOPIC_CHARS_PATTERN = r'[<>:"/\\|?*\x00-\x1f]'
+
+
+def _sanitize_topic_for_filename(topic: str) -> str:
+    """Sanitize topic name for safe use as a filename.
+
+    Security considerations:
+    - Prevents path traversal (../../etc/passwd)
+    - Removes characters invalid on Windows (<>:"/\\|?*)
+    - Removes control characters
+    - Handles collisions via hash suffix for long names
+    - Normalizes slashes to underscores
+
+    Args:
+        topic: Raw topic name (may contain unsafe characters)
+
+    Returns:
+        Safe filename string (without extension)
+    """
+    import hashlib
+    import re
+
+    if not topic:
+        return "_empty_"
+
+    # Step 1: Normalize path separators to underscores
+    safe = topic.replace("/", "_").replace("\\", "_")
+
+    # Step 2: Remove path traversal attempts (.. sequences)
+    safe = re.sub(r"\.\.+", "_", safe)
+
+    # Step 3: Remove unsafe characters for cross-platform compatibility
+    safe = re.sub(UNSAFE_TOPIC_CHARS_PATTERN, "_", safe)
+
+    # Step 4: Collapse multiple underscores
+    safe = re.sub(r"_+", "_", safe)
+
+    # Step 5: Strip leading/trailing underscores and dots (Windows reserved)
+    safe = safe.strip("_.")
+
+    # Step 6: Handle empty result after sanitization
+    if not safe:
+        safe = "_sanitized_"
+
+    # Step 7: Handle length limits with hash suffix for uniqueness
+    if len(safe) > MAX_TOPIC_LENGTH:
+        # Use first 180 chars + hash of full topic for uniqueness
+        topic_hash = hashlib.sha256(topic.encode()).hexdigest()[:16]
+        safe = f"{safe[:180]}_{topic_hash}"
+
+    return safe
+
 
 def _now_iso() -> str:
     """Return current UTC timestamp in ISO format."""
@@ -118,10 +177,13 @@ def _lock_dir(threads_dir: Path) -> Path:
 
 
 def _topic_lock_path(threads_dir: Path, topic: str) -> Path:
-    """Get path to per-topic lock file."""
+    """Get path to per-topic lock file.
+
+    Uses robust sanitization to prevent path traversal and handle
+    special characters that are invalid on various filesystems.
+    """
     lock_dir = _lock_dir(threads_dir)
-    # Sanitize topic for use as filename
-    safe_topic = topic.replace("/", "_").replace("\\", "_")
+    safe_topic = _sanitize_topic_for_filename(topic)
     return lock_dir / f"{safe_topic}.lock"
 
 
@@ -164,18 +226,30 @@ def write_parity_state(threads_dir: Path, state: ParityState) -> bool:
 
 
 def acquire_topic_lock(
-    threads_dir: Path, topic: str, timeout: int = 30
+    threads_dir: Path, topic: str, timeout: int = LOCK_TIMEOUT_SECONDS
 ) -> AdvisoryLock:
     """Acquire lock for a specific topic. Returns lock (caller must release).
 
-    The lock has a TTL of 60 seconds - if a process crashes while holding the lock,
-    it will be automatically cleaned up after the TTL expires. This ensures that
-    stale locks from crashed processes don't block other agents indefinitely.
+    Args:
+        threads_dir: Path to threads repository
+        topic: Topic name to lock (will be sanitized for filename safety)
+        timeout: Seconds to wait for lock acquisition (default: LOCK_TIMEOUT_SECONDS)
+
+    Returns:
+        AdvisoryLock instance (caller must call release() or use as context manager)
+
+    Raises:
+        TimeoutError: If lock cannot be acquired within timeout period
+
+    Note:
+        The lock has a TTL of LOCK_TTL_SECONDS (60s). If a process crashes while
+        holding the lock, it will be automatically cleaned up after the TTL expires.
+        This ensures stale locks from crashed processes don't block agents indefinitely.
     """
     lock_path = _topic_lock_path(threads_dir, topic)
     # Ensure locks directory exists
     lock_path.parent.mkdir(parents=True, exist_ok=True)
-    lock = AdvisoryLock(lock_path, ttl=60, timeout=timeout)
+    lock = AdvisoryLock(lock_path, ttl=LOCK_TTL_SECONDS, timeout=timeout)
     if not lock.acquire():
         # Get lock holder info for better error message
         lock_info = lock.get_lock_info()
@@ -186,7 +260,7 @@ def acquire_topic_lock(
             raise TimeoutError(
                 f"Failed to acquire lock for topic '{topic}' within {timeout}s. "
                 f"Lock held by: pid={holder_pid}, user={holder_user}, since={holder_time}. "
-                f"If this lock is stale (holder crashed), it will auto-expire after TTL (60s). "
+                f"If this lock is stale (holder crashed), it will auto-expire after TTL ({LOCK_TTL_SECONDS}s). "
                 f"To force unlock: rm {lock_path}"
             )
         raise TimeoutError(

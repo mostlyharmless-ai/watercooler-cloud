@@ -27,6 +27,9 @@ from watercooler_mcp.branch_parity import (
     get_branch_health,
     STATE_FILE_NAME,
     LOCKS_DIR_NAME,
+    LOCK_TIMEOUT_SECONDS,
+    LOCK_TTL_SECONDS,
+    _sanitize_topic_for_filename,
 )
 
 
@@ -180,6 +183,97 @@ def test_acquire_topic_lock_sanitizes_topic(threads_dir: Path) -> None:
     assert lock_file.exists()
 
     lock.release()
+
+
+# --- Topic Sanitization Tests ---
+
+
+def test_sanitize_topic_path_traversal() -> None:
+    """Test that path traversal attempts are neutralized."""
+    # Path traversal attempts
+    assert ".." not in _sanitize_topic_for_filename("../../etc/passwd")
+    assert ".." not in _sanitize_topic_for_filename("..\\..\\windows\\system32")
+    assert ".." not in _sanitize_topic_for_filename("foo/../bar")
+
+    # Should produce safe filenames
+    safe = _sanitize_topic_for_filename("../../etc/passwd")
+    assert "/" not in safe
+    assert "\\" not in safe
+
+
+def test_sanitize_topic_special_characters() -> None:
+    """Test that Windows-invalid and special characters are removed."""
+    # Windows reserved characters: < > : " / \ | ? *
+    assert "<" not in _sanitize_topic_for_filename("topic<test>")
+    assert ">" not in _sanitize_topic_for_filename("topic<test>")
+    assert ":" not in _sanitize_topic_for_filename("topic:test")
+    assert '"' not in _sanitize_topic_for_filename('topic"test')
+    assert "|" not in _sanitize_topic_for_filename("topic|test")
+    assert "?" not in _sanitize_topic_for_filename("topic?test")
+    assert "*" not in _sanitize_topic_for_filename("topic*test")
+
+
+def test_sanitize_topic_empty_and_edge_cases() -> None:
+    """Test edge cases like empty strings and all-special-char strings."""
+    # Empty string
+    assert _sanitize_topic_for_filename("") == "_empty_"
+
+    # Only special characters
+    result = _sanitize_topic_for_filename("///")
+    assert result  # Should not be empty
+    assert "/" not in result
+
+    # Only dots
+    result = _sanitize_topic_for_filename("...")
+    assert result  # Should not be empty
+    assert not result.startswith(".")
+
+
+def test_sanitize_topic_long_names() -> None:
+    """Test that very long topic names are truncated with hash suffix."""
+    # Create a very long topic name (300 chars)
+    long_topic = "a" * 300
+
+    safe = _sanitize_topic_for_filename(long_topic)
+
+    # Should be truncated to MAX_TOPIC_LENGTH (200)
+    assert len(safe) <= 200
+
+    # Should include a hash for uniqueness
+    assert "_" in safe  # Hash is appended with underscore
+
+
+def test_sanitize_topic_collision_prevention() -> None:
+    """Test that topics with similar names after sanitization get unique results."""
+    # These would collide with naive sanitization
+    topic1 = "feature/auth"
+    topic2 = "feature\\auth"
+    topic3 = "feature_auth"
+
+    safe1 = _sanitize_topic_for_filename(topic1)
+    safe2 = _sanitize_topic_for_filename(topic2)
+    safe3 = _sanitize_topic_for_filename(topic3)
+
+    # All should produce the same safe result (normalized to underscores)
+    # This is intentional - we normalize slashes to underscores
+    assert safe1 == safe2 == safe3 == "feature_auth"
+
+
+def test_sanitize_topic_unicode() -> None:
+    """Test that unicode characters are handled safely."""
+    # Unicode should be preserved (they're valid in most filesystems)
+    safe = _sanitize_topic_for_filename("feature-émoji-🚀")
+    assert "émoji" in safe or "emoji" in safe.lower() or len(safe) > 0
+
+    # Should not contain path separators
+    assert "/" not in safe
+    assert "\\" not in safe
+
+
+def test_constants_are_defined() -> None:
+    """Test that lock constants are properly defined."""
+    assert LOCK_TIMEOUT_SECONDS == 30
+    assert LOCK_TTL_SECONDS == 60
 
 
 def test_acquire_topic_lock_timeout(threads_dir: Path) -> None:

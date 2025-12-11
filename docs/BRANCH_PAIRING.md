@@ -360,23 +360,50 @@ watercooler_v1_sync_branch_state with operation='recover' to sync.
 
 ### Async Path Scope (Known Limitation)
 
-The async write path (`_with_sync_async`) currently uses the legacy push mechanism rather than `push_after_commit()` with rebase-on-reject retry.
+> ⚠️ **Important**: The async write path has different reliability guarantees than
+> the synchronous path. Choose the appropriate mode based on your consistency needs.
 
-**Current Behavior**:
-- Async path commits locally and enqueues for background push
-- Background worker uses `push_pending()` which has basic retry logic
-- Does not update parity state file after push
+The async write path (`_with_sync_async`) currently uses the legacy push mechanism
+rather than `push_after_commit()` with rebase-on-reject retry. This is a known
+architectural limitation that affects how push failures are reported.
+
+**Sync vs Async Write Paths**:
+
+| Aspect | Sync Path | Async Path |
+|--------|-----------|------------|
+| Push timing | Immediate, blocking | Background, non-blocking |
+| Push mechanism | `push_after_commit()` with rebase+retry | `push_pending()` with basic retry |
+| Parity state update | Updated after push completes | Not updated after background push |
+| Failure visibility | Immediate exception | May be silent; check queue status |
+| Use case | Critical writes, ball handoffs | High-throughput, latency-sensitive |
+
+**Current Async Behavior**:
+- Commits locally and enqueues for background push via `AsyncPushWorker`
+- Background worker uses `push_pending()` which has basic retry logic (5 attempts)
+- Parity state file is **not** updated after background push completes or fails
+- Push failures are logged but do not raise exceptions to the caller
 
 **Implications**:
 - Async writes may not immediately reflect push failures in parity state
 - State file may show `pending_push=False` even when background push failed
 - CLI parity output may be stale until next sync write or manual reconcile
+- In high-contention scenarios, async pushes may queue up
 
-**Workaround**:
+**When to Use Each Path**:
+- **Use sync** (`WATERCOOLER_SYNC_MODE=sync`): Ball handoffs, critical decisions,
+  closure entries, or when immediate confirmation of remote persistence is required
+- **Use async** (default): Regular notes, high-frequency updates, or when latency
+  is more important than immediate push confirmation
+
+**Workarounds for Async Limitations**:
 - Use `watercooler_v1_sync(action='status')` to check actual async queue state
+- Use `watercooler_v1_sync(action='now')` to flush the queue and push immediately
 - Use `watercooler_v1_reconcile_parity` to force sync and update parity state
+- Set `priority_flush=True` on critical writes to flush queue after that entry
 
-**Future Enhancement**: Upgrade async path to use unified `push_after_commit()` and update parity state on completion
+**Future Enhancement**: Upgrade async path to use unified `push_after_commit()`
+mechanism and update parity state on background push completion (tracked as a
+post-v1.0 improvement).
 
 ### Environment Variables
 
