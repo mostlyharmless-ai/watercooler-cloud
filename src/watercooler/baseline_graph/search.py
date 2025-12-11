@@ -5,24 +5,22 @@ stored in the JSONL graph format.
 
 Key capabilities:
 - Keyword search (text contains in body/title/summary)
+- Semantic search with embeddings (cosine similarity)
 - Time-boxed search (timestamp range)
 - Filters by thread_status, role, entry_type, agent
 - AND/OR combination of filters
 - Similar entry lookup (by entry_id)
-
-Future:
-- Semantic search with embeddings (when available)
 """
 
 from __future__ import annotations
 
 import json
 import logging
-import re
+import math
 from dataclasses import dataclass, field
 from datetime import datetime
 from pathlib import Path
-from typing import Any, Iterator, List, Literal, Optional
+from typing import Any, Iterator, List, Literal, Optional, Tuple
 
 from .reader import get_graph_dir, GraphEntry, GraphThread, _node_to_entry, _node_to_thread
 
@@ -41,6 +39,7 @@ class SearchQuery:
     Attributes:
         query: Optional keyword query (searches title, body, summary)
         semantic: If True, use semantic/vector search (requires embeddings)
+        semantic_threshold: Minimum cosine similarity score for semantic matches (0.0-1.0)
         start_time: Filter entries after this ISO timestamp
         end_time: Filter entries before this ISO timestamp
         similar_to: Find entries similar to this entry_id
@@ -56,6 +55,7 @@ class SearchQuery:
     """
     query: Optional[str] = None
     semantic: bool = False
+    semantic_threshold: float = 0.5
     start_time: Optional[str] = None
     end_time: Optional[str] = None
     similar_to: Optional[str] = None
@@ -135,6 +135,56 @@ def _load_nodes(graph_dir: Path) -> Iterator[dict[str, Any]]:
                     yield json.loads(line)
                 except json.JSONDecodeError:
                     continue
+
+
+# ============================================================================
+# Embedding & Similarity Functions
+# ============================================================================
+
+
+def _cosine_similarity(vec_a: List[float], vec_b: List[float]) -> float:
+    """Compute cosine similarity between two vectors.
+
+    Args:
+        vec_a: First embedding vector
+        vec_b: Second embedding vector
+
+    Returns:
+        Cosine similarity score between -1 and 1 (higher is more similar)
+    """
+    if not vec_a or not vec_b or len(vec_a) != len(vec_b):
+        return 0.0
+
+    dot_product = 0.0
+    norm_a = 0.0
+    norm_b = 0.0
+
+    for i in range(len(vec_a)):
+        dot_product += vec_a[i] * vec_b[i]
+        norm_a += vec_a[i] * vec_a[i]
+        norm_b += vec_b[i] * vec_b[i]
+
+    if norm_a == 0 or norm_b == 0:
+        return 0.0
+
+    return dot_product / (math.sqrt(norm_a) * math.sqrt(norm_b))
+
+
+def _get_query_embedding(query: str) -> Optional[List[float]]:
+    """Generate embedding for a search query.
+
+    Args:
+        query: The search query text
+
+    Returns:
+        Embedding vector or None if generation fails
+    """
+    try:
+        from .sync import generate_embedding
+        return generate_embedding(query)
+    except Exception as e:
+        logger.warning(f"Failed to generate query embedding: {e}")
+        return None
 
 
 # ============================================================================
@@ -279,6 +329,10 @@ def search_graph(
 ) -> SearchResults:
     """Execute a search against the graph.
 
+    Supports two search modes:
+    - Keyword search (default): text matching in title/body/summary
+    - Semantic search (semantic=True): cosine similarity with embeddings
+
     Args:
         threads_dir: Path to threads directory
         search_query: Search configuration
@@ -292,6 +346,13 @@ def search_graph(
     if not (graph_dir / "nodes.jsonl").exists():
         logger.debug("No graph available for search")
         return results
+
+    # For semantic search, generate query embedding upfront
+    query_embedding: Optional[List[float]] = None
+    if search_query.semantic and search_query.query:
+        query_embedding = _get_query_embedding(search_query.query)
+        if not query_embedding:
+            logger.warning("Semantic search requested but failed to generate query embedding, falling back to keyword")
 
     matching_results: List[SearchResult] = []
 
@@ -310,9 +371,25 @@ def search_graph(
         # Collect filter results
         filter_results = []
         matched_fields: List[str] = []
+        semantic_score: Optional[float] = None
 
-        # Keyword match
-        if search_query.query:
+        # Semantic search with embeddings
+        if search_query.semantic and query_embedding and search_query.query:
+            node_embedding = node.get("embedding")
+            if node_embedding:
+                similarity = _cosine_similarity(query_embedding, node_embedding)
+                if similarity >= search_query.semantic_threshold:
+                    filter_results.append(True)
+                    matched_fields.append("embedding")
+                    semantic_score = similarity
+                    logger.debug(f"Semantic match: {node.get('entry_id', node.get('topic'))} score={similarity:.3f}")
+                else:
+                    filter_results.append(False)
+            else:
+                # No embedding available - skip for pure semantic search
+                filter_results.append(False)
+        # Keyword match (fallback or primary)
+        elif search_query.query:
             keyword_match, keyword_fields = _matches_keyword(node, search_query.query)
             filter_results.append(keyword_match)
             matched_fields.extend(keyword_fields)
@@ -348,16 +425,21 @@ def search_graph(
         # Build result
         node_id = node.get("topic") if node_type == "thread" else node.get("entry_id", "")
 
-        # Calculate score (simple relevance scoring)
-        score = 1.0
-        if matched_fields:
-            # Boost for title matches
-            if "title" in matched_fields:
-                score += 0.5
-            # Boost for body matches
-            if "body" in matched_fields:
-                score += 0.3
-            score += len(matched_fields) * 0.1
+        # Calculate score
+        if semantic_score is not None:
+            # Use cosine similarity as the score for semantic search
+            score = semantic_score
+        else:
+            # Simple relevance scoring for keyword search
+            score = 1.0
+            if matched_fields:
+                # Boost for title matches
+                if "title" in matched_fields:
+                    score += 0.5
+                # Boost for body matches
+                if "body" in matched_fields:
+                    score += 0.3
+                score += len(matched_fields) * 0.1
 
         result = SearchResult(
             node_type=node_type,
@@ -461,23 +543,60 @@ def search_threads(
     return results.threads()
 
 
+def semantic_search(
+    threads_dir: Path,
+    query: str,
+    threshold: float = 0.5,
+    limit: int = 10,
+    include_threads: bool = False,
+    include_entries: bool = True,
+) -> SearchResults:
+    """Perform semantic search using embedding similarity.
+
+    Args:
+        threads_dir: Path to threads directory
+        query: Natural language query
+        threshold: Minimum cosine similarity (0.0-1.0, default 0.5)
+        limit: Maximum results
+        include_threads: Include thread nodes in results
+        include_entries: Include entry nodes in results
+
+    Returns:
+        SearchResults ranked by cosine similarity
+    """
+    search_query = SearchQuery(
+        query=query,
+        semantic=True,
+        semantic_threshold=threshold,
+        limit=limit,
+        include_threads=include_threads,
+        include_entries=include_entries,
+    )
+
+    return search_graph(threads_dir, search_query)
+
+
 def find_similar_entries(
     threads_dir: Path,
     entry_id: str,
     limit: int = 5,
+    use_embeddings: bool = True,
+    similarity_threshold: float = 0.5,
 ) -> List[GraphEntry]:
     """Find entries similar to a given entry.
 
-    Currently uses simple heuristics (same thread).
-    Future: will use vector similarity when embeddings are available.
+    Uses embedding cosine similarity when available, falls back to
+    same-thread heuristic when embeddings are not available.
 
     Args:
         threads_dir: Path to threads directory
         entry_id: ID of entry to find similar entries to
         limit: Maximum results
+        use_embeddings: Try to use embedding similarity (default True)
+        similarity_threshold: Minimum cosine similarity for embedding matches
 
     Returns:
-        List of similar GraphEntry objects
+        List of similar GraphEntry objects, sorted by similarity
     """
     graph_dir = get_graph_dir(threads_dir)
 
@@ -491,8 +610,33 @@ def find_similar_entries(
     if not source_entry:
         return []
 
-    # Find similar entries
-    # Heuristic: same thread, different entry
+    source_embedding = source_entry.get("embedding") if use_embeddings else None
+
+    # If we have an embedding, compute similarity against all entries
+    if source_embedding:
+        similar_entries: List[Tuple[float, GraphEntry]] = []
+
+        for node in _load_nodes(graph_dir):
+            if node.get("type") != "entry":
+                continue
+            if node.get("entry_id") == entry_id:
+                continue  # Skip self
+
+            node_embedding = node.get("embedding")
+            if not node_embedding:
+                continue
+
+            similarity = _cosine_similarity(source_embedding, node_embedding)
+            if similarity >= similarity_threshold:
+                entry = _node_to_entry(node)
+                similar_entries.append((similarity, entry))
+
+        # Sort by similarity descending
+        similar_entries.sort(key=lambda x: x[0], reverse=True)
+
+        return [entry for _, entry in similar_entries[:limit]]
+
+    # Fallback: same thread heuristic
     search_query = SearchQuery(
         thread_topic=source_entry.get("thread_topic"),
         limit=limit + 1,  # +1 to exclude self
