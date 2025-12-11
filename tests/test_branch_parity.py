@@ -33,8 +33,11 @@ from watercooler_mcp.branch_parity import (
     LOCK_QUICK_RETRY_DELAY,
     MAX_PUSH_RETRIES,
     MAX_TOPIC_LENGTH,
+    MAX_BRANCH_LENGTH,
+    INVALID_BRANCH_PATTERNS,
     UNSAFE_TOPIC_CHARS_PATTERN,
     _sanitize_topic_for_filename,
+    _validate_branch_name,
 )
 
 
@@ -292,6 +295,126 @@ def test_constants_are_defined() -> None:
     assert MAX_TOPIC_LENGTH > 0
     assert isinstance(UNSAFE_TOPIC_CHARS_PATTERN, str)
     assert len(UNSAFE_TOPIC_CHARS_PATTERN) > 0
+
+    # Branch name constraints
+    assert MAX_BRANCH_LENGTH == 255
+    assert isinstance(INVALID_BRANCH_PATTERNS, list)
+    assert len(INVALID_BRANCH_PATTERNS) > 0
+
+
+# =============================================================================
+# Branch Name Validation Tests
+# =============================================================================
+
+
+def test_validate_branch_name_valid() -> None:
+    """Test that valid branch names pass validation."""
+    valid_names = [
+        "main",
+        "master",
+        "feature/auth",
+        "fix/bug-123",
+        "release/v1.0.0",
+        "user/alice/feature",
+        "UPPERCASE",
+        "MixedCase",
+        "with-dashes",
+        "with_underscores",
+        "numbers123",
+    ]
+    for name in valid_names:
+        # Should not raise
+        _validate_branch_name(name)
+
+
+def test_validate_branch_name_flag_injection() -> None:
+    """Test that branch names starting with hyphen are rejected (flag injection)."""
+    dangerous_names = [
+        "-D",
+        "-d",
+        "--delete",
+        "-f",
+        "--force",
+        "-m message",
+    ]
+    for name in dangerous_names:
+        with pytest.raises(ValueError, match="invalid pattern"):
+            _validate_branch_name(name)
+
+
+def test_validate_branch_name_path_traversal() -> None:
+    """Test that path traversal attempts are rejected."""
+    dangerous_names = [
+        "../etc/passwd",
+        "foo/../bar",
+        "...",
+        "a..b",
+    ]
+    for name in dangerous_names:
+        with pytest.raises(ValueError, match="invalid pattern"):
+            _validate_branch_name(name)
+
+
+def test_validate_branch_name_special_characters() -> None:
+    """Test that git-invalid special characters are rejected."""
+    invalid_names = [
+        "branch~1",
+        "branch^2",
+        "branch:ref",
+        "branch?glob",
+        "branch*star",
+        "branch[bracket",
+        "branch\\backslash",
+        "branch with space",
+        "branch\ttab",
+        "branch\nnewline",
+    ]
+    for name in invalid_names:
+        with pytest.raises(ValueError, match="invalid pattern"):
+            _validate_branch_name(name)
+
+
+def test_validate_branch_name_reflog_syntax() -> None:
+    """Test that reflog syntax @{ is rejected."""
+    invalid_names = [
+        "branch@{0}",
+        "branch@{upstream}",
+        "@{-1}",
+    ]
+    for name in invalid_names:
+        with pytest.raises(ValueError, match="invalid pattern"):
+            _validate_branch_name(name)
+
+
+def test_validate_branch_name_edge_cases() -> None:
+    """Test edge cases for branch name validation."""
+    # Empty name
+    with pytest.raises(ValueError, match="cannot be empty"):
+        _validate_branch_name("")
+
+    # Too long
+    with pytest.raises(ValueError, match="too long"):
+        _validate_branch_name("a" * 300)
+
+    # Starts with dot
+    with pytest.raises(ValueError, match="invalid pattern"):
+        _validate_branch_name(".hidden")
+
+    # Ends with dot
+    with pytest.raises(ValueError, match="invalid pattern"):
+        _validate_branch_name("branch.")
+
+    # Ends with .lock
+    with pytest.raises(ValueError, match="invalid pattern"):
+        _validate_branch_name("branch.lock")
+
+    # Consecutive slashes
+    with pytest.raises(ValueError, match="consecutive slashes"):
+        _validate_branch_name("feature//branch")
+
+    # Trailing slash
+    with pytest.raises(ValueError, match="cannot end with slash"):
+        _validate_branch_name("feature/")
 
 
 def test_acquire_topic_lock_timeout(threads_dir: Path) -> None:

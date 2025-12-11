@@ -113,6 +113,21 @@ MAX_TOPIC_LENGTH = 200  # Maximum length for sanitized topic names
 # Characters that are invalid in filenames on Windows or could cause issues
 UNSAFE_TOPIC_CHARS_PATTERN = r'[<>:"/\\|?*\x00-\x1f]'
 
+# Branch name constraints (git refname rules)
+MAX_BRANCH_LENGTH = 255  # Git branch name length limit
+# Pattern for invalid branch name characters/sequences per git-check-ref-format
+INVALID_BRANCH_PATTERNS = [
+    r'\.\.+',           # No consecutive dots (..)
+    r'^-',              # Cannot start with hyphen (flag injection)
+    r'-$',              # Cannot end with hyphen
+    r'^\.|\.$',         # Cannot start or end with dot
+    r'\.lock$',         # Cannot end with .lock
+    r'@\{',             # No @{ sequence (reflog syntax)
+    r'[\x00-\x1f\x7f]', # No control characters
+    r'[~^:?*\[\]\\]',   # No special git characters
+    r'\s',              # No whitespace
+]
+
 
 def _sanitize_topic_for_filename(topic: str) -> str:
     """Sanitize topic name for safe use as a filename.
@@ -169,6 +184,47 @@ def _sanitize_topic_for_filename(topic: str) -> str:
         safe = f"{safe[:180]}_{topic_hash}"
 
     return safe
+
+
+def _validate_branch_name(branch: str) -> None:
+    """Validate branch name to prevent injection and ensure git compatibility.
+
+    Security considerations:
+    - Prevents flag injection (branch names starting with -)
+    - Enforces git-check-ref-format rules
+    - Prevents control character injection
+    - Limits length to prevent filesystem issues
+
+    Args:
+        branch: Branch name to validate
+
+    Raises:
+        ValueError: If branch name is invalid or potentially dangerous
+    """
+    import re
+
+    if not branch:
+        raise ValueError("Branch name cannot be empty")
+
+    if len(branch) > MAX_BRANCH_LENGTH:
+        raise ValueError(
+            f"Branch name too long: {len(branch)} chars (max {MAX_BRANCH_LENGTH})"
+        )
+
+    # Check against all invalid patterns
+    for pattern in INVALID_BRANCH_PATTERNS:
+        if re.search(pattern, branch):
+            raise ValueError(
+                f"Branch name '{branch}' contains invalid pattern: {pattern}"
+            )
+
+    # Additional safety: no consecutive slashes (path component issues)
+    if "//" in branch:
+        raise ValueError(f"Branch name '{branch}' contains consecutive slashes")
+
+    # No trailing slash
+    if branch.endswith("/"):
+        raise ValueError(f"Branch name '{branch}' cannot end with slash")
 
 
 def _now_iso() -> str:
@@ -390,24 +446,57 @@ def _fetch_with_timeout(repo: Repo, timeout: int = 30) -> bool:
 
 
 def _checkout_branch(repo: Repo, branch: str, create: bool = False) -> bool:
-    """Checkout a branch, optionally creating it. Returns True on success."""
+    """Checkout a branch, optionally creating it. Returns True on success.
+
+    Args:
+        repo: Git repository
+        branch: Branch name (validated for safety)
+        create: If True, create the branch with -b flag
+
+    Returns:
+        True on success, False on failure
+
+    Note:
+        Branch name is validated to prevent flag injection and ensure
+        git compatibility before any git operations are performed.
+    """
     try:
+        _validate_branch_name(branch)
         if create:
             repo.git.checkout("-b", branch)
         else:
             repo.git.checkout(branch)
         return True
+    except ValueError as e:
+        log_debug(f"[PARITY] Invalid branch name: {e}")
+        return False
     except Exception as e:
         log_debug(f"[PARITY] Checkout failed: {e}")
         return False
 
 
 def _create_and_push_branch(repo: Repo, branch: str) -> bool:
-    """Create a branch and push to origin. Returns True on success."""
+    """Create a branch and push to origin. Returns True on success.
+
+    Args:
+        repo: Git repository
+        branch: Branch name (validated for safety)
+
+    Returns:
+        True on success, False on failure
+
+    Note:
+        Branch name is validated to prevent flag injection and ensure
+        git compatibility before any git operations are performed.
+    """
     try:
+        _validate_branch_name(branch)
         repo.git.checkout("-b", branch)
         repo.git.push("-u", "origin", branch)
         return True
+    except ValueError as e:
+        log_debug(f"[PARITY] Invalid branch name: {e}")
+        return False
     except Exception as e:
         log_debug(f"[PARITY] Create and push branch failed: {e}")
         return False
@@ -438,10 +527,19 @@ def _push_with_retry(repo: Repo, branch: str, max_retries: int = MAX_PUSH_RETRIE
 
     Args:
         repo: Git repository
-        branch: Branch name to push
+        branch: Branch name to push (validated for safety)
         max_retries: Maximum retry attempts
         set_upstream: If True, use -u flag to set upstream tracking (for first push)
+
+    Note:
+        Branch name is validated to prevent flag injection before git operations.
     """
+    try:
+        _validate_branch_name(branch)
+    except ValueError as e:
+        log_debug(f"[PARITY] Invalid branch name for push: {e}")
+        return False
+
     for attempt in range(max_retries):
         try:
             if set_upstream:
