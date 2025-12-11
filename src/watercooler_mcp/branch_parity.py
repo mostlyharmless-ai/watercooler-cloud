@@ -102,6 +102,11 @@ LOCKS_DIR_NAME = ".wc-locks"
 # Lock configuration constants
 LOCK_TIMEOUT_SECONDS = 30  # How long to wait for lock acquisition
 LOCK_TTL_SECONDS = 60  # How long before a lock is considered stale
+LOCK_QUICK_RETRIES = 3  # Quick retries before full timeout (handles transient contention)
+LOCK_QUICK_RETRY_DELAY = 0.1  # Delay between quick retries in seconds
+
+# Push retry configuration
+MAX_PUSH_RETRIES = 3  # Number of rebase+retry attempts for push operations
 
 # Topic name constraints
 MAX_TOPIC_LENGTH = 200  # Maximum length for sanitized topic names
@@ -118,6 +123,7 @@ def _sanitize_topic_for_filename(topic: str) -> str:
     - Removes control characters
     - Handles collisions via hash suffix for long names
     - Normalizes slashes to underscores
+    - Normalizes Unicode to NFC form for consistent handling
 
     Args:
         topic: Raw topic name (may contain unsafe characters)
@@ -127,12 +133,18 @@ def _sanitize_topic_for_filename(topic: str) -> str:
     """
     import hashlib
     import re
+    import unicodedata
 
     if not topic:
         return "_empty_"
 
+    # Step 0: Normalize Unicode to NFC (composed form) for consistent handling
+    # This ensures that accented characters like "café" are always stored the same way
+    # regardless of how the input was encoded (é vs e + combining acute accent)
+    safe = unicodedata.normalize("NFC", topic)
+
     # Step 1: Normalize path separators to underscores
-    safe = topic.replace("/", "_").replace("\\", "_")
+    safe = safe.replace("/", "_").replace("\\", "_")
 
     # Step 2: Remove path traversal attempts (.. sequences)
     safe = re.sub(r"\.\.+", "_", safe)
@@ -188,13 +200,34 @@ def _topic_lock_path(threads_dir: Path, topic: str) -> Path:
 
 
 def read_parity_state(threads_dir: Path) -> ParityState:
-    """Read parity state from file, return empty state if not found."""
+    """Read parity state from file, return empty state if not found.
+
+    Note:
+        If the state file is corrupted (malformed JSON or invalid structure),
+        this function logs a warning and returns a clean state. The corrupted
+        content is not automatically backed up to avoid accumulating files,
+        but the warning message includes the error details for debugging.
+    """
     state_file = _state_file_path(threads_dir)
     try:
         if state_file.exists():
-            data = json.loads(state_file.read_text(encoding="utf-8"))
+            content = state_file.read_text(encoding="utf-8")
+            data = json.loads(content)
             return ParityState.from_dict(data)
+    except json.JSONDecodeError as e:
+        # Corrupted JSON - log warning with details for debugging
+        log_debug(
+            f"[PARITY] WARNING: Corrupted state file at {state_file}, resetting to clean state. "
+            f"JSON error: {e}"
+        )
+    except (KeyError, TypeError) as e:
+        # Invalid structure - missing required fields or wrong types
+        log_debug(
+            f"[PARITY] WARNING: Invalid state file structure at {state_file}, resetting to clean state. "
+            f"Structure error: {e}"
+        )
     except Exception as e:
+        # Other errors (permissions, IO, etc.)
         log_debug(f"[PARITY] Failed to read state file: {e}")
     return ParityState()
 
@@ -245,10 +278,27 @@ def acquire_topic_lock(
         The lock has a TTL of LOCK_TTL_SECONDS (60s). If a process crashes while
         holding the lock, it will be automatically cleaned up after the TTL expires.
         This ensures stale locks from crashed processes don't block agents indefinitely.
+
+        For transient contention (two agents trying to write simultaneously), the
+        function first attempts LOCK_QUICK_RETRIES quick retries with zero timeout
+        before falling back to the full timeout. This handles the common case where
+        one agent just needs to wait a fraction of a second.
     """
     lock_path = _topic_lock_path(threads_dir, topic)
     # Ensure locks directory exists
     lock_path.parent.mkdir(parents=True, exist_ok=True)
+
+    # Quick retries for transient contention (two agents hitting simultaneously)
+    # This avoids the full 30s timeout in the common case where the lock is
+    # held for only a few hundred milliseconds
+    for attempt in range(LOCK_QUICK_RETRIES):
+        lock = AdvisoryLock(lock_path, ttl=LOCK_TTL_SECONDS, timeout=0)
+        if lock.acquire():
+            return lock
+        # Brief delay before retry (100ms default)
+        time.sleep(LOCK_QUICK_RETRY_DELAY)
+
+    # Quick retries failed, fall back to full timeout
     lock = AdvisoryLock(lock_path, ttl=LOCK_TTL_SECONDS, timeout=timeout)
     if not lock.acquire():
         # Get lock holder info for better error message
@@ -383,7 +433,7 @@ def _pull_rebase(repo: Repo) -> bool:
         return False
 
 
-def _push_with_retry(repo: Repo, branch: str, max_retries: int = 3, set_upstream: bool = False) -> bool:
+def _push_with_retry(repo: Repo, branch: str, max_retries: int = MAX_PUSH_RETRIES, set_upstream: bool = False) -> bool:
     """Push to origin with retry. Returns True on success.
 
     Args:
@@ -738,9 +788,15 @@ def run_preflight(
                     if new_ahead == 0:
                         actions_taken.append(f"Pushed threads (was {original_ahead} commits ahead)")
                     else:
-                        # Partial push - some commits still unpushed (rare edge case)
+                        # Partial push - some commits still unpushed after rebase
+                        # This can happen if rebase created new merge commits
                         actions_taken.append(
                             f"Pushed threads (was {original_ahead} ahead, now {new_ahead} ahead)"
+                        )
+                        state.pending_push = True
+                        log_debug(
+                            f"[PARITY] Push succeeded but {new_ahead} commits remain ahead "
+                            "(rebase may have created new commits)"
                         )
                     threads_ahead = new_ahead
                     state.threads_ahead_origin = new_ahead
@@ -786,7 +842,7 @@ def run_preflight(
 def push_after_commit(
     threads_repo_path: Path,
     branch: str,
-    max_retries: int = 3,
+    max_retries: int = MAX_PUSH_RETRIES,
 ) -> tuple[bool, Optional[str]]:
     """Push threads repo after commit. Returns (success, error_message)."""
     try:

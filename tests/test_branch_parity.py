@@ -29,6 +29,11 @@ from watercooler_mcp.branch_parity import (
     LOCKS_DIR_NAME,
     LOCK_TIMEOUT_SECONDS,
     LOCK_TTL_SECONDS,
+    LOCK_QUICK_RETRIES,
+    LOCK_QUICK_RETRY_DELAY,
+    MAX_PUSH_RETRIES,
+    MAX_TOPIC_LENGTH,
+    UNSAFE_TOPIC_CHARS_PATTERN,
     _sanitize_topic_for_filename,
 )
 
@@ -271,9 +276,22 @@ def test_sanitize_topic_unicode() -> None:
 
 
 def test_constants_are_defined() -> None:
-    """Test that lock constants are properly defined."""
+    """Test that all module constants are properly defined with sensible values."""
+    # Lock configuration
     assert LOCK_TIMEOUT_SECONDS == 30
     assert LOCK_TTL_SECONDS == 60
+    assert LOCK_TTL_SECONDS > LOCK_TIMEOUT_SECONDS  # TTL should exceed timeout
+    assert LOCK_QUICK_RETRIES == 3
+    assert LOCK_QUICK_RETRY_DELAY == 0.1
+
+    # Push retry configuration
+    assert MAX_PUSH_RETRIES == 3
+
+    # Topic constraints
+    assert MAX_TOPIC_LENGTH == 200
+    assert MAX_TOPIC_LENGTH > 0
+    assert isinstance(UNSAFE_TOPIC_CHARS_PATTERN, str)
+    assert len(UNSAFE_TOPIC_CHARS_PATTERN) > 0
 
 
 def test_acquire_topic_lock_timeout(threads_dir: Path) -> None:
