@@ -68,6 +68,9 @@ class GraphitiBackend(MemoryBackend):
     This adapter wraps Graphiti API calls and maps to/from canonical payloads.
     """
 
+    # Maximum length for fallback episode name from body snippet
+    _MAX_FALLBACK_NAME_LENGTH = 50
+
     def __init__(self, config: GraphitiConfig | None = None) -> None:
         self.config = config or GraphitiConfig()
         self._validate_config()
@@ -248,9 +251,10 @@ class GraphitiBackend(MemoryBackend):
             body_text = entry.get("body", entry.get("content", ""))
 
             if not name:
-                # Fallback to first 50 chars of body
+                # Fallback to first N chars of body
                 if body_text:
-                    name = (body_text[:50] + "...") if len(body_text) > 50 else body_text
+                    max_len = self._MAX_FALLBACK_NAME_LENGTH
+                    name = (body_text[:max_len] + "...") if len(body_text) > max_len else body_text
                 else:
                     raise BackendError(
                         f"Entry '{entry_id}' has neither 'title' nor 'body' content. "
@@ -358,8 +362,8 @@ class GraphitiBackend(MemoryBackend):
                 )
 
                 # Configure LLM client with explicit model
-                # Use gpt-5-mini as default reasoning model
-                model_name = self.config.openai_model or "gpt-5-mini"
+                # Use gpt-4o-mini as default reasoning model
+                model_name = self.config.openai_model or "gpt-4o-mini"
                 llm_config = LLMConfig(
                     api_key=self.config.openai_api_key,
                     model=model_name,
@@ -463,8 +467,8 @@ class GraphitiBackend(MemoryBackend):
                 )
 
                 # Configure LLM client with explicit model
-                # Use gpt-5-mini as default reasoning model
-                model_name = self.config.openai_model or "gpt-5-mini"
+                # Use gpt-4o-mini as default reasoning model
+                model_name = self.config.openai_model or "gpt-4o-mini"
                 llm_config = LLMConfig(
                     api_key=self.config.openai_api_key,
                     model=model_name,

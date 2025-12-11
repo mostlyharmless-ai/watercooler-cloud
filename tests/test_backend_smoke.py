@@ -33,8 +33,10 @@ def cleanup_test_databases():
         # Delete any databases with "pytest__" prefix from previous runs
         for key in r.keys("pytest__*"):
             r.delete(key)
-    except Exception:
-        pass  # Ignore if FalkorDB not running
+    except (ConnectionError, TimeoutError):
+        pass  # Ignore if FalkorDB not running or unreachable
+    except ImportError:
+        pass  # Ignore if redis-py not installed
 
     yield  # Run tests (results persist for inspection)
 
@@ -603,12 +605,12 @@ class TestMultiBackendComparison:
         if "OPENAI_API_KEY" not in os.environ:
             pytest.skip("OPENAI_API_KEY required")
 
-        # Setup both backends
+        # Setup both backends with test_mode enabled
         leanrag = LeanRAGBackend(
-            LeanRAGConfig(work_dir=tmp_path / "leanrag")
+            LeanRAGConfig(work_dir=tmp_path / "leanrag", test_mode=True)
         )
         graphiti = GraphitiBackend(
-            GraphitiConfig(work_dir=tmp_path / "graphiti")
+            GraphitiConfig(work_dir=tmp_path / "graphiti", test_mode=True)
         )
 
         # Prepare both
