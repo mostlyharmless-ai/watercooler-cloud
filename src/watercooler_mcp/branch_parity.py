@@ -13,10 +13,13 @@ Key principle: neutral origin - no force-push, no history rewrites, no auto-merg
 
 from __future__ import annotations
 
+import hashlib
 import json
 import os
+import re
 import tempfile
 import time
+import unicodedata
 from dataclasses import asdict, dataclass, field
 from enum import Enum
 from pathlib import Path
@@ -113,6 +116,24 @@ MAX_TOPIC_LENGTH = 200  # Maximum length for sanitized topic names
 # Characters that are invalid in filenames on Windows or could cause issues
 UNSAFE_TOPIC_CHARS_PATTERN = r'[<>:"/\\|?*\x00-\x1f]'
 
+# Branch name constraints (git refname rules)
+MAX_BRANCH_LENGTH = 255  # Git branch name length limit
+# Pattern for invalid branch name characters/sequences per git-check-ref-format
+# Each tuple is (compiled_pattern, raw_pattern, human_readable_message)
+_BRANCH_VALIDATION_RULES: list[tuple[re.Pattern[str], str, str]] = [
+    (re.compile(r'\.\.+'), r'\.\.+', 'contains consecutive dots (..)'),
+    (re.compile(r'^-'), r'^-', 'starts with hyphen (potential flag injection)'),
+    (re.compile(r'-$'), r'-$', 'ends with hyphen'),
+    (re.compile(r'^\.|\.$'), r'^\.|\.$', 'starts or ends with dot'),
+    (re.compile(r'\.lock$'), r'\.lock$', 'ends with .lock (reserved suffix)'),
+    (re.compile(r'@\{'), r'@\{', 'contains reflog syntax (@{)'),
+    (re.compile(r'[\x00-\x1f\x7f]'), r'[\x00-\x1f\x7f]', 'contains control characters'),
+    (re.compile(r'[~^:?*\[\]\\]'), r'[~^:?*\[\]\\]', 'contains invalid git characters (~^:?*[]\\)'),
+    (re.compile(r'\s'), r'\s', 'contains whitespace'),
+]
+# Keep raw patterns for backwards compatibility in tests
+INVALID_BRANCH_PATTERNS = [rule[1] for rule in _BRANCH_VALIDATION_RULES]
+
 
 def _sanitize_topic_for_filename(topic: str) -> str:
     """Sanitize topic name for safe use as a filename.
@@ -131,10 +152,6 @@ def _sanitize_topic_for_filename(topic: str) -> str:
     Returns:
         Safe filename string (without extension)
     """
-    import hashlib
-    import re
-    import unicodedata
-
     if not topic:
         return "_empty_"
 
@@ -169,6 +186,46 @@ def _sanitize_topic_for_filename(topic: str) -> str:
         safe = f"{safe[:180]}_{topic_hash}"
 
     return safe
+
+
+def _validate_branch_name(branch: str) -> None:
+    """Validate branch name to prevent injection and ensure git compatibility.
+
+    Security considerations:
+    - Prevents flag injection (branch names starting with -)
+    - Enforces git-check-ref-format rules
+    - Prevents control character injection
+    - Limits length to prevent filesystem issues
+
+    Uses pre-compiled regex patterns for performance and provides
+    human-readable error messages.
+
+    Args:
+        branch: Branch name to validate
+
+    Raises:
+        ValueError: If branch name is invalid or potentially dangerous
+    """
+    if not branch:
+        raise ValueError("Branch name cannot be empty")
+
+    if len(branch) > MAX_BRANCH_LENGTH:
+        raise ValueError(
+            f"Branch name too long: {len(branch)} chars (max {MAX_BRANCH_LENGTH})"
+        )
+
+    # Check against all invalid patterns using pre-compiled regexes
+    for compiled_pattern, _raw_pattern, message in _BRANCH_VALIDATION_RULES:
+        if compiled_pattern.search(branch):
+            raise ValueError(f"Branch name '{branch}' {message}")
+
+    # Additional safety: no consecutive slashes (path component issues)
+    if "//" in branch:
+        raise ValueError(f"Branch name '{branch}' contains consecutive slashes")
+
+    # No trailing slash
+    if branch.endswith("/"):
+        raise ValueError(f"Branch name '{branch}' cannot end with slash")
 
 
 def _now_iso() -> str:
@@ -341,7 +398,17 @@ def _is_rebase_in_progress(repo: Repo) -> bool:
 
 
 def _branch_exists_on_origin(repo: Repo, branch: str) -> bool:
-    """Check if branch exists on origin."""
+    """Check if branch exists on origin.
+
+    Note:
+        Validates branch name before constructing git ref strings for defense-in-depth.
+    """
+    try:
+        _validate_branch_name(branch)
+    except ValueError as e:
+        log_debug(f"[PARITY] Invalid branch name in _branch_exists_on_origin: {e}")
+        return False
+
     try:
         origin = repo.remote("origin")
         return f"origin/{branch}" in [ref.name for ref in origin.refs]
@@ -350,7 +417,17 @@ def _branch_exists_on_origin(repo: Repo, branch: str) -> bool:
 
 
 def _get_ahead_behind(repo: Repo, branch: str) -> tuple[int, int]:
-    """Get commits ahead/behind origin for a branch. Returns (ahead, behind)."""
+    """Get commits ahead/behind origin for a branch. Returns (ahead, behind).
+
+    Note:
+        Validates branch name before constructing git ref strings for defense-in-depth.
+    """
+    try:
+        _validate_branch_name(branch)
+    except ValueError as e:
+        log_debug(f"[PARITY] Invalid branch name in _get_ahead_behind: {e}")
+        return (0, 0)
+
     try:
         remote_ref = f"origin/{branch}"
         # Check if remote ref exists
@@ -390,24 +467,57 @@ def _fetch_with_timeout(repo: Repo, timeout: int = 30) -> bool:
 
 
 def _checkout_branch(repo: Repo, branch: str, create: bool = False) -> bool:
-    """Checkout a branch, optionally creating it. Returns True on success."""
+    """Checkout a branch, optionally creating it. Returns True on success.
+
+    Args:
+        repo: Git repository
+        branch: Branch name (validated for safety)
+        create: If True, create the branch with -b flag
+
+    Returns:
+        True on success, False on failure
+
+    Note:
+        Branch name is validated to prevent flag injection and ensure
+        git compatibility before any git operations are performed.
+    """
     try:
+        _validate_branch_name(branch)
         if create:
             repo.git.checkout("-b", branch)
         else:
             repo.git.checkout(branch)
         return True
+    except ValueError as e:
+        log_debug(f"[PARITY] Invalid branch name: {e}")
+        return False
     except Exception as e:
         log_debug(f"[PARITY] Checkout failed: {e}")
         return False
 
 
 def _create_and_push_branch(repo: Repo, branch: str) -> bool:
-    """Create a branch and push to origin. Returns True on success."""
+    """Create a branch and push to origin. Returns True on success.
+
+    Args:
+        repo: Git repository
+        branch: Branch name (validated for safety)
+
+    Returns:
+        True on success, False on failure
+
+    Note:
+        Branch name is validated to prevent flag injection and ensure
+        git compatibility before any git operations are performed.
+    """
     try:
+        _validate_branch_name(branch)
         repo.git.checkout("-b", branch)
         repo.git.push("-u", "origin", branch)
         return True
+    except ValueError as e:
+        log_debug(f"[PARITY] Invalid branch name: {e}")
+        return False
     except Exception as e:
         log_debug(f"[PARITY] Create and push branch failed: {e}")
         return False
@@ -438,10 +548,19 @@ def _push_with_retry(repo: Repo, branch: str, max_retries: int = MAX_PUSH_RETRIE
 
     Args:
         repo: Git repository
-        branch: Branch name to push
+        branch: Branch name to push (validated for safety)
         max_retries: Maximum retry attempts
         set_upstream: If True, use -u flag to set upstream tracking (for first push)
+
+    Note:
+        Branch name is validated to prevent flag injection before git operations.
     """
+    try:
+        _validate_branch_name(branch)
+    except ValueError as e:
+        log_debug(f"[PARITY] Invalid branch name for push: {e}")
+        return False
+
     for attempt in range(max_retries):
         try:
             if set_upstream:
@@ -844,7 +963,16 @@ def push_after_commit(
     branch: str,
     max_retries: int = MAX_PUSH_RETRIES,
 ) -> tuple[bool, Optional[str]]:
-    """Push threads repo after commit. Returns (success, error_message)."""
+    """Push threads repo after commit. Returns (success, error_message).
+
+    Note:
+        Branch name is validated to prevent flag injection before git operations.
+    """
+    try:
+        _validate_branch_name(branch)
+    except ValueError as e:
+        return (False, f"Invalid branch name: {e}")
+
     try:
         threads_repo = Repo(threads_repo_path, search_parent_directories=True)
 
