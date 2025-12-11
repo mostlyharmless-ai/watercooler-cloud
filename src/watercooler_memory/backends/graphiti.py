@@ -155,27 +155,128 @@ class GraphitiBackend(MemoryBackend):
         except Exception as e:
             raise BackendError(f"Failed to prepare corpus: {e}") from e
 
+    def _sanitize_redisearch_operators(self, text: str) -> str:
+        """Sanitize RediSearch operator characters in text.
+
+        Replaces special characters that RediSearch interprets as query operators
+        with safe alternatives to prevent syntax errors during entity extraction.
+
+        This is a workaround for Graphiti's fulltext search not properly escaping
+        entity names containing RediSearch operators (/, |, (), etc.) during
+        entity deduplication searches.
+
+        Args:
+            text: Input text that may contain RediSearch operators
+
+        Returns:
+            Sanitized text with operators replaced
+        """
+        if not text:
+            return text
+
+        # Map RediSearch operators to safe replacements
+        # Based on lucene_sanitize() in graphiti_core/helpers.py:62-96
+        replacements = {
+            '/': '-',      # Forward slash → dash
+            '|': '-',      # Pipe → dash
+            '(': ' ',      # Parentheses → space
+            ')': ' ',
+            '+': ' ',      # Plus → space
+            '&': ' and ',  # Ampersand → word
+            '!': ' ',      # Exclamation → space
+            '{': ' ',      # Braces → space
+            '}': ' ',
+            '[': ' ',      # Brackets → space
+            ']': ' ',
+            '^': ' ',      # Caret → space
+            '~': ' ',      # Tilde → space
+            '*': ' ',      # Asterisk → space
+            '?': ' ',      # Question mark → space
+            ':': ' ',      # Colon → space
+            '\\': ' ',     # Backslash → space
+            '@': ' ',      # At sign → space
+            '<': ' ',      # Angle brackets → space
+            '>': ' ',
+            '=': ' ',      # Equals → space
+        }
+
+        result = text
+        for char, replacement in replacements.items():
+            result = result.replace(char, replacement)
+
+        # Collapse multiple spaces
+        import re
+        result = re.sub(r'\s+', ' ', result)
+
+        return result.strip()
+
     def _map_entries_to_episodes(
         self, corpus: CorpusPayload
     ) -> list[dict[str, Any]]:
-        """Map canonical entries to Graphiti episode format."""
+        """Map canonical entries to Graphiti episode format with strict validation.
+
+        Raises:
+            BackendError: If entry missing required timestamp or both title and body
+        """
         episodes = []
 
-        for entry in corpus.entries:
+        for idx, entry in enumerate(corpus.entries):
             # Graphiti episode format:
-            # - name: Episode identifier/title
+            # - name: Episode identifier/title (required, cannot be None)
             # - episode_body: Content
             # - source_description: Metadata about source
-            # - reference_time: ISO timestamp
+            # - reference_time: datetime object (required, cannot be None)
+            # - uuid: Entry ID for stable mapping
+            # - group_id: Thread ID for per-thread partitioning
+
+            # Get entry_id with fallback chain
+            entry_id = entry.get("id") or entry.get("entry_id") or f"entry-{idx}"
+
+            # STRICT: Fail fast on missing timestamp (temporal graph requirement)
+            timestamp = entry.get("timestamp")
+            if not timestamp:
+                raise BackendError(
+                    f"Entry '{entry_id}' missing required 'timestamp' field. "
+                    "Temporal graph requires valid timestamps for all entries."
+                )
+
+            # Get name with body snippet fallback
+            name = entry.get("title")
+            body_text = entry.get("body", entry.get("content", ""))
+
+            if not name:
+                # Fallback to first 50 chars of body
+                if body_text:
+                    name = (body_text[:50] + "...") if len(body_text) > 50 else body_text
+                else:
+                    raise BackendError(
+                        f"Entry '{entry_id}' has neither 'title' nor 'body' content. "
+                        "Cannot create episode with no name or content."
+                    )
+
+            # Get thread_id for group_id (sanitized for DB name with pytest__ prefix)
+            thread_id = entry.get("thread_id", "unknown")
+            # Sanitize thread_id for use as Graphiti group_id (DB name)
+            # Replace non-alphanumeric with underscore, ensure starts with letter
+            sanitized_thread = "".join(c if c.isalnum() else "_" for c in thread_id)
+            if sanitized_thread and not sanitized_thread[0].isalpha():
+                sanitized_thread = "t_" + sanitized_thread
+            # Add pytest__ prefix for test database identification
+            sanitized_thread = "pytest__" + sanitized_thread
+
+            # Embed entry_id in episode name for provenance
+            # Format: "{entry_id}: {title/snippet}"
+            episode_name = f"{entry_id}: {name}"
 
             episode = {
-                "name": entry.get("title", f"Entry {entry.get('id')}"),
-                "episode_body": entry.get("body", entry.get("content", "")),
+                "name": episode_name,
+                "episode_body": self._sanitize_redisearch_operators(body_text),
                 "source_description": self._format_source_description(entry),
-                "reference_time": entry.get("timestamp"),
+                "reference_time": timestamp,
+                "group_id": sanitized_thread,  # Per-thread partitioning
                 "metadata": {
-                    "entry_id": entry.get("id", entry.get("entry_id")),
-                    "thread_id": entry.get("thread_id"),
+                    "entry_id": entry_id,
+                    "thread_id": thread_id,
                     "agent": entry.get("agent"),
                     "role": entry.get("role"),
                     "type": entry.get("type"),
@@ -242,26 +343,55 @@ class GraphitiBackend(MemoryBackend):
 
             # Create Graphiti client with FalkorDB connection
             try:
+                from graphiti_core.llm_client import OpenAIClient
+                from graphiti_core.llm_client.config import LLMConfig
+
                 falkor_driver = FalkorDriver(
                     host=self.config.falkordb_host,
                     port=self.config.falkordb_port,
                     username=self.config.falkordb_username,
                     password=self.config.falkordb_password,
                 )
-                graphiti = Graphiti(graph_driver=falkor_driver)
+
+                # Configure LLM client with explicit model
+                # Use gpt-5-mini as default reasoning model
+                model_name = self.config.openai_model or "gpt-5-mini"
+                llm_config = LLMConfig(
+                    api_key=self.config.openai_api_key,
+                    model=model_name,
+                    base_url=self.config.openai_api_base,
+                )
+                # Explicitly set reasoning=None and verbosity=None to disable optional parameters
+                # This prevents API errors with models that don't support these features
+                llm_client = OpenAIClient(config=llm_config, reasoning=None, verbosity=None)
+
+                graphiti = Graphiti(
+                    graph_driver=falkor_driver,
+                    llm_client=llm_client,
+                )
             except Exception as e:
                 raise TransientError(f"Database connection failed: {e}") from e
 
             # Ingest episodes sequentially (async operation wrapped in sync)
             async def ingest_episodes():
+                from datetime import datetime, timezone
+
                 count = 0
                 for episode in episodes:
                     try:
+                        # Convert reference_time from ISO string to datetime object
+                        ref_time_str = episode["reference_time"]
+                        if isinstance(ref_time_str, str):
+                            ref_time = datetime.fromisoformat(ref_time_str.replace('Z', '+00:00'))
+                        else:
+                            ref_time = ref_time_str  # Already a datetime
+
                         await graphiti.add_episode(
                             name=episode["name"],
                             episode_body=episode["episode_body"],
                             source_description=episode["source_description"],
-                            reference_time=episode["reference_time"],
+                            reference_time=ref_time,
+                            group_id=episode.get("group_id"),  # Per-thread partitioning
                         )
                         count += 1
                     except Exception as e:
@@ -318,13 +448,32 @@ class GraphitiBackend(MemoryBackend):
 
             # Create Graphiti client with FalkorDB connection
             try:
+                from graphiti_core.llm_client import OpenAIClient
+                from graphiti_core.llm_client.config import LLMConfig
+
                 falkor_driver = FalkorDriver(
                     host=self.config.falkordb_host,
                     port=self.config.falkordb_port,
                     username=self.config.falkordb_username,
                     password=self.config.falkordb_password,
                 )
-                graphiti = Graphiti(graph_driver=falkor_driver)
+
+                # Configure LLM client with explicit model
+                # Use gpt-5-mini as default reasoning model
+                model_name = self.config.openai_model or "gpt-5-mini"
+                llm_config = LLMConfig(
+                    api_key=self.config.openai_api_key,
+                    model=model_name,
+                    base_url=self.config.openai_api_base,
+                )
+                # Explicitly set reasoning=None and verbosity=None to disable optional parameters
+                # This prevents API errors with models that don't support these features
+                llm_client = OpenAIClient(config=llm_config, reasoning=None, verbosity=None)
+
+                graphiti = Graphiti(
+                    graph_driver=falkor_driver,
+                    llm_client=llm_client,
+                )
             except Exception as e:
                 raise TransientError(f"Database connection failed: {e}") from e
 
@@ -343,12 +492,20 @@ class GraphitiBackend(MemoryBackend):
                         )
 
                         # Map Graphiti results to canonical format
-                        for result in search_results:
+                        # search_results is a list of EntityEdge Pydantic models
+                        for edge in search_results:
                             results.append({
                                 "query": query_text,
-                                "content": result.get("content", ""),
-                                "score": result.get("score", 0.0),
-                                "metadata": result.get("metadata", {}),
+                                "content": edge.fact,  # The fact/relationship text
+                                "score": 0.0,  # Graphiti doesn't expose scores directly
+                                "metadata": {
+                                    "uuid": edge.uuid,
+                                    "source_node_uuid": edge.source_node_uuid,
+                                    "target_node_uuid": edge.target_node_uuid,
+                                    "valid_at": edge.valid_at.isoformat() if edge.valid_at else None,
+                                    "invalid_at": edge.invalid_at.isoformat() if edge.invalid_at else None,
+                                    "created_at": edge.created_at.isoformat() if edge.created_at else None,
+                                },
                             })
 
                     except Exception as e:

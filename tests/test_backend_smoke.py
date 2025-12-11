@@ -24,10 +24,25 @@ from watercooler_memory.graph import MemoryGraph
 # Fixtures
 
 
+@pytest.fixture(autouse=True, scope="session")
+def cleanup_test_databases():
+    """Clean test databases BEFORE running tests to allow post-test inspection."""
+    try:
+        import redis
+        r = redis.Redis(host='localhost', port=6379, socket_connect_timeout=2)
+        # Delete any databases with "pytest__" prefix from previous runs
+        for key in r.keys("pytest__*"):
+            r.delete(key)
+    except Exception:
+        pass  # Ignore if FalkorDB not running
+
+    yield  # Run tests (results persist for inspection)
+
+
 @pytest.fixture
 def watercooler_threads_dir() -> Path:
-    """Path to actual watercooler threads repository."""
-    return Path("/Volumes/aria/projects/watercooler-cloud-threads")
+    """Path to test watercooler threads (bundled with tests)."""
+    return Path(__file__).parent / "fixtures" / "threads"
 
 
 @pytest.fixture
@@ -306,9 +321,9 @@ class TestLeanRAGSmoke:
         from pathlib import Path
         
         # Use persistent directory in project root so we can inspect artifacts
-        work_dir = Path("tests/test-artifacts/leanrag-work")
+        work_dir = Path("tests/test-artifacts/pytest__leanrag-work")
         work_dir.mkdir(parents=True, exist_ok=True)
-        
+
         config = LeanRAGConfig(work_dir=work_dir)
         backend = LeanRAGBackend(config)
         
@@ -451,7 +466,7 @@ class TestGraphitiSmoke:
         if "OPENAI_API_KEY" not in os.environ:
             pytest.skip("OPENAI_API_KEY not set - required for Graphiti")
 
-        config = GraphitiConfig(work_dir=tmp_path / "graphiti-work")
+        config = GraphitiConfig(work_dir=tmp_path / "pytest__graphiti-work")
         backend = GraphitiBackend(config)
         yield backend
 
@@ -482,18 +497,87 @@ class TestGraphitiSmoke:
     def test_prepare_index_query(
         self, graphiti_backend, minimal_corpus, minimal_chunks, sample_queries
     ):
-        """Full Graphiti pipeline: prepare→index→query (when implemented)."""
+        """Full Graphiti pipeline: prepare→index→query with minimal test data."""
         # Step 1: Prepare
         prepare_result = graphiti_backend.prepare(minimal_corpus)
         assert prepare_result.prepared_count == 5
 
-        # Step 2: Index (TODO: implement)
-        # This will use Graphiti Python API when implemented
+        # Step 2: Index
         index_result = graphiti_backend.index(minimal_chunks)
         assert index_result.manifest_version == "1.0.0"
 
-        # Step 3: Query (TODO: implement)
+        # Step 3: Query
         query_result = graphiti_backend.query(sample_queries)
+        assert query_result.manifest_version == "1.0.0"
+
+    @pytest.mark.integration_falkor
+    @pytest.mark.skipif(
+        "os.environ.get('SKIP_GRAPHITI_INDEX') == '1'",
+        reason="Graphiti indexing requires implementation completion",
+    )
+    def test_full_pipeline_watercooler_threads(
+        self, graphiti_backend, watercooler_corpus, sample_queries
+    ):
+        """
+        Full Graphiti pipeline with real watercooler threads (limited to 15 entries).
+
+        Validates:
+        - Episodic ingestion on actual watercooler thread content
+        - Entity extraction from agent conversations
+        - Temporal graph building with real data
+        - Query execution on populated graph
+
+        Note: Limits to first 15 entries for reasonable CI runtime (~10-15 min).
+        For full 66-entry test, use test_full_pipeline_watercooler_threads_complete.
+
+        Requires:
+        - OPENAI_API_KEY environment variable
+        - FalkorDB running on port 6379
+        """
+        # Limit to first 15 entries for reasonable runtime
+        # Full corpus has 66 entries which takes ~48 minutes
+        from watercooler_memory.backends import CorpusPayload
+        limited_corpus = CorpusPayload(
+            manifest_version=watercooler_corpus.manifest_version,
+            threads=watercooler_corpus.threads,
+            entries=watercooler_corpus.entries[:15],  # Limit to 15 entries
+            metadata=watercooler_corpus.metadata,
+        )
+
+        # Step 1: Prepare real watercooler thread
+        prepare_result = graphiti_backend.prepare(limited_corpus)
+        assert prepare_result.prepared_count > 0
+        print(f"Prepared {prepare_result.prepared_count} entries from watercooler thread")
+
+        # Step 2: Index - extract chunks and create episodes
+        # Extract chunks from corpus entries (created by watercooler preset)
+        from watercooler_memory.backends import ChunkPayload
+
+        all_chunks = []
+        for entry in limited_corpus.entries:
+            # Each entry has chunks created by watercooler preset chunker
+            if "chunks" in entry:
+                for chunk in entry["chunks"]:
+                    all_chunks.append({
+                        "id": chunk.get("chunk_id", chunk.get("id")),
+                        "entry_id": entry["id"],
+                        "text": chunk["text"],
+                        "token_count": chunk.get("token_count", 0),
+                        "hash_code": chunk.get("hash_code", ""),
+                    })
+
+        chunks = ChunkPayload(
+            manifest_version="1.0.0",
+            chunks=all_chunks,
+        )
+
+        index_result = graphiti_backend.index(chunks)
+        print(f"Indexed {index_result.indexed_count} episodes")
+        assert index_result.indexed_count == prepare_result.prepared_count
+
+        # Step 3: Query the populated graph
+        query_result = graphiti_backend.query(sample_queries)
+        print(f"Query returned {len(query_result.results)} results")
         assert query_result.manifest_version == "1.0.0"
 
 
