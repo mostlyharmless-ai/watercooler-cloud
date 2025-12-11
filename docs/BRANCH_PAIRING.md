@@ -167,6 +167,7 @@ git push origin main
 - `watercooler_v1_sync_branch_state` - Synchronize branch state (create, delete, merge, checkout)
 - `watercooler_v1_audit_branch_pairing` - Comprehensive audit of all branches across repo pair
 - `watercooler_v1_recover_branch_state` - Diagnose and recover from branch state inconsistencies
+- `watercooler_v1_reconcile_parity` - Reconcile parity state (pull threads if behind, retry push)
 
 **Enforcement Rules**:
 
@@ -180,6 +181,237 @@ git push origin main
 - **Branch mismatch detected**: Use `watercooler_v1_sync_branch_state` with `operation="checkout"` to sync
 - **Orphaned threads branch**: Use `watercooler_v1_audit_branch_pairing` to identify, then `sync_branch_state` with `operation="delete"` to clean up
 - **Git state issues**: Use `watercooler_v1_recover_branch_state` to diagnose and fix rebase conflicts, detached HEAD, etc.
+- **Threads behind origin**: Use `watercooler_v1_reconcile_parity` to pull latest commits and sync state
+- **Push failed / pending push**: Use `watercooler_v1_reconcile_parity` to retry the push with rebase-on-reject
+
+## Auto-Remediation System
+
+The MCP server includes an auto-remediating preflight state machine that runs before every write operation (`say`, `ack`, `handoff`, `set_status`). This system automatically fixes common branch parity issues while ensuring safety through neutral-origin guarantees.
+
+### Design Principles
+
+- **Neutral Origin**: No force-push, no history rewrites, no auto-merge to main
+- **Per-Topic Locking**: Serializes concurrent writes to prevent race conditions
+- **State Persistence**: Tracks parity state in `branch_parity_state.json`
+- **Fail-Safe**: Blocks on issues that require manual intervention
+
+### Parity States
+
+The preflight system tracks these states:
+
+| State | Description | Auto-Fix? |
+|-------|-------------|-----------|
+| `clean` | Branches are aligned, no action needed | N/A |
+| `pending_push` | Commit made, awaiting push | Yes - push with retry |
+| `branch_mismatch` | Code and threads on different branches | Yes - checkout/create |
+| `main_protection` | Branch mismatch involving main (see below) | Partial - see details |
+| `code_behind_origin` | Code repo is behind origin | No - manual pull required |
+| `remote_unreachable` | Cannot reach git remote | No - retry later |
+| `rebase_in_progress` | Git rebase not completed | No - abort/continue manually |
+| `detached_head` | Code repo in detached HEAD state | No - checkout a branch |
+| `diverged` | Threads is behind origin | No - use `reconcile_parity` |
+| `needs_manual_recover` | Complex issue detected | No - use recover tools |
+| `orphan_branch` | Threads branch exists but code branch deleted | No - use sync tools |
+| `error` | Unexpected error occurred | No - check logs |
+
+**Note on `main_protection`**: This state covers two scenarios:
+1. **Forward** (code=feature, threads=main): Auto-fixed by creating/checking out threads feature branch
+2. **Inverse** (code=main, threads=feature): Blocks - user must decide whether to checkout code to feature or merge threads to main
+
+### Auto-Remediation Behaviors
+
+When `WATERCOOLER_AUTO_BRANCH=1` (default), the preflight automatically:
+
+1. **Branch Mismatch → Checkout/Create**
+   - If threads branch exists: `git checkout <branch>`
+   - If threads branch missing: `git checkout -b <branch>` from current position
+
+2. **Main Protection (Forward) → Create Feature Branch**
+   - Detects when code is on a feature branch but threads would write to main
+   - Creates the matching threads branch before proceeding
+
+3. **Pending Push → Push with Retry**
+   - After commit, pushes to origin
+   - On rejection: pulls with rebase, then retries push
+   - Configurable retry limit (default: 3 attempts)
+
+4. **Fetch Before Check**
+   - Optionally fetches from origin before running checks
+   - Ensures state reflects remote reality
+
+### Blocking Behaviors (Require Manual Intervention)
+
+The following states block writes and require explicit action:
+
+1. **Main Protection (Inverse) → Block**
+   - Detects when code is on main but threads is on a feature branch
+   - Blocks to prevent entries with incorrect `Code-Branch` metadata
+   - User must either checkout code to the feature branch or merge threads to main
+
+2. **Threads Behind Origin → Block (use `reconcile_parity`)**
+   - Detects when threads repo is behind origin (another agent pushed commits)
+   - Blocks to prevent auto-pulling changes that may conflict
+   - Use `watercooler_v1_reconcile_parity` to pull and sync, then retry
+
+3. **Code Behind Origin → Block**
+   - Detects when code repo is behind origin
+   - Blocks because we never mutate the code repo
+   - User must `git pull` in the code repo manually
+
+### State Persistence
+
+The system maintains state in `.wc-parity/branch_parity_state.json`:
+
+```json
+{
+  "status": "clean",
+  "last_check_at": "2025-01-15T10:30:00Z",
+  "code_branch": "feature-auth",
+  "threads_branch": "feature-auth",
+  "actions_taken": ["Checked out threads branch 'feature-auth'"],
+  "pending_push": false,
+  "last_error": null
+}
+```
+
+This file is git-ignored and local to each clone.
+
+### Per-Topic Locking
+
+To prevent concurrent writes from corrupting thread files, the system uses advisory file locks:
+
+- Lock files stored in `.wc-locks/<topic>.lock`
+- 30-second timeout for acquiring locks
+- 60-second TTL to prevent stale locks
+- Topic names with `/` are sanitized (e.g., `feature/auth` → `feature_auth.lock`)
+
+### Health Reporting
+
+The `watercooler_v1_health` tool now includes branch parity status:
+
+```
+Branch Parity:
+  Status: clean
+  Code Branch: feature-auth
+  Threads Branch: feature-auth
+  Pending Push: False
+  Code Ahead/Behind Origin: 0/0
+  Last Check: 2025-01-15T10:30:00Z
+```
+
+### Blocking Scenarios
+
+The preflight blocks (does not auto-fix) when:
+
+1. **Detached HEAD**: Cannot determine which branch to target
+2. **Code Behind Origin**: Risk of losing remote changes
+3. **Rebase in Progress**: Git state must be resolved first
+4. **Diverged History**: Requires explicit merge/rebase decision
+5. **Remote Unreachable**: Cannot verify or push state
+
+When blocked, the error message includes:
+- The detected issue
+- Specific recovery steps
+- Which MCP tool can help (e.g., `recover_branch_state`)
+
+### Offline / Remote Unreachable Policy
+
+When the git remote is unreachable (network issues, VPN disconnected, etc.):
+
+**Default Behavior**: Write operations are **blocked**.
+
+**Rationale**: Without remote access, the preflight cannot:
+- Verify the current state of origin
+- Push commits after write operations
+- Detect divergence or conflicts with other agents
+
+**Error Message**: `"Cannot reach origin for either repository"`
+
+**Recovery**:
+1. Restore network connectivity
+2. Retry the write operation
+3. If commits were made locally before disconnect, use `watercooler_v1_reconcile_parity` to push pending commits
+
+**Future Enhancement** (not implemented): Opt-in local-only mode for offline work with explicit sync on reconnect.
+
+### Force-Push Detection
+
+Force-push scenarios are detected through **divergence detection**: when the local threads branch is both ahead AND behind origin, or when it's behind origin after a remote force-push.
+
+**Detection Mechanism**:
+- Preflight checks `threads_behind_origin` count
+- If `threads_behind > 0`, status is set to `DIVERGED`
+- This covers both regular divergence and force-push scenarios
+
+**Behavior**: Write operations are **blocked** with status `diverged`.
+
+**Error Message**:
+```
+Threads branch is N commits behind origin.
+Use watercooler_v1_reconcile_parity or
+watercooler_v1_sync_branch_state with operation='recover' to sync.
+```
+
+**Recovery Options**:
+1. `watercooler_v1_reconcile_parity` - Pulls threads with rebase and pushes pending commits
+2. `watercooler_v1_sync_branch_state(operation='recover')` - More comprehensive recovery for complex divergence
+
+**Note**: The system never force-pushes (neutral origin principle). If remote was force-pushed, the local agent must explicitly recover.
+
+### Async Path Scope (Known Limitation)
+
+> ⚠️ **Important**: The async write path has different reliability guarantees than
+> the synchronous path. Choose the appropriate mode based on your consistency needs.
+
+The async write path (`_with_sync_async`) currently uses the legacy push mechanism
+rather than `push_after_commit()` with rebase-on-reject retry. This is a known
+architectural limitation that affects how push failures are reported.
+
+**Sync vs Async Write Paths**:
+
+| Aspect | Sync Path | Async Path |
+|--------|-----------|------------|
+| Push timing | Immediate, blocking | Background, non-blocking |
+| Push mechanism | `push_after_commit()` with rebase+retry | `push_pending()` with basic retry |
+| Parity state update | Updated after push completes | Not updated after background push |
+| Failure visibility | Immediate exception | May be silent; check queue status |
+| Use case | Critical writes, ball handoffs | High-throughput, latency-sensitive |
+
+**Current Async Behavior**:
+- Commits locally and enqueues for background push via `AsyncPushWorker`
+- Background worker uses `push_pending()` which has basic retry logic (5 attempts)
+- Parity state file is **not** updated after background push completes or fails
+- Push failures are logged but do not raise exceptions to the caller
+
+**Implications**:
+- Async writes may not immediately reflect push failures in parity state
+- State file may show `pending_push=False` even when background push failed
+- CLI parity output may be stale until next sync write or manual reconcile
+- In high-contention scenarios, async pushes may queue up
+
+**When to Use Each Path**:
+- **Use sync** (`WATERCOOLER_SYNC_MODE=sync`): Ball handoffs, critical decisions,
+  closure entries, or when immediate confirmation of remote persistence is required
+- **Use async** (default): Regular notes, high-frequency updates, or when latency
+  is more important than immediate push confirmation
+
+**Workarounds for Async Limitations**:
+- Use `watercooler_v1_sync(action='status')` to check actual async queue state
+- Use `watercooler_v1_sync(action='now')` to flush the queue and push immediately
+- Use `watercooler_v1_reconcile_parity` to force sync and update parity state
+- Set `priority_flush=True` on critical writes to flush queue after that entry
+
+**Future Enhancement**: Upgrade async path to use unified `push_after_commit()`
+mechanism and update parity state on background push completion (tracked as a
+post-v1.0 improvement).
+
+### Environment Variables
+
+| Variable | Default | Description |
+|----------|---------|-------------|
+| `WATERCOOLER_AUTO_BRANCH` | `1` | Enable auto-remediation |
+| `WATERCOOLER_PARITY_FETCH_FIRST` | `1` | Fetch from origin before checks |
+| `WATERCOOLER_PARITY_MAX_RETRIES` | `3` | Push retry attempts |
 
 ## CLI Commands
 

@@ -643,6 +643,28 @@ def check_branches(*, code_root: Path | None = None, include_merged: bool = Fals
         lines.append("=" * 60)
         lines.append(f"Summary: {len(synced)} synced, {len(code_only)} code-only, {len(threads_only)} threads-only")
 
+        # Add parity health status for current branch
+        try:
+            from watercooler_mcp.branch_parity import get_branch_health
+            health = get_branch_health(context.code_root, context.threads_dir)
+            lines.append("")
+            lines.append("📊 Current Branch Parity Status:")
+            lines.append(f"  Code branch:    {health.get('code_branch', 'unknown')}")
+            lines.append(f"  Threads branch: {health.get('threads_branch', 'unknown')}")
+            lines.append(f"  Status:         {health.get('status', 'unknown')}")
+            lines.append(f"  Code ahead/behind origin:    {health.get('code_ahead_origin', 0)}/{health.get('code_behind_origin', 0)}")
+            lines.append(f"  Threads ahead/behind origin: {health.get('threads_ahead_origin', 0)}/{health.get('threads_behind_origin', 0)}")
+            if health.get('pending_push'):
+                lines.append(f"  ⚠️  Pending push: True")
+            if health.get('lock_holder'):
+                lines.append(f"  Lock holder:    PID {health.get('lock_holder')}")
+            if health.get('actions_taken'):
+                lines.append(f"  Actions taken:  {', '.join(health.get('actions_taken', []))}")
+            if health.get('last_error'):
+                lines.append(f"  ⚠️  Last error: {health.get('last_error')}")
+        except Exception as health_err:
+            lines.append(f"\n📊 Current Branch Parity Status: Error - {health_err}")
+
         return "\n".join(lines)
 
     except InvalidGitRepositoryError as e:

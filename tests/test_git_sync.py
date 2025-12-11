@@ -24,8 +24,12 @@ def init_remote_repo(remote_path: Path) -> Repo:
 
 
 def seed_remote_with_main(remote_path: Path) -> None:
-    """Create a bare remote with a seeded main branch."""
-    init_remote_repo(remote_path)
+    """Create a bare remote with a seeded main branch.
+
+    This function also sets the remote's HEAD to point to 'main' to ensure
+    clones default to 'main' regardless of the system's git default branch setting.
+    """
+    bare_repo = init_remote_repo(remote_path)
     workdir = remote_path.parent / "seed"
     repo = Repo.init(workdir)
     (workdir / "README.md").write_text("seed\n")
@@ -34,6 +38,8 @@ def seed_remote_with_main(remote_path: Path) -> None:
     repo.git.branch('-M', 'main')
     repo.create_remote('origin', remote_path.as_posix())
     repo.remotes.origin.push('main:main')
+    # Set the bare repo's HEAD to point to main (ensures clones default to 'main')
+    bare_repo.head.reference = bare_repo.heads['main']
     shutil.rmtree(workdir)
 
 
@@ -579,8 +585,12 @@ def test_find_main_branch_returns_none_when_missing(tmp_path):
 # === Tests for _detect_behind_main_divergence ===
 
 def test_detect_behind_main_divergence_when_threads_behind(tmp_path):
-    """Test detection when threads/staging is behind threads/main but code is up-to-date."""
-    # Setup code repo with main and staging branches
+    """Test detection when threads/staging is behind threads/main but code IS synced with main.
+
+    Real scenario: Code branch was merged to main (so code/staging matches code/main),
+    but threads/staging was NOT rebased onto threads/main, so it's missing the closure entry.
+    """
+    # Setup code repo with main branch
     code_path = tmp_path / "code"
     code_repo = Repo.init(code_path)
     code_repo.config_writer().set_value("user", "email", "test@example.com").release()
@@ -590,15 +600,12 @@ def test_detect_behind_main_divergence_when_threads_behind(tmp_path):
     code_repo.index.commit("initial code")
     code_repo.git.branch("-M", "main")
 
-    # Create staging branch from main
+    # Create staging branch AT SAME COMMIT as main (simulates merged state)
+    # In real workflow: staging work was merged to main, staging now equals main
     code_repo.git.checkout("-b", "staging")
-    touch(code_path / "feature.py", "feature")
-    code_repo.index.add(["feature.py"])
-    code_repo.index.commit("staging commit")
+    # code/staging is now 0 ahead, 0 behind main - this is "synced"
 
-    # Now code/staging is ahead of code/main, so code is NOT behind main
-
-    # Setup threads repo
+    # Setup threads repo where staging IS behind main
     threads_path = tmp_path / "threads"
     threads_repo = Repo.init(threads_path)
     threads_repo.config_writer().set_value("user", "email", "test@example.com").release()
@@ -608,21 +615,24 @@ def test_detect_behind_main_divergence_when_threads_behind(tmp_path):
     threads_repo.index.commit("initial thread")
     threads_repo.git.branch("-M", "main")
 
-    # Add commit to main
-    touch(threads_path / "thread2.md", "new thread on main")
-    threads_repo.index.add(["thread2.md"])
-    threads_repo.index.commit("new thread on main")
+    # Add closure entry to threads/main (this happens when PR is merged)
+    touch(threads_path / "closure.md", "PR closure entry")
+    threads_repo.index.add(["closure.md"])
+    threads_repo.index.commit("PR closure on main")
 
-    # Create staging from an older commit (before thread2)
+    # Create staging from BEFORE the closure (simulates unrebased state)
     threads_repo.git.checkout("-b", "staging", "HEAD~1")
 
-    # Now threads/staging is behind threads/main by 1 commit
+    # State now:
+    # - code/staging: 0 ahead, 0 behind main (synced)
+    # - threads/staging: 0 ahead, 1 behind main (needs rebase)
+    # This is a real divergence that should be detected
 
     result = _detect_behind_main_divergence(
         code_repo, threads_repo, "staging", "staging"
     )
 
-    assert result is not None
+    assert result is not None, "Should detect divergence when code synced but threads behind"
     assert result.diverged is True
     assert result.commits_behind == 1
     assert result.needs_rebase is True
@@ -768,6 +778,75 @@ def test_detect_behind_main_divergence_with_squash_merge(tmp_path):
     assert "content-equivalent" in result.details, "Should indicate content-equivalent sync"
 
 
+def test_detect_behind_main_divergence_feature_branch_ahead_not_synced(tmp_path):
+    """Test that a feature branch ahead of main is NOT considered 'synced'.
+
+    This is a regression test for a bug where code_synced was computed as:
+        code_commit_synced = len(code_behind_main) == 0
+
+    The problem: being 0 behind main just means main is an ancestor, which is
+    the normal state for any feature branch. A branch 6 ahead / 0 behind is
+    NOT synced with main.
+
+    The fix: code_commit_synced should be True only when 0 behind AND 0 ahead.
+    """
+    # Setup code repo with main branch
+    code_path = tmp_path / "code"
+    code_repo = Repo.init(code_path)
+    code_repo.config_writer().set_value("user", "email", "test@example.com").release()
+    code_repo.config_writer().set_value("user", "name", "Tester").release()
+
+    touch(code_path / "file.txt", "initial")
+    code_repo.index.add(["file.txt"])
+    code_repo.index.commit("initial")
+    code_repo.git.branch("-M", "main")
+
+    # Create feature branch with commits AHEAD of main
+    code_repo.git.checkout("-b", "feature-branch")
+    touch(code_path / "feature.txt", "feature work")
+    code_repo.index.add(["feature.txt"])
+    code_repo.index.commit("feature commit 1")
+    touch(code_path / "feature2.txt", "more feature work")
+    code_repo.index.add(["feature2.txt"])
+    code_repo.index.commit("feature commit 2")
+
+    # Now code/feature-branch is 2 ahead, 0 behind main
+
+    # Setup threads repo in the same state
+    threads_path = tmp_path / "threads"
+    threads_repo = Repo.init(threads_path)
+    threads_repo.config_writer().set_value("user", "email", "test@example.com").release()
+    threads_repo.config_writer().set_value("user", "name", "Tester").release()
+
+    touch(threads_path / "thread.md", "initial")
+    threads_repo.index.add(["thread.md"])
+    threads_repo.index.commit("initial")
+    threads_repo.git.branch("-M", "main")
+
+    # Create feature branch with entries AHEAD of main
+    threads_repo.git.checkout("-b", "feature-branch")
+    touch(threads_path / "feature-thread.md", "feature thread")
+    threads_repo.index.add(["feature-thread.md"])
+    threads_repo.index.commit("feature thread entry 1")
+    touch(threads_path / "feature-thread2.md", "more feature thread")
+    threads_repo.index.add(["feature-thread2.md"])
+    threads_repo.index.commit("feature thread entry 2")
+
+    # Now threads/feature-branch is 2 ahead, 0 behind main
+    # Both are in the SAME state - no disparity should be detected
+
+    result = _detect_behind_main_divergence(
+        code_repo, threads_repo, "feature-branch", "feature-branch"
+    )
+
+    # Should return None - no disparity, both branches are in sync with each other
+    # (both are feature branches ahead of main)
+    assert result is None, (
+        "Feature branches ahead of main should NOT be flagged as 'synced with main'. "
+        f"Got: {result}"
+    )
+
+
 # === Tests for _rebase_branch_onto ===
 
 def test_rebase_branch_onto_already_up_to_date(tmp_path):
@@ -910,3 +989,175 @@ def test_https_url_no_ssh_command(tmp_path, monkeypatch):
 
     # Should NOT have GIT_SSH_COMMAND set for HTTPS
     assert "GIT_SSH_COMMAND" not in mgr._env or "BatchMode" not in mgr._env.get("GIT_SSH_COMMAND", "")
+
+
+# ============================================================================
+# Sync Write Push Mechanism Tests (Task 1 verification)
+# ============================================================================
+
+
+def test_sync_write_uses_push_after_commit(tmp_path, monkeypatch):
+    """Test that sync writes use push_after_commit with rebase-on-reject."""
+    from unittest.mock import patch, MagicMock
+    from watercooler_mcp.git_sync import GitSyncManager
+
+    remote = tmp_path / "remote.git"
+    seed_remote_with_main(remote)
+
+    mgr = GitSyncManager(
+        repo_url=remote.as_posix(),
+        local_path=tmp_path / "threads",
+        ssh_key_path=None,
+    )
+
+    # Track calls to push_after_commit
+    push_after_commit_called = []
+
+    def mock_push_after_commit(repo_path, branch, max_retries=3):
+        push_after_commit_called.append({
+            'repo_path': repo_path,
+            'branch': branch,
+            'max_retries': max_retries
+        })
+        return (True, None)
+
+    with patch('watercooler_mcp.branch_parity.push_after_commit', mock_push_after_commit):
+        # Execute a sync write operation
+        def write_op():
+            touch(tmp_path / "threads" / "test.md", "test content")
+            mgr._repo.index.add(["test.md"])
+            return "success"
+
+        result = mgr._with_sync_sync(write_op, "test commit")
+
+    assert result == "success"
+    assert len(push_after_commit_called) == 1
+    # Branch could be 'main' or 'master' depending on git config
+    assert push_after_commit_called[0]['branch'] in ("main", "master")
+
+
+def test_sync_write_push_failure_marks_pending(tmp_path, monkeypatch):
+    """Test that push failure marks pending_push=True in parity state."""
+    from unittest.mock import patch
+    from watercooler_mcp.git_sync import GitSyncManager, GitPushError
+    from watercooler_mcp.branch_parity import read_parity_state, ParityState
+
+    remote = tmp_path / "remote.git"
+    seed_remote_with_main(remote)
+
+    mgr = GitSyncManager(
+        repo_url=remote.as_posix(),
+        local_path=tmp_path / "threads",
+        ssh_key_path=None,
+    )
+
+    # Initialize parity state
+    parity_dir = tmp_path / "threads" / ".wc-parity"
+    parity_dir.mkdir(parents=True, exist_ok=True)
+
+    def mock_push_after_commit(repo_path, branch, max_retries=3):
+        return (False, "Simulated push failure")
+
+    with patch('watercooler_mcp.branch_parity.push_after_commit', mock_push_after_commit):
+        def write_op():
+            touch(tmp_path / "threads" / "test.md", "test content")
+            mgr._repo.index.add(["test.md"])
+            return "success"
+
+        with pytest.raises(GitPushError) as exc_info:
+            mgr._with_sync_sync(write_op, "test commit")
+
+        assert "Simulated push failure" in str(exc_info.value)
+
+    # Check parity state was updated
+    state = read_parity_state(tmp_path / "threads")
+    assert state.pending_push is True
+    assert state.status == "pending_push"
+    assert "Simulated push failure" in state.last_error
+
+
+def test_sync_write_push_success_clears_pending(tmp_path, monkeypatch):
+    """Test that push success clears pending_push in parity state."""
+    from unittest.mock import patch
+    from watercooler_mcp.git_sync import GitSyncManager
+    from watercooler_mcp.branch_parity import (
+        read_parity_state,
+        write_parity_state,
+        ParityState,
+        ParityStatus,
+    )
+
+    remote = tmp_path / "remote.git"
+    seed_remote_with_main(remote)
+
+    mgr = GitSyncManager(
+        repo_url=remote.as_posix(),
+        local_path=tmp_path / "threads",
+        ssh_key_path=None,
+    )
+
+    # Set up initial state with pending_push=True
+    parity_dir = tmp_path / "threads" / ".wc-parity"
+    parity_dir.mkdir(parents=True, exist_ok=True)
+    initial_state = ParityState(
+        status=ParityStatus.PENDING_PUSH.value,
+        pending_push=True,
+        last_error="Previous push failed",
+    )
+    write_parity_state(tmp_path / "threads", initial_state)
+
+    def mock_push_after_commit(repo_path, branch, max_retries=3):
+        return (True, None)
+
+    with patch('watercooler_mcp.branch_parity.push_after_commit', mock_push_after_commit):
+        def write_op():
+            touch(tmp_path / "threads" / "test.md", "test content")
+            mgr._repo.index.add(["test.md"])
+            return "success"
+
+        result = mgr._with_sync_sync(write_op, "test commit")
+
+    assert result == "success"
+
+    # Check parity state was updated
+    state = read_parity_state(tmp_path / "threads")
+    assert state.pending_push is False
+    assert state.status == "clean"
+    assert state.last_error is None
+
+
+def test_sync_write_no_commit_skips_push(tmp_path, monkeypatch):
+    """Test that sync writes skip push when no changes were committed."""
+    from unittest.mock import patch
+    from watercooler_mcp.git_sync import GitSyncManager
+
+    remote = tmp_path / "remote.git"
+    seed_remote_with_main(remote)
+
+    mgr = GitSyncManager(
+        repo_url=remote.as_posix(),
+        local_path=tmp_path / "threads",
+        ssh_key_path=None,
+    )
+
+    push_called = []
+
+    def mock_push_after_commit(repo_path, branch, max_retries=3):
+        push_called.append(True)
+        return (True, None)
+
+    def mock_commit_local(message):
+        # Simulate no changes to commit
+        return False
+
+    with patch('watercooler_mcp.branch_parity.push_after_commit', mock_push_after_commit):
+        with patch.object(mgr, 'commit_local', mock_commit_local):
+            # Operation that doesn't make any changes
+            def noop():
+                return "no changes"
+
+            result = mgr._with_sync_sync(noop, "empty commit")
+
+    assert result == "no changes"
+    # push_after_commit should NOT be called if no commit was made
+    assert len(push_called) == 0
