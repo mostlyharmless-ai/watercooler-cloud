@@ -119,17 +119,20 @@ UNSAFE_TOPIC_CHARS_PATTERN = r'[<>:"/\\|?*\x00-\x1f]'
 # Branch name constraints (git refname rules)
 MAX_BRANCH_LENGTH = 255  # Git branch name length limit
 # Pattern for invalid branch name characters/sequences per git-check-ref-format
-INVALID_BRANCH_PATTERNS = [
-    r'\.\.+',           # No consecutive dots (..)
-    r'^-',              # Cannot start with hyphen (flag injection)
-    r'-$',              # Cannot end with hyphen
-    r'^\.|\.$',         # Cannot start or end with dot
-    r'\.lock$',         # Cannot end with .lock
-    r'@\{',             # No @{ sequence (reflog syntax)
-    r'[\x00-\x1f\x7f]', # No control characters
-    r'[~^:?*\[\]\\]',   # No special git characters
-    r'\s',              # No whitespace
+# Each tuple is (compiled_pattern, raw_pattern, human_readable_message)
+_BRANCH_VALIDATION_RULES: list[tuple[re.Pattern[str], str, str]] = [
+    (re.compile(r'\.\.+'), r'\.\.+', 'contains consecutive dots (..)'),
+    (re.compile(r'^-'), r'^-', 'starts with hyphen (potential flag injection)'),
+    (re.compile(r'-$'), r'-$', 'ends with hyphen'),
+    (re.compile(r'^\.|\.$'), r'^\.|\.$', 'starts or ends with dot'),
+    (re.compile(r'\.lock$'), r'\.lock$', 'ends with .lock (reserved suffix)'),
+    (re.compile(r'@\{'), r'@\{', 'contains reflog syntax (@{)'),
+    (re.compile(r'[\x00-\x1f\x7f]'), r'[\x00-\x1f\x7f]', 'contains control characters'),
+    (re.compile(r'[~^:?*\[\]\\]'), r'[~^:?*\[\]\\]', 'contains invalid git characters (~^:?*[]\\)'),
+    (re.compile(r'\s'), r'\s', 'contains whitespace'),
 ]
+# Keep raw patterns for backwards compatibility in tests
+INVALID_BRANCH_PATTERNS = [rule[1] for rule in _BRANCH_VALIDATION_RULES]
 
 
 def _sanitize_topic_for_filename(topic: str) -> str:
@@ -194,6 +197,9 @@ def _validate_branch_name(branch: str) -> None:
     - Prevents control character injection
     - Limits length to prevent filesystem issues
 
+    Uses pre-compiled regex patterns for performance and provides
+    human-readable error messages.
+
     Args:
         branch: Branch name to validate
 
@@ -208,12 +214,10 @@ def _validate_branch_name(branch: str) -> None:
             f"Branch name too long: {len(branch)} chars (max {MAX_BRANCH_LENGTH})"
         )
 
-    # Check against all invalid patterns
-    for pattern in INVALID_BRANCH_PATTERNS:
-        if re.search(pattern, branch):
-            raise ValueError(
-                f"Branch name '{branch}' contains invalid pattern: {pattern}"
-            )
+    # Check against all invalid patterns using pre-compiled regexes
+    for compiled_pattern, _raw_pattern, message in _BRANCH_VALIDATION_RULES:
+        if compiled_pattern.search(branch):
+            raise ValueError(f"Branch name '{branch}' {message}")
 
     # Additional safety: no consecutive slashes (path component issues)
     if "//" in branch:
@@ -394,7 +398,17 @@ def _is_rebase_in_progress(repo: Repo) -> bool:
 
 
 def _branch_exists_on_origin(repo: Repo, branch: str) -> bool:
-    """Check if branch exists on origin."""
+    """Check if branch exists on origin.
+
+    Note:
+        Validates branch name before constructing git ref strings for defense-in-depth.
+    """
+    try:
+        _validate_branch_name(branch)
+    except ValueError as e:
+        log_debug(f"[PARITY] Invalid branch name in _branch_exists_on_origin: {e}")
+        return False
+
     try:
         origin = repo.remote("origin")
         return f"origin/{branch}" in [ref.name for ref in origin.refs]
@@ -403,7 +417,17 @@ def _branch_exists_on_origin(repo: Repo, branch: str) -> bool:
 
 
 def _get_ahead_behind(repo: Repo, branch: str) -> tuple[int, int]:
-    """Get commits ahead/behind origin for a branch. Returns (ahead, behind)."""
+    """Get commits ahead/behind origin for a branch. Returns (ahead, behind).
+
+    Note:
+        Validates branch name before constructing git ref strings for defense-in-depth.
+    """
+    try:
+        _validate_branch_name(branch)
+    except ValueError as e:
+        log_debug(f"[PARITY] Invalid branch name in _get_ahead_behind: {e}")
+        return (0, 0)
+
     try:
         remote_ref = f"origin/{branch}"
         # Check if remote ref exists

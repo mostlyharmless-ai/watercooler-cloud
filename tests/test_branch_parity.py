@@ -338,7 +338,7 @@ def test_validate_branch_name_flag_injection() -> None:
         "-m message",
     ]
     for name in dangerous_names:
-        with pytest.raises(ValueError, match="invalid pattern"):
+        with pytest.raises(ValueError, match="starts with hyphen"):
             _validate_branch_name(name)
 
 
@@ -351,13 +351,14 @@ def test_validate_branch_name_path_traversal() -> None:
         "a..b",
     ]
     for name in dangerous_names:
-        with pytest.raises(ValueError, match="invalid pattern"):
+        with pytest.raises(ValueError, match="consecutive dots"):
             _validate_branch_name(name)
 
 
 def test_validate_branch_name_special_characters() -> None:
     """Test that git-invalid special characters are rejected."""
-    invalid_names = [
+    # Test git-invalid special characters (~^:?*[]\)
+    git_special_chars = [
         "branch~1",
         "branch^2",
         "branch:ref",
@@ -365,13 +366,20 @@ def test_validate_branch_name_special_characters() -> None:
         "branch*star",
         "branch[bracket",
         "branch\\backslash",
-        "branch with space",
-        "branch\ttab",
-        "branch\nnewline",
     ]
-    for name in invalid_names:
-        with pytest.raises(ValueError, match="invalid pattern"):
+    for name in git_special_chars:
+        with pytest.raises(ValueError, match="invalid git characters"):
             _validate_branch_name(name)
+
+    # Test spaces (whitespace that's not a control character)
+    with pytest.raises(ValueError, match="contains whitespace"):
+        _validate_branch_name("branch with space")
+
+    # Tab and newline are control characters (0x09, 0x0a), so they match control chars first
+    with pytest.raises(ValueError, match="control characters"):
+        _validate_branch_name("branch\ttab")
+    with pytest.raises(ValueError, match="control characters"):
+        _validate_branch_name("branch\nnewline")
 
 
 def test_validate_branch_name_reflog_syntax() -> None:
@@ -382,7 +390,7 @@ def test_validate_branch_name_reflog_syntax() -> None:
         "@{-1}",
     ]
     for name in invalid_names:
-        with pytest.raises(ValueError, match="invalid pattern"):
+        with pytest.raises(ValueError, match="reflog syntax"):
             _validate_branch_name(name)
 
 
@@ -397,15 +405,15 @@ def test_validate_branch_name_edge_cases() -> None:
         _validate_branch_name("a" * 300)
 
     # Starts with dot
-    with pytest.raises(ValueError, match="invalid pattern"):
+    with pytest.raises(ValueError, match="starts or ends with dot"):
         _validate_branch_name(".hidden")
 
     # Ends with dot
-    with pytest.raises(ValueError, match="invalid pattern"):
+    with pytest.raises(ValueError, match="starts or ends with dot"):
         _validate_branch_name("branch.")
 
     # Ends with .lock
-    with pytest.raises(ValueError, match="invalid pattern"):
+    with pytest.raises(ValueError, match="ends with .lock"):
         _validate_branch_name("branch.lock")
 
     # Consecutive slashes
