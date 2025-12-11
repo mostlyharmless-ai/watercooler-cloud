@@ -37,19 +37,33 @@ from watercooler_memory.graph import MemoryGraph
 
 @pytest.fixture(autouse=True, scope="session")
 def cleanup_test_databases() -> None:
-    """Clean test databases BEFORE running tests to allow post-test inspection."""
+    """Clean test databases BEFORE running tests to allow post-test inspection.
+
+    This fixture removes both Redis keys AND FalkorDB graphs with pytest__ prefix.
+    FalkorDB stores graphs as separate data structures requiring GRAPH.DELETE.
+    """
     try:
         import redis
         r = redis.Redis(host='localhost', port=6379, socket_connect_timeout=2)
-        # Delete any databases with "pytest__" prefix from previous runs
-        # Use SCAN for better performance with large keyspaces (non-blocking)
+
+        # First, delete FalkorDB graphs with pytest__ prefix
+        # Use SCAN to find all keys, then check if they're graphs and delete
         cursor = 0
+        graphs_deleted = []
         while True:
             cursor, keys = r.scan(cursor, match="pytest__*", count=100)
-            if keys:
-                r.delete(*keys)
+            for key in keys:
+                key_str = key.decode('utf-8') if isinstance(key, bytes) else key
+                try:
+                    # Try to delete as a graph using GRAPH.DELETE
+                    r.execute_command('GRAPH.DELETE', key_str)
+                    graphs_deleted.append(key_str)
+                except redis.ResponseError:
+                    # Not a graph, delete as regular key
+                    r.delete(key)
             if cursor == 0:
                 break
+
     except (ConnectionError, TimeoutError):
         pass  # Ignore if FalkorDB not running or unreachable
     except ImportError:

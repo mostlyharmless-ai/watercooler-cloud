@@ -73,6 +73,8 @@ class GraphitiBackend(MemoryBackend):
     _MAX_FALLBACK_NAME_LENGTH = 50
     # Maximum length for database names (FalkorDB/Redis key limit)
     _MAX_DB_NAME_LENGTH = 64
+    # Length of test database prefix (pytest__)
+    _TEST_PREFIX_LENGTH = len("pytest__")  # 8 characters
 
     def __init__(self, config: GraphitiConfig | None = None) -> None:
         self.config = config or GraphitiConfig()
@@ -218,6 +220,49 @@ class GraphitiBackend(MemoryBackend):
 
         return result.strip()
 
+    def _create_graphiti_client(self):
+        """Create and configure Graphiti client with FalkorDB and LLM.
+
+        Returns:
+            Configured Graphiti instance ready for operations.
+
+        Raises:
+            ConfigError: If required dependencies are not installed.
+        """
+        try:
+            from graphiti_core import Graphiti
+            from graphiti_core.driver.falkordb_driver import FalkorDriver
+            from graphiti_core.llm_client import OpenAIClient
+            from graphiti_core.llm_client.config import LLMConfig
+        except ImportError as e:
+            raise ConfigError(
+                f"Graphiti dependencies not installed: {e}. "
+                "Run: pip install -e 'external/graphiti[falkordb]'"
+            ) from e
+
+        # Create FalkorDB driver
+        falkor_driver = FalkorDriver(
+            host=self.config.falkordb_host,
+            port=self.config.falkordb_port,
+            username=self.config.falkordb_username,
+            password=self.config.falkordb_password,
+        )
+
+        # Configure LLM client with explicit model
+        model_name = self.config.openai_model or "gpt-4o-mini"
+        llm_config = LLMConfig(
+            api_key=self.config.openai_api_key,
+            model=model_name,
+            base_url=self.config.openai_api_base,
+        )
+        llm_client = OpenAIClient(
+            config=llm_config,
+            reasoning=None,  # Disable reasoning.effort (only for GPT-5 models)
+            verbosity=None,  # Disable text.verbosity (unsupported by gpt-4o-mini)
+        )
+
+        return Graphiti(graph_driver=falkor_driver, llm_client=llm_client)
+
     def _map_entries_to_episodes(
         self, corpus: CorpusPayload
     ) -> list[dict[str, Any]]:
@@ -266,17 +311,15 @@ class GraphitiBackend(MemoryBackend):
             # Get thread_id for group_id (sanitized for DB name)
             thread_id = entry.get("thread_id", "unknown")
             # Sanitize thread_id for use as Graphiti group_id (DB name)
-            # Replace non-alphanumeric with underscore, ensure starts with letter
-            sanitized_thread = "".join(c if c.isalnum() else "_" for c in thread_id)
-            # Collapse multiple consecutive underscores
-            sanitized_thread = re.sub(r'_+', '_', sanitized_thread).strip('_')
+            # Replace non-alphanumeric with underscore, collapse multiples, strip edges
+            sanitized_thread = re.sub(r'[^a-zA-Z0-9]+', '_', thread_id).strip('_')
             # Ensure non-empty and starts with letter
             if not sanitized_thread:
                 sanitized_thread = "unknown"
             if not sanitized_thread[0].isalpha():
                 sanitized_thread = "t_" + sanitized_thread
             # Apply length limit (reserve space for pytest__ prefix if in test mode)
-            max_len = self._MAX_DB_NAME_LENGTH - (9 if self.config.test_mode else 0)
+            max_len = self._MAX_DB_NAME_LENGTH - (self._TEST_PREFIX_LENGTH if self.config.test_mode else 0)
             if len(sanitized_thread) > max_len:
                 sanitized_thread = sanitized_thread[:max_len]
             # Add pytest__ prefix for test database identification (if in test mode)
@@ -350,44 +393,9 @@ class GraphitiBackend(MemoryBackend):
 
             episodes = json.loads(episodes_path.read_text())
 
-            # Initialize Graphiti client with FalkorDB
-            try:
-                from graphiti_core import Graphiti
-                from graphiti_core.driver.falkordb_driver import FalkorDriver
-            except ImportError as e:
-                raise ConfigError(
-                    f"Graphiti dependencies not installed: {e}. "
-                    "Run: pip install -e 'external/graphiti[falkordb]'"
-                ) from e
-
             # Create Graphiti client with FalkorDB connection
             try:
-                from graphiti_core.llm_client import OpenAIClient
-                from graphiti_core.llm_client.config import LLMConfig
-
-                falkor_driver = FalkorDriver(
-                    host=self.config.falkordb_host,
-                    port=self.config.falkordb_port,
-                    username=self.config.falkordb_username,
-                    password=self.config.falkordb_password,
-                )
-
-                # Configure LLM client with explicit model
-                # Use gpt-4o-mini as default reasoning model
-                model_name = self.config.openai_model or "gpt-4o-mini"
-                llm_config = LLMConfig(
-                    api_key=self.config.openai_api_key,
-                    model=model_name,
-                    base_url=self.config.openai_api_base,
-                )
-                # Explicitly set reasoning=None and verbosity=None to disable optional parameters
-                # This prevents API errors with models that don't support these features
-                llm_client = OpenAIClient(config=llm_config, reasoning=None, verbosity=None)
-
-                graphiti = Graphiti(
-                    graph_driver=falkor_driver,
-                    llm_client=llm_client,
-                )
+                graphiti = self._create_graphiti_client()
             except Exception as e:
                 raise TransientError(f"Database connection failed: {e}") from e
 
@@ -455,44 +463,9 @@ class GraphitiBackend(MemoryBackend):
             BackendError: If query fails
         """
         try:
-            # Initialize Graphiti client with FalkorDB
-            try:
-                from graphiti_core import Graphiti
-                from graphiti_core.driver.falkordb_driver import FalkorDriver
-            except ImportError as e:
-                raise ConfigError(
-                    f"Graphiti dependencies not installed: {e}. "
-                    "Run: pip install -e 'external/graphiti[falkordb]'"
-                ) from e
-
             # Create Graphiti client with FalkorDB connection
             try:
-                from graphiti_core.llm_client import OpenAIClient
-                from graphiti_core.llm_client.config import LLMConfig
-
-                falkor_driver = FalkorDriver(
-                    host=self.config.falkordb_host,
-                    port=self.config.falkordb_port,
-                    username=self.config.falkordb_username,
-                    password=self.config.falkordb_password,
-                )
-
-                # Configure LLM client with explicit model
-                # Use gpt-4o-mini as default reasoning model
-                model_name = self.config.openai_model or "gpt-4o-mini"
-                llm_config = LLMConfig(
-                    api_key=self.config.openai_api_key,
-                    model=model_name,
-                    base_url=self.config.openai_api_base,
-                )
-                # Explicitly set reasoning=None and verbosity=None to disable optional parameters
-                # This prevents API errors with models that don't support these features
-                llm_client = OpenAIClient(config=llm_config, reasoning=None, verbosity=None)
-
-                graphiti = Graphiti(
-                    graph_driver=falkor_driver,
-                    llm_client=llm_client,
-                )
+                graphiti = self._create_graphiti_client()
             except Exception as e:
                 raise TransientError(f"Database connection failed: {e}") from e
 
