@@ -50,6 +50,9 @@ class LeanRAGConfig:
     # Working directory for exports
     work_dir: Path | None = None
 
+    # Test mode: Add pytest__ prefix to database names for isolation
+    test_mode: bool = False
+
 
 class LeanRAGBackend(MemoryBackend):
     """

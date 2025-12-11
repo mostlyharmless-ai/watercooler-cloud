@@ -50,6 +50,9 @@ class GraphitiConfig:
     # Working directory for exports
     work_dir: Path | None = None
 
+    # Test mode: Add pytest__ prefix to database names for isolation
+    test_mode: bool = False
+
 
 class GraphitiBackend(MemoryBackend):
     """
@@ -254,15 +257,16 @@ class GraphitiBackend(MemoryBackend):
                         "Cannot create episode with no name or content."
                     )
 
-            # Get thread_id for group_id (sanitized for DB name with pytest__ prefix)
+            # Get thread_id for group_id (sanitized for DB name)
             thread_id = entry.get("thread_id", "unknown")
             # Sanitize thread_id for use as Graphiti group_id (DB name)
             # Replace non-alphanumeric with underscore, ensure starts with letter
             sanitized_thread = "".join(c if c.isalnum() else "_" for c in thread_id)
             if sanitized_thread and not sanitized_thread[0].isalpha():
                 sanitized_thread = "t_" + sanitized_thread
-            # Add pytest__ prefix for test database identification
-            sanitized_thread = "pytest__" + sanitized_thread
+            # Add pytest__ prefix for test database identification (if in test mode)
+            if self.config.test_mode:
+                sanitized_thread = "pytest__" + sanitized_thread
 
             # Embed entry_id in episode name for provenance
             # Format: "{entry_id}: {title/snippet}"

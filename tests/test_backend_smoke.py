@@ -324,7 +324,7 @@ class TestLeanRAGSmoke:
         work_dir = Path("tests/test-artifacts/pytest__leanrag-work")
         work_dir.mkdir(parents=True, exist_ok=True)
 
-        config = LeanRAGConfig(work_dir=work_dir)
+        config = LeanRAGConfig(work_dir=work_dir, test_mode=True)
         backend = LeanRAGBackend(config)
         
         print(f"\n*** LeanRAG working directory: {work_dir.absolute()} ***\n")
@@ -466,7 +466,7 @@ class TestGraphitiSmoke:
         if "OPENAI_API_KEY" not in os.environ:
             pytest.skip("OPENAI_API_KEY not set - required for Graphiti")
 
-        config = GraphitiConfig(work_dir=tmp_path / "pytest__graphiti-work")
+        config = GraphitiConfig(work_dir=tmp_path / "pytest__graphiti-work", test_mode=True)
         backend = GraphitiBackend(config)
         yield backend
 
