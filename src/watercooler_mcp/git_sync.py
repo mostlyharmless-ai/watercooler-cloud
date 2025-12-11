@@ -1338,11 +1338,50 @@ class GitSyncManager:
 
         result = operation()
 
-        # Get max_retries from config (with fallback)
+        # Commit locally first
+        committed = self.commit_local(commit_message)
+        if not committed:
+            # No changes to commit, operation succeeded
+            return result
+
+        # Push with rebase-on-reject retry using branch parity helper
+        from watercooler_mcp.branch_parity import (
+            push_after_commit,
+            read_parity_state,
+            write_parity_state,
+            _now_iso,
+            ParityStatus,
+        )
+
+        try:
+            branch_name = self._repo.active_branch.name
+        except (TypeError, AttributeError):
+            branch_name = "main"
         max_retries = self._async_config.get("max_sync_retries", 5)
-        if not self.commit_and_push(commit_message, max_retries=max_retries):
-            detail = self._last_push_error or "unknown push error"
-            raise GitPushError(f"Failed to push changes: {detail}")
+        push_success, push_error = push_after_commit(
+            self.local_path, branch_name, max_retries=max_retries
+        )
+
+        # Update parity state after push attempt
+        try:
+            state = read_parity_state(self.local_path)
+            if state:
+                if push_success:
+                    state.pending_push = False
+                    state.last_error = None
+                    state.status = ParityStatus.CLEAN.value
+                else:
+                    state.pending_push = True
+                    state.last_error = push_error
+                    state.status = ParityStatus.PENDING_PUSH.value
+                state.last_check_at = _now_iso()
+                write_parity_state(self.local_path, state)
+        except Exception as state_err:
+            log_debug(f"[PARITY] Failed to update state after push: {state_err}")
+
+        if not push_success:
+            self._last_push_error = push_error
+            raise GitPushError(f"Failed to push changes: {push_error}")
 
         return result
 
@@ -1709,52 +1748,27 @@ def _detect_behind_main_divergence(
 
         # Ahead-of-main disparity: code has parity but threads/staging is ahead of threads/main
         # This happens when code/staging was merged to code/main but threads/staging wasn't
-        # Fix: merge threads/staging into threads/main to achieve parity
+        # NOTE: We do NOT auto-merge to threads/main - that violates "neutral origin" principle
         if code_synced and len(threads_ahead_main) > 0 and len(threads_behind_main) == 0:
             sync_reason = "content-equivalent" if code_content_synced else "0 commits behind"
             log_debug(f"[PARITY] *** AHEAD-OF-MAIN DISPARITY *** threads_ahead={len(threads_ahead_main)}, "
-                  f"reason={sync_reason} - merging threads/{threads_branch} into threads/{threads_main}")
+                  f"reason={sync_reason} - returning info-only (no auto-merge)")
 
-            # Direct fix: merge staging into main
-            try:
-                original_branch = threads_repo_obj.active_branch.name
-                log_debug(f"[PARITY] Checking out {threads_main}")
-                threads_repo_obj.git.checkout(threads_main)
-
-                log_debug(f"[PARITY] Merging {threads_branch} into {threads_main}")
-                threads_repo_obj.git.merge(threads_branch, "--no-edit")
-
-                log_debug(f"[PARITY] Pushing {threads_main} to origin")
-                threads_repo_obj.git.push("origin", threads_main)
-
-                log_debug(f"[PARITY] Checking out {original_branch}")
-                threads_repo_obj.git.checkout(original_branch)
-
-                log_debug(f"[PARITY] Successfully merged threads/{threads_branch} into threads/{threads_main}")
-                # Return None - parity achieved, no further action needed
-                return None
-            except Exception as merge_err:
-                log_debug(f"[PARITY] Failed to merge threads/{threads_branch} into threads/{threads_main}: {merge_err}")
-                # Try to recover to original branch
-                try:
-                    threads_repo_obj.git.checkout(original_branch)
-                except Exception:
-                    pass
-                # Return info so caller knows there's an issue
-                return BranchDivergenceInfo(
-                    diverged=True,
-                    commits_ahead=len(threads_ahead_main),
-                    commits_behind=0,
-                    common_ancestor=None,
-                    needs_rebase=False,
-                    needs_fetch=False,
-                    details=(
-                        f"Threads branch '{threads_branch}' is {len(threads_ahead_main)} commits ahead of "
-                        f"'{threads_main}', but code branch '{code_branch}' is synced with "
-                        f"'{code_main}' ({sync_reason}). Auto-merge failed: {merge_err}. "
-                        f"Manual fix: merge threads/{threads_branch} into threads/{threads_main}"
-                    )
+            # Return info-only - no automatic merge to avoid polluting threads/main
+            return BranchDivergenceInfo(
+                diverged=True,
+                commits_ahead=len(threads_ahead_main),
+                commits_behind=0,
+                common_ancestor=None,
+                needs_rebase=False,
+                needs_fetch=False,
+                details=(
+                    f"Threads branch '{threads_branch}' is {len(threads_ahead_main)} commits ahead of "
+                    f"'{threads_main}', but code branch '{code_branch}' is synced with "
+                    f"'{code_main}' ({sync_reason}). If this is after a PR merge, run: "
+                    f"watercooler merge-threads {threads_branch}"
                 )
+            )
 
         log_debug(f"[PARITY] No disparity detected - returning None")
         return None

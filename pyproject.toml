@@ -4,7 +4,7 @@ build-backend = "setuptools.build_meta"
 
 [project]
 name = "watercooler-cloud"
-version = "0.1.0"
+version = "0.1.2-dev"
 description = "File-based collaboration protocol for agentic coding projects"
 readme = "README.md"
 requires-python = ">=3.10"
@@ -97,4 +97,6 @@ watercooler-mcp = "watercooler_mcp.server:main"
 [tool.pytest.ini_options]
 markers = [
     "http: marks tests as requiring HTTP facade dependencies (deselect with '-m \"not http\"')",
+    "integration_falkor: marks tests requiring real FalkorDB connection (run with '-m integration_falkor')",
+    "integration_leanrag_llm: marks tests requiring LeanRAG with LLM APIs (DeepSeek, GLM embeddings)",
 ]
