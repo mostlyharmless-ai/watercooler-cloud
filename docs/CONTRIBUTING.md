@@ -448,27 +448,34 @@ Fixes #456
 We use a three-branch model for development and deployment:
 
 ```
-main (development) ──PR──► staging (integration) ──release──► stable (production)
-                              │
-                              └── tagged releases: v0.1.0, v0.2.0, etc.
+feature/* ──PR──► main (development) ──PR──► staging (release candidate) ──FF──► stable + tag
+                                                                                    │
+                                                                              v0.1.2, v0.2.0
 ```
 
 ### Branch Purposes
 
-| Branch | Purpose | Who Merges |
-|--------|---------|------------|
-| `main` | Active development | Core team via PR |
-| `staging` | Integration testing | Automated/maintainers |
-| `stable` | Production-ready | Release managers only |
+| Branch | Purpose | How Code Arrives | Testing |
+|--------|---------|------------------|---------|
+| `feature/*` | Work in progress | Direct push | PR CI |
+| `main` | Integrated development | PR from feature branches | CI on merge |
+| `staging` | Release candidate | PR from main | CI on merge |
+| `stable` | Production releases | Fast-forward from staging | No tests (already validated) |
+
+### What Each Branch Represents
+
+- **`main`**: Latest development work. May have rough edges. Version is always `X.Y.Z-dev`.
+- **`staging`**: Code being prepared for release. Version is `X.Y.Z` (no `-dev`). This is the **release candidate**.
+- **`stable`**: Production-ready code that users install from. Always matches a tagged release.
 
 ### Which Branch Should Users Install From?
 
 ```bash
-# Production (recommended)
+# Production (recommended) - always a tagged release
 uvx --from "git+https://github.com/mostlyharmless-ai/watercooler-cloud@stable"
 
 # Pinned version (check releases for available tags)
-uvx --from "git+https://github.com/mostlyharmless-ai/watercooler-cloud@v0.1.0"
+uvx --from "git+https://github.com/mostlyharmless-ai/watercooler-cloud@v0.1.2"
 
 # Bleeding edge (developers only)
 uvx --from "git+https://github.com/mostlyharmless-ai/watercooler-cloud@main"
@@ -476,84 +483,255 @@ uvx --from "git+https://github.com/mostlyharmless-ai/watercooler-cloud@main"
 
 ### Branch Protection
 
-| Branch | PR Required | Approvals | CI Must Pass |
-|--------|-------------|-----------|--------------|
-| `main` | Yes | 0 | Yes |
-| `staging` | Yes | 0 | Yes |
-| `stable` | Yes | 1 | Yes |
+| Branch | PR Required | Approvals | CI Must Pass | Push Access |
+|--------|-------------|-----------|--------------|-------------|
+| `main` | Yes | 0 | Yes | Via PR only |
+| `staging` | Yes | 0 | Yes | Via PR only |
+| `stable` | No | - | No | Maintainers only (FF) |
 
-**Additional rules for `stable`:**
-- Restricted push access (release managers only)
-- No force pushes or deletions
+**Why 0 approvals on main/staging:**
+- For small teams, CI is the primary quality gate
+- Requiring approvals can create bottlenecks
+- Code review happens informally or async
+- CI ensures nothing broken gets merged
+
+**Why `stable` doesn't require PRs or CI:**
+- Code is already reviewed and tested when it reaches staging
+- The staging → stable transition is a fast-forward merge only
+- Running tests again would be redundant
+- This is a mechanical release step, not a review step
+- The tag triggers the release workflow
+
+---
+
+## Versioning
+
+### Single-Source Version
+
+The version is defined in **one place only**: `pyproject.toml`
+
+```toml
+[project]
+version = "0.1.3-dev"
+```
+
+The `__init__.py` reads this dynamically via `importlib.metadata`:
+
+```python
+from importlib.metadata import version
+__version__ = version("watercooler-cloud")
+```
+
+**Never edit version anywhere else** - it's automatically derived from `pyproject.toml`.
+
+### Version Lifecycle
+
+```
+v0.1.1 released on stable
+         │
+         ▼
+main: "0.1.2-dev"     ← development happens here
+         │
+         │ (bump version for release PR)
+         ▼
+main: "0.1.2"         ← version bump commit
+         │
+         │ (PR: main → staging)
+         ▼
+staging: "0.1.2"      ← release candidate validated
+         │
+         │ (FF merge + tag)
+         ▼
+stable: "0.1.2"       ← released! (tag: v0.1.2)
+         │
+         │ (bump to next dev version)
+         ▼
+main: "0.1.3-dev"     ← ready for next cycle
+```
+
+### Semantic Versioning
+
+We follow **SemVer** (`MAJOR.MINOR.PATCH`):
+- **MAJOR** - Breaking API changes
+- **MINOR** - New features (backward compatible)
+- **PATCH** - Bug fixes
+
+Development versions use `-dev` suffix: `0.1.3-dev`
 
 ---
 
 ## Release Process
 
-For maintainers:
+### Overview
 
-### Version Numbering
+The release process has **5 phases**:
 
-We follow **Semantic Versioning** (SemVer):
-- **MAJOR** - Breaking changes
-- **MINOR** - New features (backward compatible)
-- **PATCH** - Bug fixes
+1. **Development** - Features merged to main via PR
+2. **Prepare** - Bump version, create release PR to staging
+3. **Validate** - CI runs on staging PR, human review
+4. **Release** - Fast-forward stable, create tag
+5. **Post-release** - Bump main to next dev version
 
-### Release Workflow
-
-#### 1. Prepare Release
-
-Ensure `staging` is up to date with `main`:
+### Phase 1: Development (feature → main)
 
 ```bash
-git checkout staging
-git merge --ff-only origin/main
-git push origin staging
+# Create feature branch
+git checkout -b feature/my-feature main
+
+# Work, commit, push
+git commit -m "feat: add new feature"
+git push origin feature/my-feature
+
+# Create PR to main
+gh pr create --base main --title "Add new feature"
 ```
 
-#### 2. Create Release
+**Requirements:**
+- PR required
+- CI must pass
+- Code review (human or automated)
 
-Fast-forward `stable` to `staging` and tag:
+### Phase 2: Prepare Release (version bump)
+
+When ready to release, bump the version on main:
 
 ```bash
+git checkout main
+git pull origin main
+
+# Edit pyproject.toml: "0.1.2-dev" → "0.1.2"
+# (Remove the -dev suffix)
+
+git commit -m "chore(release): prepare v0.1.2"
+git push origin main
+```
+
+### Phase 3: Create Release PR (main → staging)
+
+```bash
+# Create PR from main to staging
+gh pr create --base staging --head main --title "Release v0.1.2"
+```
+
+**Requirements:**
+- PR required
+- CI must pass (this is the release validation)
+- Human review: "Is this ready for production?"
+
+After approval, merge the PR (via GitHub UI).
+
+### Phase 4: Release to Production (staging → stable)
+
+```bash
+git fetch origin
 git checkout stable
 git merge --ff-only origin/staging
-git tag -a v0.X.0 -m "Release v0.X.0 - Brief description"
+
+# Create annotated tag
+git tag -a v0.1.2 -m "Release v0.1.2 - Brief description"
+
+# Push branch and tag
 git push origin stable --tags
 ```
 
-#### 3. Verify Release
+**What happens:**
+- Tag push triggers release workflow
+- GitHub Release page is created automatically
+- No tests run (already validated on staging)
 
-- GitHub Actions automatically creates a GitHub Release
-- Verify the release notes are accurate
-- Test installation: `uvx --from "git+https://github.com/mostlyharmless-ai/watercooler-cloud@v0.X.0"`
+### Phase 5: Post-Release (bump dev version)
+
+```bash
+git checkout main
+
+# Edit pyproject.toml: "0.1.2" → "0.1.3-dev"
+
+git commit -m "chore: bump version to 0.1.3-dev"
+git push origin main
+```
 
 ### Release Checklist
 
-1. [ ] All tests passing on `staging`
-2. [ ] Update `__version__` in `src/watercooler/__init__.py`
-3. [ ] Update `ROADMAP.md` with release notes
-4. [ ] Fast-forward `stable` to `staging`
-5. [ ] Tag release: `git tag -a v0.X.0 -m "Release message"`
-6. [ ] Push: `git push origin stable --tags`
-7. [ ] Verify GitHub Release was created
-8. [ ] Announce release (if applicable)
+```markdown
+## Pre-Release
+- [ ] All features for this release are merged to main
+- [ ] CI passing on main
+
+## Prepare
+- [ ] Bump version in pyproject.toml (remove -dev)
+- [ ] Commit: "chore(release): prepare vX.Y.Z"
+- [ ] Create PR: main → staging
+
+## Validate
+- [ ] CI passing on staging PR
+- [ ] Review and approve PR
+- [ ] Merge PR to staging
+
+## Release
+- [ ] git checkout stable
+- [ ] git merge --ff-only origin/staging
+- [ ] git tag -a vX.Y.Z -m "Release vX.Y.Z - description"
+- [ ] git push origin stable --tags
+- [ ] Verify GitHub Release was created
+
+## Post-Release
+- [ ] Bump main to next dev version (X.Y.Z+1-dev)
+- [ ] Commit: "chore: bump version to X.Y.Z+1-dev"
+```
+
+### Tags Explained
+
+**What are tags?**
+- Immutable pointers to specific commits
+- Used for versioning releases
+- Users install from tags for reproducibility
+
+**Important: Tags must be created on `stable` branch only.**
+The release workflow triggers on any `v*` tag push. Creating a tag from the wrong branch (e.g., `main` or a feature branch) will create a broken release.
+
+**Tag naming:**
+- `v0.1.2` - Production release
+- `v0.1.2-rc1` - Release candidate (optional)
+- `v0.1.2-beta` - Pre-release/beta
+
+**Prerelease detection:**
+The release workflow automatically marks tags containing `-` as prereleases:
+- `v0.1.2` → full release
+- `v0.1.2-beta` → prerelease
 
 ### Rollback Procedure
 
-If a release has issues:
+If a release has critical issues:
 
+**Option 1: Release a patch (recommended)**
 ```bash
-# Revert stable to previous tag (e.g., rolling back v0.2.0 to v0.1.0)
-git checkout stable
-git reset --hard v0.1.0
-git push --force-with-lease origin stable
-
-# Users can pin to previous version
-uvx --from "git+https://github.com/mostlyharmless-ai/watercooler-cloud@v0.1.0"
+# Fix the bug on main, then follow normal release process
+# This creates v0.1.3 which supersedes the broken v0.1.2
 ```
 
-> **Warning**: Force-pushing to `stable` affects users with cached installations. They may need to clear their `uvx` cache or re-install. Only use rollback for critical issues.
+**Option 2: Delete bad release and re-release (minor issues)**
+```bash
+# Delete the GitHub release via web UI or:
+gh release delete v0.1.2 --yes
+
+# Delete the bad tag
+git tag -d v0.1.2
+git push origin --delete v0.1.2
+
+# Fix the issue, then re-tag and re-release
+```
+
+**Option 3: Revert stable branch (emergency only, requires admin)**
+```bash
+# NOTE: Force-push is blocked by branch protection.
+# An admin must temporarily disable protection, then re-enable after.
+
+git checkout stable
+git reset --hard v0.1.1
+git push --force-with-lease origin stable  # Requires admin override
+```
+
+> **Warning**: Force-pushing to `stable` affects users with cached installations (they may need to clear uvx cache). Only use for critical security issues. Prefer releasing a patch version instead.
 
 ---
 
