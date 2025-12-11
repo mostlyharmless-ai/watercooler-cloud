@@ -4,6 +4,7 @@ from __future__ import annotations
 
 import asyncio
 import json
+import re
 import subprocess
 import tempfile
 from dataclasses import dataclass
@@ -70,6 +71,8 @@ class GraphitiBackend(MemoryBackend):
 
     # Maximum length for fallback episode name from body snippet
     _MAX_FALLBACK_NAME_LENGTH = 50
+    # Maximum length for database names (FalkorDB/Redis key limit)
+    _MAX_DB_NAME_LENGTH = 64
 
     def __init__(self, config: GraphitiConfig | None = None) -> None:
         self.config = config or GraphitiConfig()
@@ -211,7 +214,6 @@ class GraphitiBackend(MemoryBackend):
             result = result.replace(char, replacement)
 
         # Collapse multiple spaces
-        import re
         result = re.sub(r'\s+', ' ', result)
 
         return result.strip()
@@ -266,8 +268,17 @@ class GraphitiBackend(MemoryBackend):
             # Sanitize thread_id for use as Graphiti group_id (DB name)
             # Replace non-alphanumeric with underscore, ensure starts with letter
             sanitized_thread = "".join(c if c.isalnum() else "_" for c in thread_id)
-            if sanitized_thread and not sanitized_thread[0].isalpha():
+            # Collapse multiple consecutive underscores
+            sanitized_thread = re.sub(r'_+', '_', sanitized_thread).strip('_')
+            # Ensure non-empty and starts with letter
+            if not sanitized_thread:
+                sanitized_thread = "unknown"
+            if not sanitized_thread[0].isalpha():
                 sanitized_thread = "t_" + sanitized_thread
+            # Apply length limit (reserve space for pytest__ prefix if in test mode)
+            max_len = self._MAX_DB_NAME_LENGTH - (9 if self.config.test_mode else 0)
+            if len(sanitized_thread) > max_len:
+                sanitized_thread = sanitized_thread[:max_len]
             # Add pytest__ prefix for test database identification (if in test mode)
             if self.config.test_mode:
                 sanitized_thread = "pytest__" + sanitized_thread

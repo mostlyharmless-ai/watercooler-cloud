@@ -11,6 +11,7 @@ from __future__ import annotations
 
 import pytest
 from pathlib import Path
+from typing import Generator
 
 from watercooler_memory.backends import (
     CorpusPayload,
@@ -25,14 +26,20 @@ from watercooler_memory.graph import MemoryGraph
 
 
 @pytest.fixture(autouse=True, scope="session")
-def cleanup_test_databases():
+def cleanup_test_databases() -> None:
     """Clean test databases BEFORE running tests to allow post-test inspection."""
     try:
         import redis
         r = redis.Redis(host='localhost', port=6379, socket_connect_timeout=2)
         # Delete any databases with "pytest__" prefix from previous runs
-        for key in r.keys("pytest__*"):
-            r.delete(key)
+        # Use SCAN for better performance with large keyspaces (non-blocking)
+        cursor = 0
+        while True:
+            cursor, keys = r.scan(cursor, match="pytest__*", count=100)
+            if keys:
+                r.delete(*keys)
+            if cursor == 0:
+                break
     except (ConnectionError, TimeoutError):
         pass  # Ignore if FalkorDB not running or unreachable
     except ImportError:
@@ -317,7 +324,7 @@ class TestLeanRAGSmoke:
     """Smoke tests for LeanRAG backend with real FalkorDB."""
 
     @pytest.fixture
-    def leanrag_backend(self, tmp_path):
+    def leanrag_backend(self, tmp_path: Path) -> Generator[LeanRAGBackend, None, None]:
         """LeanRAG backend with persistent working directory for inspection."""
         from watercooler_memory.backends.leanrag import LeanRAGBackend, LeanRAGConfig
         from pathlib import Path
@@ -456,7 +463,7 @@ class TestGraphitiSmoke:
     """Smoke tests for Graphiti backend with real database."""
 
     @pytest.fixture
-    def graphiti_backend(self, tmp_path):
+    def graphiti_backend(self, tmp_path: Path) -> Generator[GraphitiBackend, None, None]:
         """Graphiti backend with temp working directory."""
         import os
         from watercooler_memory.backends.graphiti import (
