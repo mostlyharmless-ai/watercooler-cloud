@@ -9,38 +9,35 @@ permissions:
   contents: write
 
 jobs:
-  test:
-    runs-on: ${{ matrix.os }}
-    strategy:
-      matrix:
-        os: [ubuntu-latest, macos-latest]
-        python-version: ["3.10", "3.11", "3.12"]
-    steps:
-      - uses: actions/checkout@v4
-        with:
-          fetch-depth: 0
-
-      - name: Set up Python ${{ matrix.python-version }}
-        uses: actions/setup-python@v5
-        with:
-          python-version: ${{ matrix.python-version }}
-
-      - name: Install package
-        run: pip install -e ".[dev,memory]"
-
-      - name: Test import
-        run: python -c "import watercooler; print(f'watercooler {watercooler.__version__}')"
-
-      - name: Run tests
-        run: pytest tests/ -v -m "not integration_falkor and not integration_leanrag_llm"
+  # Note: No test job - code is already validated on staging before tagging.
+  # Running tests here would be redundant. The staging branch CI ensures
+  # all tests pass before code reaches stable.
 
   release:
-    needs: test
     runs-on: ubuntu-latest
     steps:
       - uses: actions/checkout@v4
         with:
           fetch-depth: 0
+
+      - name: Verify version matches tag
+        run: |
+          TAG_VERSION="${GITHUB_REF#refs/tags/v}"
+          PYPROJECT_VERSION=$(grep -E "^version = " pyproject.toml | sed 's/version = "\(.*\)"/\1/')
+          echo "Tag version: $TAG_VERSION"
+          echo "pyproject.toml version: $PYPROJECT_VERSION"
+
+          # Fail if pyproject.toml still contains -dev suffix
+          if echo "$PYPROJECT_VERSION" | grep -q -- '-dev'; then
+            echo "ERROR: pyproject.toml still contains -dev suffix ($PYPROJECT_VERSION)"
+            echo "Did you forget to bump the version before tagging?"
+            exit 1
+          fi
+
+          if [ "$TAG_VERSION" != "$PYPROJECT_VERSION" ]; then
+            echo "ERROR: Tag version ($TAG_VERSION) does not match pyproject.toml version ($PYPROJECT_VERSION)"
+            exit 1
+          fi
 
       - name: Create GitHub Release
         uses: softprops/action-gh-release@v1
