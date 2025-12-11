@@ -5,6 +5,16 @@ database connections. They use minimal fixtures and are marked to run optionally
 
 Mark: @pytest.mark.integration_falkor
 Usage: pytest -m integration_falkor
+
+Runtime Expectations:
+    LeanRAG tests: ~20-30 seconds (66 entries, hierarchical clustering)
+    Graphiti minimal: ~4-5 minutes (5 entries, LLM entity extraction)
+    Graphiti full: ~45-50 minutes (15 entries, temporal graph building)
+
+CI Configuration:
+    - Recommended timeout: 60 minutes for full test suite
+    - Consider using @pytest.mark.slow for long-running tests
+    - Graphiti tests require OPENAI_API_KEY environment variable
 """
 
 from __future__ import annotations
@@ -50,7 +60,12 @@ def cleanup_test_databases() -> None:
 
 @pytest.fixture
 def watercooler_threads_dir() -> Path:
-    """Path to test watercooler threads (bundled with tests)."""
+    """Path to test watercooler threads (bundled with tests).
+
+    Note: Contains integrated-memory-graph-plan.md (~159KB, 4506 lines, 66 entries).
+    This real watercooler thread provides realistic test data for backend validation
+    with authentic metadata, temporal relationships, and multi-agent conversations.
+    """
     return Path(__file__).parent / "fixtures" / "threads"
 
 
@@ -536,8 +551,10 @@ class TestGraphitiSmoke:
         - Temporal graph building with real data
         - Query execution on populated graph
 
-        Note: Limits to first 15 entries for reasonable CI runtime (~10-15 min).
-        For full 66-entry test, use test_full_pipeline_watercooler_threads_complete.
+        Note: Limits to first 15 entries for CI-friendly runtime (~45-50 min).
+        Full 66-entry corpus would take ~3.5 hours (unsuitable for CI).
+        The 15-entry subset provides sufficient validation coverage while
+        remaining practical for automated testing.
 
         Requires:
         - OPENAI_API_KEY environment variable
