@@ -2395,6 +2395,8 @@ def search_graph_tool(
     ctx: Context,
     code_path: str = "",
     query: str = "",
+    semantic: bool = False,
+    semantic_threshold: float = 0.5,
     start_time: str = "",
     end_time: str = "",
     thread_status: str = "",
@@ -2409,12 +2411,16 @@ def search_graph_tool(
 ) -> str:
     """Unified search across threads and entries in the baseline graph.
 
-    Supports keyword search, time-based filtering, and metadata filters.
-    All filters can be combined with AND or OR logic.
+    Supports keyword search, semantic search with embeddings, time-based
+    filtering, and metadata filters. All filters can be combined with AND or OR logic.
 
     Args:
         code_path: Path to code repository (for resolving threads dir).
-        query: Optional keyword search (searches title, body, summary).
+        query: Search query (keyword or semantic depending on mode).
+        semantic: If True, use semantic search with embedding cosine similarity.
+            Requires embeddings to be generated. Falls back to keyword if unavailable.
+        semantic_threshold: Minimum cosine similarity for semantic matches (0.0-1.0).
+            Only used when semantic=True. Default: 0.5. Lower values return more results.
         start_time: Filter results after this ISO timestamp.
         end_time: Filter results before this ISO timestamp.
         thread_status: Filter threads by status (OPEN, CLOSED, etc.).
@@ -2459,6 +2465,8 @@ def search_graph_tool(
         # Build search query
         search_query = SearchQuery(
             query=query if query else None,
+            semantic=semantic,
+            semantic_threshold=max(0.0, min(1.0, semantic_threshold)),
             start_time=start_time if start_time else None,
             end_time=end_time if end_time else None,
             thread_status=thread_status if thread_status else None,
@@ -2520,6 +2528,90 @@ def search_graph_tool(
 
     except Exception as e:
         return f"Error searching graph: {str(e)}"
+
+
+@mcp.tool(name="watercooler_v1_find_similar")
+def find_similar_entries_tool(
+    ctx: Context,
+    entry_id: str,
+    code_path: str = "",
+    limit: int = 5,
+    similarity_threshold: float = 0.5,
+    use_embeddings: bool = True,
+) -> str:
+    """Find entries similar to a given entry using embedding similarity.
+
+    Uses cosine similarity with embedding vectors when available.
+    Falls back to same-thread heuristic if embeddings are not available.
+
+    Args:
+        entry_id: The entry ID to find similar entries for.
+        code_path: Path to code repository (for resolving threads dir).
+        limit: Maximum number of similar entries to return (default: 5).
+        similarity_threshold: Minimum cosine similarity (0.0-1.0, default: 0.5).
+        use_embeddings: Try to use embedding similarity (default: True).
+
+    Returns:
+        JSON with similar entries and their similarity scores.
+    """
+    try:
+        from watercooler.baseline_graph.search import find_similar_entries
+        from watercooler.baseline_graph.reader import is_graph_available
+
+        error, context = _require_context(code_path)
+        if error:
+            return error
+        if context is None or not context.threads_dir:
+            return "Error: Unable to resolve threads directory."
+
+        threads_dir = context.threads_dir
+        if not threads_dir.exists():
+            return f"Threads directory not found: {threads_dir}"
+
+        if not is_graph_available(threads_dir):
+            return json.dumps({
+                "error": "Graph not available",
+                "message": "No baseline graph found. Run watercooler_v1_baseline_graph_build first.",
+                "results": [],
+            })
+
+        # Validate parameters
+        limit = max(1, min(limit, 50))
+        similarity_threshold = max(0.0, min(1.0, similarity_threshold))
+
+        # Find similar entries
+        similar = find_similar_entries(
+            threads_dir=threads_dir,
+            entry_id=entry_id,
+            limit=limit,
+            use_embeddings=use_embeddings,
+            similarity_threshold=similarity_threshold,
+        )
+
+        # Format results
+        output = {
+            "source_entry_id": entry_id,
+            "count": len(similar),
+            "method": "embedding_similarity" if use_embeddings else "same_thread_heuristic",
+            "threshold": similarity_threshold,
+            "results": [],
+        }
+
+        for entry in similar:
+            output["results"].append({
+                "entry_id": entry.entry_id,
+                "thread_topic": entry.thread_topic,
+                "title": entry.title,
+                "agent": entry.agent,
+                "role": entry.role,
+                "timestamp": entry.timestamp,
+                "summary": entry.summary,
+            })
+
+        return json.dumps(output, indent=2)
+
+    except Exception as e:
+        return f"Error finding similar entries: {str(e)}"
 
 
 @mcp.tool(name="watercooler_v1_graph_health")
