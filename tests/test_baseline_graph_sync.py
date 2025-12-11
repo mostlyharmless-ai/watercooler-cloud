@@ -11,17 +11,22 @@ from unittest.mock import patch
 import pytest
 
 from watercooler.baseline_graph.sync import (
+    EmbeddingConfig,
     GraphHealthReport,
     GraphSyncState,
     _atomic_append_jsonl,
     _atomic_write_json,
     check_graph_health,
+    generate_embedding,
     get_graph_sync_state,
+    is_embedding_available,
     reconcile_graph,
     record_graph_sync_error,
+    should_update_thread_summary,
     sync_entry_to_graph,
     sync_thread_to_graph,
 )
+from watercooler.baseline_graph.parser import ParsedThread, ParsedEntry
 
 
 # ============================================================================
@@ -464,3 +469,269 @@ Body text.
     topics_synced = manifest.get("topics_synced", {})
     assert "test-topic" in topics_synced
     assert "other-topic" in topics_synced
+
+
+# ============================================================================
+# Arc Change Detection Tests
+# ============================================================================
+
+
+def _make_parsed_entry(
+    entry_id: str,
+    index: int,
+    entry_type: str = "Note",
+    title: str = "Test Entry",
+) -> ParsedEntry:
+    """Create a ParsedEntry for testing."""
+    return ParsedEntry(
+        entry_id=entry_id,
+        index=index,
+        agent="Claude",
+        role="implementer",
+        entry_type=entry_type,
+        title=title,
+        timestamp="2025-01-01T00:00:00Z",
+        body="Test body content.",
+        summary="",
+    )
+
+
+def _make_parsed_thread(
+    topic: str,
+    entries: list,
+    status: str = "OPEN",
+) -> ParsedThread:
+    """Create a ParsedThread for testing."""
+    return ParsedThread(
+        topic=topic,
+        title=f"{topic} Thread",
+        status=status,
+        ball="Claude",
+        last_updated="2025-01-01T00:00:00Z",
+        summary="",
+        entries=entries,
+    )
+
+
+def test_should_update_summary_first_entry():
+    """Test summary update triggers on first entry."""
+    entry = _make_parsed_entry("01TEST001", 0)
+    thread = _make_parsed_thread("test", [entry])
+
+    assert should_update_thread_summary(thread, entry, previous_entry_count=0)
+
+
+def test_should_update_summary_second_entry():
+    """Test summary update triggers on second entry."""
+    entries = [
+        _make_parsed_entry("01TEST001", 0),
+        _make_parsed_entry("01TEST002", 1),
+    ]
+    thread = _make_parsed_thread("test", entries)
+
+    assert should_update_thread_summary(thread, entries[1], previous_entry_count=1)
+
+
+def test_should_update_summary_third_entry():
+    """Test summary update triggers on third entry."""
+    entries = [
+        _make_parsed_entry("01TEST001", 0),
+        _make_parsed_entry("01TEST002", 1),
+        _make_parsed_entry("01TEST003", 2),
+    ]
+    thread = _make_parsed_thread("test", entries)
+
+    assert should_update_thread_summary(thread, entries[2], previous_entry_count=2)
+
+
+def test_should_update_summary_closure_entry():
+    """Test summary update triggers on Closure entry."""
+    entries = [
+        _make_parsed_entry("01TEST001", 0),
+        _make_parsed_entry("01TEST002", 1),
+        _make_parsed_entry("01TEST003", 2),
+        _make_parsed_entry("01TEST004", 3),
+        _make_parsed_entry("01TEST005", 4, entry_type="Closure"),
+    ]
+    thread = _make_parsed_thread("test", entries)
+
+    assert should_update_thread_summary(thread, entries[4], previous_entry_count=4)
+
+
+def test_should_update_summary_decision_entry():
+    """Test summary update triggers on Decision entry."""
+    entries = [
+        _make_parsed_entry("01TEST001", 0),
+        _make_parsed_entry("01TEST002", 1),
+        _make_parsed_entry("01TEST003", 2),
+        _make_parsed_entry("01TEST004", 3),
+        _make_parsed_entry("01TEST005", 4, entry_type="Decision"),
+    ]
+    thread = _make_parsed_thread("test", entries)
+
+    assert should_update_thread_summary(thread, entries[4], previous_entry_count=4)
+
+
+def test_should_update_summary_plan_entry():
+    """Test summary update triggers on Plan entry."""
+    entries = [
+        _make_parsed_entry("01TEST001", 0),
+        _make_parsed_entry("01TEST002", 1),
+        _make_parsed_entry("01TEST003", 2),
+        _make_parsed_entry("01TEST004", 3),
+        _make_parsed_entry("01TEST005", 4, entry_type="Plan"),
+    ]
+    thread = _make_parsed_thread("test", entries)
+
+    assert should_update_thread_summary(thread, entries[4], previous_entry_count=4)
+
+
+def test_should_update_summary_significant_growth():
+    """Test summary update triggers on 50%+ growth."""
+    entries = [_make_parsed_entry(f"01TEST{i:03d}", i) for i in range(6)]
+    thread = _make_parsed_thread("test", entries)
+
+    # 6 entries vs 4 previous = 50% growth
+    assert should_update_thread_summary(thread, entries[5], previous_entry_count=4)
+
+
+def test_should_update_summary_every_tenth():
+    """Test summary update triggers every 10th entry."""
+    entries = [_make_parsed_entry(f"01TEST{i:03d}", i) for i in range(10)]
+    thread = _make_parsed_thread("test", entries)
+
+    # 10th entry (index 9) should trigger
+    assert should_update_thread_summary(thread, entries[9], previous_entry_count=9)
+
+
+def test_should_not_update_summary_regular_note():
+    """Test no summary update for regular Note in middle of thread."""
+    entries = [_make_parsed_entry(f"01TEST{i:03d}", i) for i in range(5)]
+    thread = _make_parsed_thread("test", entries)
+
+    # 5th entry (index 4), not a special type, not significant growth
+    assert not should_update_thread_summary(thread, entries[4], previous_entry_count=4)
+
+
+# ============================================================================
+# Embedding Config Tests
+# ============================================================================
+
+
+def test_embedding_config_defaults():
+    """Test EmbeddingConfig has sensible defaults."""
+    config = EmbeddingConfig()
+
+    assert config.api_base == "http://localhost:8080/v1"
+    assert config.model == "bge-m3"
+    assert config.timeout == 30.0
+
+
+def test_embedding_config_custom():
+    """Test EmbeddingConfig accepts custom values."""
+    config = EmbeddingConfig(
+        api_base="http://custom:9000/v1",
+        model="custom-model",
+        timeout=60.0,
+    )
+
+    assert config.api_base == "http://custom:9000/v1"
+    assert config.model == "custom-model"
+    assert config.timeout == 60.0
+
+
+def test_is_embedding_available_no_server():
+    """Test is_embedding_available returns False when server unavailable.
+
+    Uses an invalid port to guarantee connection failure.
+    """
+    from watercooler.baseline_graph.sync import EmbeddingConfig
+
+    # Use invalid port to ensure no server responds
+    config = EmbeddingConfig(api_base="http://localhost:1/v1")
+    assert not is_embedding_available(config)
+
+
+def test_generate_embedding_no_server():
+    """Test generate_embedding returns None when server unavailable.
+
+    Uses an invalid port to guarantee connection failure.
+    """
+    from watercooler.baseline_graph.sync import EmbeddingConfig
+
+    # Use invalid port to ensure no server responds
+    config = EmbeddingConfig(api_base="http://localhost:1/v1")
+    result = generate_embedding("test text", config)
+    assert result is None
+
+
+# ============================================================================
+# Sync with Embeddings Tests
+# ============================================================================
+
+
+def test_sync_entry_with_embeddings_flag(threads_dir: Path, sample_thread: Path, monkeypatch):
+    """Test sync_entry_to_graph respects generate_embeddings flag."""
+    # Track if embedding was attempted
+    embedding_called = []
+
+    def mock_generate_embedding(text, config=None):
+        embedding_called.append(text)
+        return [0.1, 0.2, 0.3]  # Mock embedding vector
+
+    monkeypatch.setattr(
+        "watercooler.baseline_graph.sync.generate_embedding",
+        mock_generate_embedding,
+    )
+
+    # Sync with embeddings enabled
+    success = sync_entry_to_graph(
+        threads_dir, "test-topic", generate_embeddings=True
+    )
+
+    assert success
+    assert len(embedding_called) > 0  # Embedding was generated
+
+
+def test_sync_entry_without_embeddings_flag(threads_dir: Path, sample_thread: Path, monkeypatch):
+    """Test sync_entry_to_graph skips embeddings when disabled."""
+    embedding_called = []
+
+    def mock_generate_embedding(text, config=None):
+        embedding_called.append(text)
+        return [0.1, 0.2, 0.3]
+
+    monkeypatch.setattr(
+        "watercooler.baseline_graph.sync.generate_embedding",
+        mock_generate_embedding,
+    )
+
+    # Sync with embeddings disabled (default)
+    success = sync_entry_to_graph(threads_dir, "test-topic", generate_embeddings=False)
+
+    assert success
+    assert len(embedding_called) == 0  # Embedding was not generated
+
+
+def test_reconcile_graph_with_embeddings(threads_dir: Path, sample_thread: Path, monkeypatch):
+    """Test reconcile_graph passes generate_embeddings to sync."""
+    embedding_called = []
+
+    def mock_generate_embedding(text, config=None):
+        embedding_called.append(text)
+        return [0.1, 0.2, 0.3]
+
+    monkeypatch.setattr(
+        "watercooler.baseline_graph.sync.generate_embedding",
+        mock_generate_embedding,
+    )
+
+    # Reconcile with embeddings enabled
+    results = reconcile_graph(
+        threads_dir,
+        topics=["test-topic"],
+        generate_embeddings=True,
+    )
+
+    assert results.get("test-topic") is True
+    assert len(embedding_called) > 0
