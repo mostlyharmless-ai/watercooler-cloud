@@ -106,25 +106,131 @@ The memory module supports multiple backend implementations through a pluggable 
 | **LLM Requirement** | Optional (local models) | Required (OpenAI/compatible) |
 | **Best For** | Knowledge bases | Conversation tracking |
 
-### Backend Contract (Coming in Phase 2)
+### Backend Architecture
 
-A unified `MemoryBackend` protocol will provide a consistent interface across all adapters:
+The memory module provides a **pluggable backend architecture** that allows you to swap memory implementations without changing application code. This is implemented through a Python Protocol (not inheritance), enabling clean decoupling and runtime type checking.
+
+#### MemoryBackend Protocol
+
+All backends implement the `MemoryBackend` protocol:
 
 ```python
+from watercooler_memory.backends import MemoryBackend, CorpusPayload, QueryPayload
+
 class MemoryBackend(Protocol):
-    def prepare(self, corpus: CorpusPayload) -> PrepareResult
-    def index(self, chunks: ChunkPayload) -> IndexResult
-    def query(self, query_obj: QueryPayload) -> QueryResult
-    def healthcheck(self) -> HealthStatus
-    def get_capabilities(self) -> CapabilityFlags
+    """Protocol defining the contract all memory backends must implement."""
+
+    def prepare(self, corpus: CorpusPayload) -> PrepareResult:
+        """Prepare watercooler corpus for indexing (e.g., chunk, extract entities)."""
+
+    def index(self, chunks: ChunkPayload) -> IndexResult:
+        """Index prepared chunks into the backend's storage."""
+
+    def query(self, queries: QueryPayload) -> QueryResult:
+        """Execute semantic search queries and return results."""
+
+    def healthcheck(self) -> HealthStatus:
+        """Check backend health and dependencies."""
 ```
 
-This architecture enables:
-- **Pluggability**: Swap backends without changing watercooler code
-- **Testability**: Mock backends for unit tests
-- **Extensibility**: Add new backends by implementing the protocol
+#### Canonical Payloads
 
-See the ADR (coming soon) for full contract specification.
+The protocol uses versioned payload types for all operations:
+
+**CorpusPayload** - Input for `prepare()`:
+```python
+{
+    "manifest_version": "1.0.0",
+    "threads": [...],        # Thread metadata
+    "entries": [...]         # Entry data with agent, role, timestamp, body
+}
+```
+
+**ChunkPayload** - Input for `index()`:
+```python
+{
+    "manifest_version": "1.0.0",
+    "chunks": [              # Text chunks with metadata
+        {
+            "hash_code": "abc123",
+            "text": "chunk content",
+            "metadata": {...}
+        }
+    ]
+}
+```
+
+**QueryPayload** - Input for `query()`:
+```python
+{
+    "manifest_version": "1.0.0",
+    "queries": [
+        {"query": "What is the authentication approach?"}
+    ]
+}
+```
+
+**Result Types** - Outputs from operations:
+```python
+PrepareResult(prepared_count: int, ...)
+IndexResult(indexed_count: int, ...)
+QueryResult(results: List[QueryResultItem], ...)
+HealthStatus(ok: bool, details: str, ...)
+```
+
+#### Exception Hierarchy
+
+The backend architecture provides structured error handling:
+
+```python
+from watercooler_memory.backends import BackendError, ConfigError, TransientError
+
+try:
+    backend.prepare(corpus)
+except ConfigError as e:
+    # Configuration issues (missing API keys, invalid paths, etc.)
+    print(f"Configuration error: {e}")
+except TransientError as e:
+    # Temporary failures (database timeouts, API rate limits)
+    # Safe to retry
+    print(f"Transient error (retryable): {e}")
+except BackendError as e:
+    # General backend errors
+    print(f"Backend error: {e}")
+```
+
+#### Using Backends
+
+**Get a backend by name:**
+```python
+from watercooler_memory.backends import get_backend, LeanRAGConfig
+
+config = LeanRAGConfig(work_dir=Path("./memory"))
+backend = get_backend("leanrag", config)
+
+# Use the backend
+backend.prepare(corpus)
+backend.index(chunks)
+results = backend.query(queries)
+```
+
+**Direct instantiation:**
+```python
+from watercooler_memory.backends.leanrag import LeanRAGBackend, LeanRAGConfig
+
+config = LeanRAGConfig(work_dir=Path("./memory"))
+backend = LeanRAGBackend(config)
+```
+
+#### Architecture Benefits
+
+- **Pluggability**: Swap backends without changing application code
+- **Testability**: Use `NullBackend` for unit tests without external dependencies
+- **Extensibility**: Add new backends by implementing the `MemoryBackend` protocol
+- **Type Safety**: `@runtime_checkable` protocol provides runtime type validation
+- **Versioning**: Manifest versioning enables backward compatibility
+
+See [ADR 0001](adr/0001-memory-backend-contract.md) for complete contract specification and design rationale.
 
 ---
 
