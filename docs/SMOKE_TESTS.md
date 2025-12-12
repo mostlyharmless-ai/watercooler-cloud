@@ -239,9 +239,61 @@ Testing both validates:
 3. Async wrapping strategy works correctly
 4. Registry handles import failures gracefully
 
+### Test Database Isolation
+
+Both backends support `test_mode=True` for CI/test environments to prevent database pollution:
+
+**LeanRAG:**
+- Applies `pytest__` prefix to work_dir basename
+- Example: `leanrag_work` → `pytest__leanrag_work` (database name)
+- Configured via: `LeanRAGConfig(work_dir=path, test_mode=True)`
+
+**Graphiti:**
+- Applies `pytest__` prefix to group_id (database name)
+- Example: `thread_name` → `pytest__thread_name` (after sanitization)
+- Configured via: `GraphitiConfig(work_dir=path, test_mode=True)`
+
+**Automatic Cleanup:**
+- Session-scoped fixture runs **before** tests
+- Removes all databases with `pytest__` prefix
+- Allows post-test inspection in database UI
+- Next test run cleans up previous results
+
+**Production Usage:**
+- NEVER set `test_mode=True` in production
+- Production databases have clean names without prefixes
+- Unit tests verify prefix NOT applied when `test_mode=False`
+
 ### Contract vs Integration
 
 - **Contract tests** (`test_memory_backend_contract.py`): Fast, no databases, validate API
 - **Smoke tests** (`test_backend_smoke.py`): Real databases, validate full workflows
 
 Both are essential for comprehensive validation.
+
+## CI/CD Configuration
+
+### Timeout Recommendations
+
+**Test Markers:**
+- Graphiti integration tests use `@pytest.mark.integration_leanrag_llm` marker
+- LeanRAG integration tests may use similar markers
+- CI workflow excludes these markers: `-m "not integration_falkor and not integration_leanrag_llm"`
+
+**Timeout Configuration:**
+```yaml
+# .github/workflows/ci.yml
+jobs:
+  test:
+    timeout-minutes: 20  # Adjust based on test suite runtime
+    steps:
+      - name: Run tests
+        run: pytest tests/ -v -m "not integration_falkor and not integration_leanrag_llm"
+        timeout-minutes: 15  # Per-step timeout
+```
+
+**Rationale:**
+- Graphiti tests with real data can run 30+ minutes (15 entries ≈ 46 minutes)
+- LeanRAG tests are much faster (66 entries ≈ 22 seconds)
+- CI excludes long-running tests via markers to keep build times reasonable
+- Local developers can run full integration tests with `pytest tests/ -v` (no markers)

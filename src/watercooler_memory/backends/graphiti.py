@@ -4,6 +4,7 @@ from __future__ import annotations
 
 import asyncio
 import json
+import re
 import subprocess
 import tempfile
 from dataclasses import dataclass
@@ -50,6 +51,9 @@ class GraphitiConfig:
     # Working directory for exports
     work_dir: Path | None = None
 
+    # Test mode: Add pytest__ prefix to database names for isolation
+    test_mode: bool = False
+
 
 class GraphitiBackend(MemoryBackend):
     """
@@ -64,6 +68,17 @@ class GraphitiBackend(MemoryBackend):
 
     This adapter wraps Graphiti API calls and maps to/from canonical payloads.
     """
+
+    # Maximum length for body snippet fallback in episode names
+    # (50 chars provides enough context without bloating database keys or UI displays)
+    _MAX_FALLBACK_NAME_LENGTH = 50
+
+    # Maximum database name length (Redis/FalkorDB key size limit of 512 bytes,
+    # we use 64 chars conservatively to allow for UTF-8 multi-byte characters)
+    _MAX_DB_NAME_LENGTH = 64
+
+    # Length of test database prefix (pytest__) for test isolation
+    _TEST_PREFIX_LENGTH = len("pytest__")  # 8 characters
 
     def __init__(self, config: GraphitiConfig | None = None) -> None:
         self.config = config or GraphitiConfig()
@@ -155,27 +170,209 @@ class GraphitiBackend(MemoryBackend):
         except Exception as e:
             raise BackendError(f"Failed to prepare corpus: {e}") from e
 
+    def _sanitize_redisearch_operators(self, text: str) -> str:
+        """Sanitize RediSearch operator characters in text.
+
+        Replaces special characters that RediSearch interprets as query operators
+        with safe alternatives to prevent syntax errors during entity extraction.
+
+        This is a workaround for Graphiti's fulltext search not properly escaping
+        entity names containing RediSearch operators (/, |, (), etc.) during
+        entity deduplication searches.
+
+        Args:
+            text: Input text that may contain RediSearch operators
+
+        Returns:
+            Sanitized text with operators replaced
+        """
+        if not text:
+            return text
+
+        # Map RediSearch operators to safe replacements (single-pass translation)
+        # Based on lucene_sanitize() in graphiti_core/helpers.py:62-96
+        # Using str.translate() for O(n) performance instead of O(n*m) with sequential replace()
+        #
+        # TODO: This is a workaround for Graphiti's fulltext search bypassing lucene_sanitize()
+        # in entity deduplication. Track upstream fix at: https://github.com/getzep/graphiti
+        translation_table = str.maketrans({
+            '/': '-',      # Forward slash → dash
+            '|': '-',      # Pipe → dash
+            '(': ' ',      # Parentheses → space
+            ')': ' ',
+            '+': ' ',      # Plus → space
+            '&': ' and ',  # Ampersand → word
+            '!': ' ',      # Exclamation → space
+            '{': ' ',      # Braces → space
+            '}': ' ',
+            '[': ' ',      # Brackets → space
+            ']': ' ',
+            '^': ' ',      # Caret → space
+            '~': ' ',      # Tilde → space
+            '*': ' ',      # Asterisk → space
+            '?': ' ',      # Question mark → space
+            ':': ' ',      # Colon → space
+            '\\': ' ',     # Backslash → space
+            '@': ' ',      # At sign → space
+            '<': ' ',      # Angle brackets → space
+            '>': ' ',
+            '=': ' ',      # Equals → space
+        })
+
+        # Apply translation and collapse multiple spaces
+        result = text.translate(translation_table)
+        result = re.sub(r'\s+', ' ', result)
+
+        return result.strip()
+
+    def _create_graphiti_client(self) -> Any:
+        """Create and configure Graphiti client with FalkorDB and LLM.
+
+        Returns:
+            Configured Graphiti instance ready for operations.
+
+        Raises:
+            ConfigError: If required dependencies are not installed.
+        """
+        try:
+            from graphiti_core import Graphiti
+            from graphiti_core.driver.falkordb_driver import FalkorDriver
+            from graphiti_core.llm_client import OpenAIClient
+            from graphiti_core.llm_client.config import LLMConfig
+        except ImportError as e:
+            raise ConfigError(
+                f"Graphiti dependencies not installed: {e}. "
+                "Run: pip install -e 'external/graphiti[falkordb]'"
+            ) from e
+
+        # Create FalkorDB driver
+        falkor_driver = FalkorDriver(
+            host=self.config.falkordb_host,
+            port=self.config.falkordb_port,
+            username=self.config.falkordb_username,
+            password=self.config.falkordb_password,
+        )
+
+        # Configure LLM client with explicit model
+        model_name = self.config.openai_model or "gpt-4o-mini"
+        llm_config = LLMConfig(
+            api_key=self.config.openai_api_key,
+            model=model_name,
+            base_url=self.config.openai_api_base,
+        )
+        llm_client = OpenAIClient(
+            config=llm_config,
+            reasoning=None,  # Disable reasoning.effort (only for GPT-5 models)
+            verbosity=None,  # Disable text.verbosity (unsupported by gpt-4o-mini)
+        )
+
+        return Graphiti(graph_driver=falkor_driver, llm_client=llm_client)
+
+    def _sanitize_thread_id(self, thread_id: str) -> str:
+        """Sanitize thread ID for use as Graphiti group_id (database name).
+
+        Ensures the thread ID is a valid FalkorDB database name by:
+        - Replacing non-alphanumeric characters with underscores
+        - Collapsing multiple underscores into one
+        - Ensuring non-empty result (defaults to "unknown")
+        - Ensuring starts with a letter (prepends "t_" if needed)
+        - Enforcing maximum length (64 chars, minus pytest__ prefix space if needed)
+        - Adding pytest__ prefix if in test mode
+
+        Note: Unicode characters (including emoji) are stripped by the [^a-zA-Z0-9]+
+        regex and replaced with underscores. Consider explicit Unicode handling if
+        thread IDs commonly include non-ASCII characters.
+
+        Args:
+            thread_id: Original thread identifier
+
+        Returns:
+            Sanitized database-safe thread ID with pytest__ prefix if test_mode=True
+        """
+        # Replace non-alphanumeric with underscore, collapse multiples, strip edges
+        sanitized = re.sub(r'[^a-zA-Z0-9]+', '_', thread_id).strip('_')
+
+        # Ensure non-empty and starts with letter
+        if not sanitized:
+            sanitized = "unknown"
+        if not sanitized[0].isalpha():
+            sanitized = "t_" + sanitized
+
+        # Apply length limit (reserve space for pytest__ prefix if in test mode)
+        max_len = self._MAX_DB_NAME_LENGTH - (self._TEST_PREFIX_LENGTH if self.config.test_mode else 0)
+        if len(sanitized) > max_len:
+            sanitized = sanitized[:max_len]
+
+        # Add pytest__ prefix for test database identification (if in test mode)
+        if self.config.test_mode:
+            # Don't duplicate prefix if already present
+            if not sanitized.startswith("pytest__"):
+                sanitized = "pytest__" + sanitized
+
+        return sanitized
+
     def _map_entries_to_episodes(
         self, corpus: CorpusPayload
     ) -> list[dict[str, Any]]:
-        """Map canonical entries to Graphiti episode format."""
+        """Map canonical entries to Graphiti episode format with strict validation.
+
+        Raises:
+            BackendError: If entry missing required timestamp or both title and body
+        """
         episodes = []
 
-        for entry in corpus.entries:
+        for idx, entry in enumerate(corpus.entries):
             # Graphiti episode format:
-            # - name: Episode identifier/title
+            # - name: Episode identifier/title (required, cannot be None)
             # - episode_body: Content
             # - source_description: Metadata about source
-            # - reference_time: ISO timestamp
+            # - reference_time: datetime object (required, cannot be None)
+            # - uuid: Entry ID for stable mapping
+            # - group_id: Thread ID for per-thread partitioning
+
+            # Get entry_id with fallback chain
+            entry_id = entry.get("id") or entry.get("entry_id") or f"entry-{idx}"
+
+            # STRICT: Fail fast on missing timestamp (temporal graph requirement)
+            timestamp = entry.get("timestamp")
+            if not timestamp:
+                raise BackendError(
+                    f"Entry '{entry_id}' missing required 'timestamp' field. "
+                    "Temporal graph requires valid timestamps for all entries."
+                )
+
+            # Get name with body snippet fallback
+            name = entry.get("title")
+            body_text = entry.get("body", entry.get("content", ""))
+
+            if not name:
+                # Fallback to first N chars of body
+                if body_text:
+                    max_len = self._MAX_FALLBACK_NAME_LENGTH
+                    name = (body_text[:max_len] + "...") if len(body_text) > max_len else body_text
+                else:
+                    raise BackendError(
+                        f"Entry '{entry_id}' has neither 'title' nor 'body' content. "
+                        "Cannot create episode with no name or content."
+                    )
+
+            # Get thread_id for group_id (sanitized for DB name)
+            thread_id = entry.get("thread_id", "unknown")
+            sanitized_thread = self._sanitize_thread_id(thread_id)
+
+            # Embed entry_id in episode name for provenance
+            # Format: "{entry_id}: {title/snippet}"
+            episode_name = f"{entry_id}: {name}"
 
             episode = {
-                "name": entry.get("title", f"Entry {entry.get('id')}"),
-                "episode_body": entry.get("body", entry.get("content", "")),
+                "name": episode_name,
+                "episode_body": self._sanitize_redisearch_operators(body_text),
                 "source_description": self._format_source_description(entry),
-                "reference_time": entry.get("timestamp"),
+                "reference_time": timestamp,
+                "group_id": sanitized_thread,  # Per-thread partitioning
                 "metadata": {
-                    "entry_id": entry.get("id", entry.get("entry_id")),
-                    "thread_id": entry.get("thread_id"),
+                    "entry_id": entry_id,
+                    "thread_id": thread_id,
                     "agent": entry.get("agent"),
                     "role": entry.get("role"),
                     "type": entry.get("type"),
@@ -230,38 +427,32 @@ class GraphitiBackend(MemoryBackend):
 
             episodes = json.loads(episodes_path.read_text())
 
-            # Initialize Graphiti client with FalkorDB
-            try:
-                from graphiti_core import Graphiti
-                from graphiti_core.driver.falkordb_driver import FalkorDriver
-            except ImportError as e:
-                raise ConfigError(
-                    f"Graphiti dependencies not installed: {e}. "
-                    "Run: pip install -e 'external/graphiti[falkordb]'"
-                ) from e
-
             # Create Graphiti client with FalkorDB connection
             try:
-                falkor_driver = FalkorDriver(
-                    host=self.config.falkordb_host,
-                    port=self.config.falkordb_port,
-                    username=self.config.falkordb_username,
-                    password=self.config.falkordb_password,
-                )
-                graphiti = Graphiti(graph_driver=falkor_driver)
+                graphiti = self._create_graphiti_client()
             except Exception as e:
                 raise TransientError(f"Database connection failed: {e}") from e
 
             # Ingest episodes sequentially (async operation wrapped in sync)
             async def ingest_episodes():
+                from datetime import datetime, timezone
+
                 count = 0
                 for episode in episodes:
                     try:
+                        # Convert reference_time from ISO string to datetime object
+                        ref_time_str = episode["reference_time"]
+                        if isinstance(ref_time_str, str):
+                            ref_time = datetime.fromisoformat(ref_time_str.replace('Z', '+00:00'))
+                        else:
+                            ref_time = ref_time_str  # Already a datetime
+
                         await graphiti.add_episode(
                             name=episode["name"],
                             episode_body=episode["episode_body"],
                             source_description=episode["source_description"],
-                            reference_time=episode["reference_time"],
+                            reference_time=ref_time,
+                            group_id=episode.get("group_id"),  # Per-thread partitioning
                         )
                         count += 1
                     except Exception as e:
@@ -306,25 +497,9 @@ class GraphitiBackend(MemoryBackend):
             BackendError: If query fails
         """
         try:
-            # Initialize Graphiti client with FalkorDB
-            try:
-                from graphiti_core import Graphiti
-                from graphiti_core.driver.falkordb_driver import FalkorDriver
-            except ImportError as e:
-                raise ConfigError(
-                    f"Graphiti dependencies not installed: {e}. "
-                    "Run: pip install -e 'external/graphiti[falkordb]'"
-                ) from e
-
             # Create Graphiti client with FalkorDB connection
             try:
-                falkor_driver = FalkorDriver(
-                    host=self.config.falkordb_host,
-                    port=self.config.falkordb_port,
-                    username=self.config.falkordb_username,
-                    password=self.config.falkordb_password,
-                )
-                graphiti = Graphiti(graph_driver=falkor_driver)
+                graphiti = self._create_graphiti_client()
             except Exception as e:
                 raise TransientError(f"Database connection failed: {e}") from e
 
@@ -343,12 +518,20 @@ class GraphitiBackend(MemoryBackend):
                         )
 
                         # Map Graphiti results to canonical format
-                        for result in search_results:
+                        # search_results is a list of EntityEdge Pydantic models
+                        for edge in search_results:
                             results.append({
                                 "query": query_text,
-                                "content": result.get("content", ""),
-                                "score": result.get("score", 0.0),
-                                "metadata": result.get("metadata", {}),
+                                "content": edge.fact,  # The fact/relationship text
+                                "score": 0.0,  # Graphiti doesn't expose scores directly
+                                "metadata": {
+                                    "uuid": edge.uuid,
+                                    "source_node_uuid": edge.source_node_uuid,
+                                    "target_node_uuid": edge.target_node_uuid,
+                                    "valid_at": edge.valid_at.isoformat() if edge.valid_at else None,
+                                    "invalid_at": edge.invalid_at.isoformat() if edge.invalid_at else None,
+                                    "created_at": edge.created_at.isoformat() if edge.created_at else None,
+                                },
                             })
 
                     except Exception as e:
