@@ -210,12 +210,15 @@ class MemoryBackend(Protocol):
             ... )
             >>> result = backend.query(queries)
             >>> for item in result.results:
+            ...     # Each item is a dict with keys: query, content, score, metadata
             ...     print(f"Query: {item['query']}")
             ...     print(f"Content: {item['content'][:100]}...")
-            ...     print(f"Score: {item['score']}")
+            ...     print(f"Score: {item['score']:.2f}")
+            ...     print(f"Metadata: {item.get('metadata', {})}")
             Query: What authentication method was implemented?
             Content: Implemented OAuth2 with JWT tokens for secure authentication...
             Score: 0.89
+            Metadata: {'thread_id': 'auth', 'entry_id': 'entry-001'}
         """
 
     def healthcheck(self) -> HealthStatus:

@@ -117,10 +117,11 @@ queries = QueryPayload(
 
 query_result = backend.query(queries)
 for item in query_result.results:
-    print(f"Query: {item.query}")
-    print(f"Content: {item.content[:200]}...")
-    print(f"Score: {item.score}")
-    print(f"Metadata: {item.metadata}")
+    # Each item is a dict with keys: query, content, score, metadata
+    print(f"Query: {item['query']}")
+    print(f"Content: {item['content'][:200]}...")
+    print(f"Score: {item['score']}")
+    print(f"Metadata: {item.get('metadata', {})}")
     print()
 ```
 
@@ -226,9 +227,10 @@ queries = QueryPayload(
 
 query_result = backend.query(queries)
 for item in query_result.results:
-    print(f"Query: {item.query}")
-    print(f"Content: {item.content}")
-    print(f"Metadata: {item.metadata}")
+    # Each item is a dict with keys: query, content, score, metadata
+    print(f"Query: {item['query']}")
+    print(f"Content: {item['content']}")
+    print(f"Metadata: {item.get('metadata', {})}")
     print()
 ```
 
@@ -474,11 +476,12 @@ query_result = backend.query(queries)
 
 for item in query_result.results:
     print(f"\n{'='*60}")
-    print(f"Query: {item.query}")
-    print(f"Score: {item.score:.3f}")
-    print(f"Content: {item.content[:300]}...")
-    if item.metadata:
-        print(f"Source: {item.metadata.get('thread_id', 'unknown')}")
+    # Each item is a dict with keys: query, content, score, metadata
+    print(f"Query: {item['query']}")
+    print(f"Score: {item['score']:.3f}")
+    print(f"Content: {item['content'][:300]}...")
+    if item.get('metadata'):
+        print(f"Source: {item['metadata'].get('thread_id', 'unknown')}")
 
 print("\n✅ Pipeline complete!")
 ```
@@ -642,7 +645,8 @@ def compare_backends(corpus, chunks, queries):
         for name in backends.keys():
             if query_idx < len(results[name]):
                 item = results[name][query_idx]
-                print(f"{name}: score={item.score:.3f}, content={item.content[:100]}...")
+                # Each item is a dict
+                print(f"{name}: score={item['score']:.3f}, content={item['content'][:100]}...")
 
     return results
 ```
