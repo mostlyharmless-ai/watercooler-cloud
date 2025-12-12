@@ -239,6 +239,31 @@ Testing both validates:
 3. Async wrapping strategy works correctly
 4. Registry handles import failures gracefully
 
+### Test Database Isolation
+
+Both backends support `test_mode=True` for CI/test environments to prevent database pollution:
+
+**LeanRAG:**
+- Applies `pytest__` prefix to work_dir basename
+- Example: `leanrag_work` → `pytest__leanrag_work` (database name)
+- Configured via: `LeanRAGConfig(work_dir=path, test_mode=True)`
+
+**Graphiti:**
+- Applies `pytest__` prefix to group_id (database name)
+- Example: `thread_name` → `pytest__thread_name` (after sanitization)
+- Configured via: `GraphitiConfig(work_dir=path, test_mode=True)`
+
+**Automatic Cleanup:**
+- Session-scoped fixture runs **before** tests
+- Removes all databases with `pytest__` prefix
+- Allows post-test inspection in database UI
+- Next test run cleans up previous results
+
+**Production Usage:**
+- NEVER set `test_mode=True` in production
+- Production databases have clean names without prefixes
+- Unit tests verify prefix NOT applied when `test_mode=False`
+
 ### Contract vs Integration
 
 - **Contract tests** (`test_memory_backend_contract.py`): Fast, no databases, validate API

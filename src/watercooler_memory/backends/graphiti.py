@@ -188,9 +188,10 @@ class GraphitiBackend(MemoryBackend):
         if not text:
             return text
 
-        # Map RediSearch operators to safe replacements
+        # Map RediSearch operators to safe replacements (single-pass translation)
         # Based on lucene_sanitize() in graphiti_core/helpers.py:62-96
-        replacements = {
+        # Using str.translate() for O(n) performance instead of O(n*m) with sequential replace()
+        translation_table = str.maketrans({
             '/': '-',      # Forward slash → dash
             '|': '-',      # Pipe → dash
             '(': ' ',      # Parentheses → space
@@ -212,13 +213,10 @@ class GraphitiBackend(MemoryBackend):
             '<': ' ',      # Angle brackets → space
             '>': ' ',
             '=': ' ',      # Equals → space
-        }
+        })
 
-        result = text
-        for char, replacement in replacements.items():
-            result = result.replace(char, replacement)
-
-        # Collapse multiple spaces
+        # Apply translation and collapse multiple spaces
+        result = text.translate(translation_table)
         result = re.sub(r'\s+', ' ', result)
 
         return result.strip()
