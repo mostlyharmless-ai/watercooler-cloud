@@ -1,6 +1,8 @@
 # Memory Backend Usage Examples
 
-This guide provides practical examples for using watercooler memory backends. All backends implement the same `MemoryBackend` protocol, allowing you to swap implementations without changing application code.
+This guide provides practical examples for using watercooler memory backends.
+All backends implement the same `MemoryBackend` protocol, allowing you to swap
+implementations without changing application code.
 
 ## Table of Contents
 
@@ -89,7 +91,9 @@ prepare_result = backend.prepare(corpus)
 print(f"Prepared {prepare_result.prepared_count} entries")
 
 # Step 5: Index chunks (build knowledge graph)
-# The prepare step generates chunks that we now index
+# Note: Chunking is separate from prepare()
+# prepare() extracts entities (LeanRAG) or validates data (Graphiti)
+# Chunking is done here via MemoryGraph
 from watercooler_memory import MemoryGraph
 
 graph = MemoryGraph()
