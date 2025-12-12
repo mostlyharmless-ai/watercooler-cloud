@@ -350,7 +350,7 @@ def test_my_application_logic():
 
 ```python
 from unittest.mock import Mock
-from watercooler_memory.backends import MemoryBackend, QueryResult, QueryResultItem
+from watercooler_memory.backends import MemoryBackend, QueryResult
 
 def test_with_mock_backend():
     """Test with controlled mock responses."""
@@ -359,21 +359,23 @@ def test_with_mock_backend():
     mock_backend = Mock(spec=MemoryBackend)
 
     # Configure mock responses
+    # QueryResult.results contains dicts, not dataclass instances
     mock_backend.query.return_value = QueryResult(
+        manifest_version="1.0.0",
         results=[
-            QueryResultItem(
-                query="test query",
-                content="mock result",
-                score=0.95,
-                metadata={"source": "mock"},
-            )
+            {
+                "query": "test query",
+                "content": "mock result",
+                "score": 0.95,
+                "metadata": {"source": "mock"},
+            }
         ]
     )
 
     # Use mock in your application code
     result = mock_backend.query(queries)
     assert len(result.results) == 1
-    assert result.results[0].content == "mock result"
+    assert result.results[0]["content"] == "mock result"
 ```
 
 ## Full Pipeline Example
@@ -441,11 +443,15 @@ if not health.ok:
     print(f"Backend not healthy: {health.details}")
     exit(1)
 
-# Step 4: Prepare and index
-print("Preparing corpus (entity extraction)...")
+# Step 4: Prepare corpus
+# For LeanRAG: prepare() validates data structure
+# For Graphiti: prepare() performs entity extraction from entries
+print("Preparing corpus...")
 prepare_result = backend.prepare(corpus)
 print(f"Prepared {prepare_result.prepared_count} entries")
 
+# Step 5: Chunk entries (separate from prepare)
+# Chunking is done via MemoryGraph, not via backend.prepare()
 print("Chunking entries...")
 chunker_config = ChunkerConfig.watercooler_preset()
 chunks_list = graph.chunk_all_entries(config=chunker_config)
@@ -461,7 +467,7 @@ print("Building knowledge graph...")
 index_result = backend.index(chunks)
 print(f"Indexed {index_result.indexed_count} chunks")
 
-# Step 5: Query the memory
+# Step 6: Query the memory
 print("\nQuerying memory...")
 queries = QueryPayload(
     manifest_version="1.0.0",

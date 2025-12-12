@@ -143,7 +143,9 @@ class MemoryBackend(Protocol):
             ...     }],
             ... )
             >>> result = backend.prepare(corpus)
+            >>> print(f"Version: {result.manifest_version}")
             >>> print(f"Prepared {result.prepared_count} entries")
+            Version: 1.0.0
             Prepared 1 entries
         """
 
