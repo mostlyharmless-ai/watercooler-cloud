@@ -2,6 +2,7 @@
 
 import pytest
 from pathlib import Path
+from unittest.mock import Mock, patch
 
 from watercooler_memory.backends.graphiti import GraphitiBackend, GraphitiConfig
 from watercooler_memory.backends.leanrag import LeanRAGBackend, LeanRAGConfig
@@ -18,7 +19,9 @@ class TestGraphitiSanitization:
             openai_api_key="test-key",
             test_mode=False,
         )
-        return GraphitiBackend(config)
+        # Mock validation to avoid requiring Graphiti submodule in CI
+        with patch.object(GraphitiBackend, '_validate_config'):
+            return GraphitiBackend(config)
 
     @pytest.fixture
     def backend_test_mode(self) -> GraphitiBackend:
@@ -28,7 +31,9 @@ class TestGraphitiSanitization:
             openai_api_key="test-key",
             test_mode=True,
         )
-        return GraphitiBackend(config)
+        # Mock validation to avoid requiring Graphiti submodule in CI
+        with patch.object(GraphitiBackend, '_validate_config'):
+            return GraphitiBackend(config)
 
     def test_sanitize_basic_alphanumeric(self, backend: GraphitiBackend):
         """Test sanitization of simple alphanumeric thread IDs."""
@@ -91,7 +96,9 @@ class TestLeanRAGTestMode:
     def test_apply_test_prefix_disabled(self):
         """Test that test_mode=False does not modify work_dir."""
         config = LeanRAGConfig(test_mode=False)
-        backend = LeanRAGBackend(config)
+        # Mock validation to avoid requiring LeanRAG submodule in CI
+        with patch.object(LeanRAGBackend, '_validate_config'):
+            backend = LeanRAGBackend(config)
 
         original = Path("/tmp/leanrag-work")
         result = backend._apply_test_prefix(original)
@@ -102,7 +109,9 @@ class TestLeanRAGTestMode:
     def test_apply_test_prefix_enabled(self):
         """Test that test_mode=True adds pytest__ prefix to work_dir basename."""
         config = LeanRAGConfig(test_mode=True)
-        backend = LeanRAGBackend(config)
+        # Mock validation to avoid requiring LeanRAG submodule in CI
+        with patch.object(LeanRAGBackend, '_validate_config'):
+            backend = LeanRAGBackend(config)
 
         original = Path("/tmp/leanrag-work")
         result = backend._apply_test_prefix(original)
@@ -114,7 +123,9 @@ class TestLeanRAGTestMode:
     def test_apply_test_prefix_no_duplicate(self):
         """Test that pytest__ prefix is not duplicated."""
         config = LeanRAGConfig(test_mode=True)
-        backend = LeanRAGBackend(config)
+        # Mock validation to avoid requiring LeanRAG submodule in CI
+        with patch.object(LeanRAGBackend, '_validate_config'):
+            backend = LeanRAGBackend(config)
 
         original = Path("/tmp/pytest__leanrag-work")
         result = backend._apply_test_prefix(original)
