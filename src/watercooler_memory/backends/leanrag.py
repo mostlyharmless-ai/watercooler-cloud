@@ -86,6 +86,33 @@ class LeanRAGBackend(MemoryBackend):
                 "Ensure LeanRAG submodule is properly initialized."
             )
 
+    def _apply_test_prefix(self, work_dir: Path) -> Path:
+        """Apply pytest__ prefix to work_dir basename if test_mode is enabled.
+
+        LeanRAG uses os.path.basename(work_dir) as the FalkorDB database name.
+        When test_mode=True, we prepend 'pytest__' to the directory name to
+        ensure test databases are isolated and can be cleaned up separately.
+
+        Args:
+            work_dir: Original working directory path
+
+        Returns:
+            Path with pytest__ prefix applied to basename if test_mode=True,
+            otherwise returns original path unchanged
+        """
+        if not self.config.test_mode:
+            return work_dir
+
+        # Get parent and basename
+        parent = work_dir.parent
+        basename = work_dir.name
+
+        # Prepend pytest__ if not already present
+        if not basename.startswith("pytest__"):
+            basename = f"pytest__{basename}"
+
+        return parent / basename
+
     def prepare(self, corpus: CorpusPayload) -> PrepareResult:
         """
         Prepare corpus for LeanRAG ingestion.
@@ -98,12 +125,15 @@ class LeanRAGBackend(MemoryBackend):
         """
         if self.config.work_dir:
             work_dir = self.config.work_dir
-            work_dir.mkdir(parents=True, exist_ok=True)
         else:
             work_dir = Path(tempfile.mkdtemp(prefix="leanrag-prepare-"))
-        
+
         # Convert to absolute path for reliability
         work_dir = work_dir.resolve()
+
+        # Apply pytest__ prefix if in test mode
+        work_dir = self._apply_test_prefix(work_dir)
+        work_dir.mkdir(parents=True, exist_ok=True)
 
         try:
             documents = [
@@ -230,10 +260,13 @@ class LeanRAGBackend(MemoryBackend):
         2. build.py to construct hierarchical graph
         """
         work_dir = self.config.work_dir or Path(tempfile.mkdtemp(prefix="leanrag-index-"))
-        work_dir.mkdir(parents=True, exist_ok=True)
-        
+
         # Convert to absolute path so it works when we change directories
         work_dir = work_dir.resolve()
+
+        # Apply pytest__ prefix if in test mode
+        work_dir = self._apply_test_prefix(work_dir)
+        work_dir.mkdir(parents=True, exist_ok=True)
 
         try:
             chunk_file = self._ensure_chunk_file(work_dir, chunks)

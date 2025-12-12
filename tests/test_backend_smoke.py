@@ -357,10 +357,10 @@ class TestLeanRAGSmoke:
         """LeanRAG backend with persistent working directory for inspection."""
         from watercooler_memory.backends.leanrag import LeanRAGBackend, LeanRAGConfig
         from pathlib import Path
-        
+
         # Use persistent directory in project root so we can inspect artifacts
-        work_dir = Path("tests/test-artifacts/pytest__leanrag-work")
-        work_dir.mkdir(parents=True, exist_ok=True)
+        # Backend will add pytest__ prefix automatically when test_mode=True
+        work_dir = Path("tests/test-artifacts/leanrag-work")
 
         config = LeanRAGConfig(work_dir=work_dir, test_mode=True)
         backend = LeanRAGBackend(config)
@@ -385,11 +385,16 @@ class TestLeanRAGSmoke:
         assert result.prepared_count == 5  # 5 entries
         assert "Prepared corpus at" in result.message
 
-        # Verify export files exist
-        work_dir = leanrag_backend.config.work_dir
-        assert (work_dir / "documents.json").exists()
-        assert (work_dir / "threads.json").exists()
-        assert (work_dir / "manifest.json").exists()
+        # Verify pytest__ prefix applied to work_dir when test_mode=True
+        # Backend modifies work_dir internally, check actual directory created
+        actual_dir = Path("tests/test-artifacts/pytest__leanrag-work")
+        assert actual_dir.exists(), f"Expected pytest__ prefixed directory at {actual_dir}"
+        assert actual_dir.name.startswith("pytest__"), "Work directory should have pytest__ prefix"
+
+        # Verify export files exist in pytest__ prefixed directory
+        assert (actual_dir / "documents.json").exists()
+        assert (actual_dir / "threads.json").exists()
+        assert (actual_dir / "manifest.json").exists()
 
     @pytest.mark.skipif(
         "os.environ.get('SKIP_LEANRAG_INDEX') == '1'",

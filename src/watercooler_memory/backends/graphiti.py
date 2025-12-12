@@ -69,11 +69,14 @@ class GraphitiBackend(MemoryBackend):
     This adapter wraps Graphiti API calls and maps to/from canonical payloads.
     """
 
-    # Maximum length for fallback episode name from body snippet
+    # Maximum length for body snippet fallback in episode names
     _MAX_FALLBACK_NAME_LENGTH = 50
-    # Maximum length for database names (FalkorDB/Redis key limit)
+
+    # Maximum database name length (Redis/FalkorDB key size limit of 512 bytes,
+    # we use 64 chars conservatively to allow for UTF-8 multi-byte characters)
     _MAX_DB_NAME_LENGTH = 64
-    # Length of test database prefix (pytest__)
+
+    # Length of test database prefix (pytest__) for test isolation
     _TEST_PREFIX_LENGTH = len("pytest__")  # 8 characters
 
     def __init__(self, config: GraphitiConfig | None = None) -> None:
@@ -220,7 +223,7 @@ class GraphitiBackend(MemoryBackend):
 
         return result.strip()
 
-    def _create_graphiti_client(self):
+    def _create_graphiti_client(self) -> Any:
         """Create and configure Graphiti client with FalkorDB and LLM.
 
         Returns:
@@ -262,6 +265,45 @@ class GraphitiBackend(MemoryBackend):
         )
 
         return Graphiti(graph_driver=falkor_driver, llm_client=llm_client)
+
+    def _sanitize_thread_id(self, thread_id: str) -> str:
+        """Sanitize thread ID for use as Graphiti group_id (database name).
+
+        Ensures the thread ID is a valid FalkorDB database name by:
+        - Replacing non-alphanumeric characters with underscores
+        - Collapsing multiple underscores into one
+        - Ensuring non-empty result (defaults to "unknown")
+        - Ensuring starts with a letter (prepends "t_" if needed)
+        - Enforcing maximum length (64 chars, minus pytest__ prefix space if needed)
+        - Adding pytest__ prefix if in test mode
+
+        Args:
+            thread_id: Original thread identifier
+
+        Returns:
+            Sanitized database-safe thread ID with pytest__ prefix if test_mode=True
+        """
+        # Replace non-alphanumeric with underscore, collapse multiples, strip edges
+        sanitized = re.sub(r'[^a-zA-Z0-9]+', '_', thread_id).strip('_')
+
+        # Ensure non-empty and starts with letter
+        if not sanitized:
+            sanitized = "unknown"
+        if not sanitized[0].isalpha():
+            sanitized = "t_" + sanitized
+
+        # Apply length limit (reserve space for pytest__ prefix if in test mode)
+        max_len = self._MAX_DB_NAME_LENGTH - (self._TEST_PREFIX_LENGTH if self.config.test_mode else 0)
+        if len(sanitized) > max_len:
+            sanitized = sanitized[:max_len]
+
+        # Add pytest__ prefix for test database identification (if in test mode)
+        if self.config.test_mode:
+            # Don't duplicate prefix if already present
+            if not sanitized.startswith("pytest__"):
+                sanitized = "pytest__" + sanitized
+
+        return sanitized
 
     def _map_entries_to_episodes(
         self, corpus: CorpusPayload
@@ -310,21 +352,7 @@ class GraphitiBackend(MemoryBackend):
 
             # Get thread_id for group_id (sanitized for DB name)
             thread_id = entry.get("thread_id", "unknown")
-            # Sanitize thread_id for use as Graphiti group_id (DB name)
-            # Replace non-alphanumeric with underscore, collapse multiples, strip edges
-            sanitized_thread = re.sub(r'[^a-zA-Z0-9]+', '_', thread_id).strip('_')
-            # Ensure non-empty and starts with letter
-            if not sanitized_thread:
-                sanitized_thread = "unknown"
-            if not sanitized_thread[0].isalpha():
-                sanitized_thread = "t_" + sanitized_thread
-            # Apply length limit (reserve space for pytest__ prefix if in test mode)
-            max_len = self._MAX_DB_NAME_LENGTH - (self._TEST_PREFIX_LENGTH if self.config.test_mode else 0)
-            if len(sanitized_thread) > max_len:
-                sanitized_thread = sanitized_thread[:max_len]
-            # Add pytest__ prefix for test database identification (if in test mode)
-            if self.config.test_mode:
-                sanitized_thread = "pytest__" + sanitized_thread
+            sanitized_thread = self._sanitize_thread_id(thread_id)
 
             # Embed entry_id in episode name for provenance
             # Format: "{entry_id}: {title/snippet}"
