@@ -64,10 +64,12 @@ def cleanup_test_databases() -> None:
             if cursor == 0:
                 break
 
-    except (ConnectionError, TimeoutError):
-        pass  # Ignore if FalkorDB not running or unreachable
-    except ImportError:
-        pass  # Ignore if redis-py not installed
+    except (ConnectionError, TimeoutError) as e:
+        import warnings
+        warnings.warn(f"FalkorDB not available for test cleanup: {e}")
+    except ImportError as e:
+        import warnings
+        warnings.warn(f"redis-py not installed for test cleanup: {e}")
 
     yield  # Run tests (results persist for inspection)
 
@@ -360,7 +362,7 @@ class TestLeanRAGSmoke:
 
         # Use persistent directory in project root so we can inspect artifacts
         # Backend will add pytest__ prefix automatically when test_mode=True
-        work_dir = Path("tests/test-artifacts/leanrag-work")
+        work_dir = Path("tests/test_artifacts/leanrag_work")
 
         config = LeanRAGConfig(work_dir=work_dir, test_mode=True)
         backend = LeanRAGBackend(config)
@@ -387,7 +389,7 @@ class TestLeanRAGSmoke:
 
         # Verify pytest__ prefix applied to work_dir when test_mode=True
         # Backend modifies work_dir internally, check actual directory created
-        actual_dir = Path("tests/test-artifacts/pytest__leanrag-work")
+        actual_dir = Path("tests/test_artifacts/pytest__leanrag_work")
         assert actual_dir.exists(), f"Expected pytest__ prefixed directory at {actual_dir}"
         assert actual_dir.name.startswith("pytest__"), "Work directory should have pytest__ prefix"
 
@@ -509,7 +511,7 @@ class TestGraphitiSmoke:
         if "OPENAI_API_KEY" not in os.environ:
             pytest.skip("OPENAI_API_KEY not set - required for Graphiti")
 
-        config = GraphitiConfig(work_dir=tmp_path / "pytest__graphiti-work", test_mode=True)
+        config = GraphitiConfig(work_dir=tmp_path / "pytest__graphiti_work", test_mode=True)
         backend = GraphitiBackend(config)
         yield backend
 

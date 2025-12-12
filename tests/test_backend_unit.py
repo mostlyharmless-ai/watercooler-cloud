@@ -89,6 +89,14 @@ class TestGraphitiSanitization:
         # Should not have double prefix
         assert result.count("pytest__") == 1
 
+    def test_sanitize_production_no_test_prefix(self, backend: GraphitiBackend):
+        """Test that production mode (test_mode=False) does NOT add pytest__ prefix."""
+        result = backend._sanitize_thread_id("thread-name")
+
+        # Production mode should NOT have pytest__ prefix
+        assert not result.startswith("pytest__")
+        assert result == "thread_name"  # Just sanitized, no prefix
+
 
 class TestLeanRAGTestMode:
     """Unit tests for LeanRAG test_mode prefix application."""
