@@ -41,6 +41,9 @@ def cleanup_test_databases() -> None:
 
     This fixture removes both Redis keys AND FalkorDB graphs with pytest__ prefix.
     FalkorDB stores graphs as separate data structures requiring GRAPH.DELETE.
+
+    Note: If using pytest-xdist for parallel test execution, consider adding worker-
+    specific suffixes to database names to avoid race conditions between workers.
     """
     try:
         import redis
@@ -65,11 +68,11 @@ def cleanup_test_databases() -> None:
                 break
 
     except (ConnectionError, TimeoutError) as e:
-        import warnings
-        warnings.warn(f"FalkorDB not available for test cleanup: {e}")
+        import logging
+        logging.warning(f"FalkorDB not available for test cleanup: {e}")
     except ImportError as e:
-        import warnings
-        warnings.warn(f"redis-py not installed for test cleanup: {e}")
+        import logging
+        logging.warning(f"redis-py not installed for test cleanup: {e}")
 
     yield  # Run tests (results persist for inspection)
 
@@ -81,6 +84,9 @@ def watercooler_threads_dir() -> Path:
     Note: Contains unified-branch-parity-protocol.md (~68KB, 1798 lines, 38 entries).
     This real watercooler thread provides realistic test data for backend validation
     with authentic metadata, temporal relationships, and multi-agent conversations.
+
+    The 38 entries are sufficient for hierarchical clustering validation: LeanRAG's
+    GMM + UMAP clustering typically requires 30+ samples for reliable community detection.
     """
     return Path(__file__).parent / "fixtures" / "threads"
 

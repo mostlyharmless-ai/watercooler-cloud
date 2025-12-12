@@ -70,6 +70,7 @@ class GraphitiBackend(MemoryBackend):
     """
 
     # Maximum length for body snippet fallback in episode names
+    # (50 chars provides enough context without bloating database keys or UI displays)
     _MAX_FALLBACK_NAME_LENGTH = 50
 
     # Maximum database name length (Redis/FalkorDB key size limit of 512 bytes,
@@ -191,6 +192,9 @@ class GraphitiBackend(MemoryBackend):
         # Map RediSearch operators to safe replacements (single-pass translation)
         # Based on lucene_sanitize() in graphiti_core/helpers.py:62-96
         # Using str.translate() for O(n) performance instead of O(n*m) with sequential replace()
+        #
+        # TODO: This is a workaround for Graphiti's fulltext search bypassing lucene_sanitize()
+        # in entity deduplication. Track upstream fix at: https://github.com/getzep/graphiti
         translation_table = str.maketrans({
             '/': '-',      # Forward slash → dash
             '|': '-',      # Pipe → dash
@@ -274,6 +278,10 @@ class GraphitiBackend(MemoryBackend):
         - Ensuring starts with a letter (prepends "t_" if needed)
         - Enforcing maximum length (64 chars, minus pytest__ prefix space if needed)
         - Adding pytest__ prefix if in test mode
+
+        Note: Unicode characters (including emoji) are stripped by the [^a-zA-Z0-9]+
+        regex and replaced with underscores. Consider explicit Unicode handling if
+        thread IDs commonly include non-ASCII characters.
 
         Args:
             thread_id: Original thread identifier

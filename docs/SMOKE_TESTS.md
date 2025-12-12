@@ -270,3 +270,30 @@ Both backends support `test_mode=True` for CI/test environments to prevent datab
 - **Smoke tests** (`test_backend_smoke.py`): Real databases, validate full workflows
 
 Both are essential for comprehensive validation.
+
+## CI/CD Configuration
+
+### Timeout Recommendations
+
+**Test Markers:**
+- Graphiti integration tests use `@pytest.mark.integration_leanrag_llm` marker
+- LeanRAG integration tests may use similar markers
+- CI workflow excludes these markers: `-m "not integration_falkor and not integration_leanrag_llm"`
+
+**Timeout Configuration:**
+```yaml
+# .github/workflows/ci.yml
+jobs:
+  test:
+    timeout-minutes: 20  # Adjust based on test suite runtime
+    steps:
+      - name: Run tests
+        run: pytest tests/ -v -m "not integration_falkor and not integration_leanrag_llm"
+        timeout-minutes: 15  # Per-step timeout
+```
+
+**Rationale:**
+- Graphiti tests with real data can run 30+ minutes (15 entries ≈ 46 minutes)
+- LeanRAG tests are much faster (66 entries ≈ 22 seconds)
+- CI excludes long-running tests via markers to keep build times reasonable
+- Local developers can run full integration tests with `pytest tests/ -v` (no markers)
