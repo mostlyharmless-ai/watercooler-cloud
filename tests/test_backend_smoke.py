@@ -76,7 +76,7 @@ def cleanup_test_databases() -> None:
 def watercooler_threads_dir() -> Path:
     """Path to test watercooler threads (bundled with tests).
 
-    Note: Contains integrated-memory-graph-plan.md (~159KB, 4506 lines, 66 entries).
+    Note: Contains unified-branch-parity-protocol.md (~68KB, 1798 lines, 38 entries).
     This real watercooler thread provides realistic test data for backend validation
     with authentic metadata, temporal relationships, and multi-agent conversations.
     """
@@ -93,11 +93,11 @@ def watercooler_corpus(watercooler_threads_dir: Path) -> CorpusPayload:
     - Entity extraction on actual agent conversations
     - Clustering with sufficient data volume
     """
-    # Use largest thread for testing (159K - rich technical content for clustering)
-    # The integrated-memory-graph-plan thread has extensive entries for proper
-    # hierarchical clustering testing
+    # Use substantial thread for testing (68K - rich technical content for clustering)
+    # The unified-branch-parity-protocol thread has sufficient entries for proper
+    # hierarchical clustering testing while being more manageable for CI
     test_threads = [
-        "integrated-memory-graph-plan.md",
+        "unified-branch-parity-protocol.md",
     ]
 
     # Build memory graph with watercooler preset for headers
