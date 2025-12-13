@@ -26,6 +26,8 @@
 | [`BASELINE_GRAPH_API_BASE`](#baseline_graph_api_base) | No | `http://localhost:11434/v1` | Baseline Graph | LLM API endpoint |
 | [`BASELINE_GRAPH_MODEL`](#baseline_graph_model) | No | `llama3.2:3b` | Baseline Graph | LLM model name |
 | [`BASELINE_GRAPH_EXTRACTIVE_ONLY`](#baseline_graph_extractive_only) | No | `false` | Baseline Graph | Force extractive mode |
+| [`WATERCOOLER_GRAPHITI_ENABLED`](#watercooler_graphiti_enabled) | No | `"0"` | MCP Memory | Enable Graphiti memory queries |
+| [`WATERCOOLER_GRAPHITI_OPENAI_API_KEY`](#watercooler_graphiti_openai_api_key) | Conditional | Fallback to `OPENAI_API_KEY` | MCP Memory | OpenAI API key for memory queries |
 
 ---
 
@@ -752,6 +754,427 @@ export BASELINE_GRAPH_EXTRACTIVE_ONLY="true"
 
 **Related:**
 - See [Baseline Graph Documentation](baseline-graph.md) for full module documentation
+
+---
+
+## Graphiti Memory Variables
+
+Variables for querying thread history via Graphiti temporal graph memory. These enable the `watercooler_v1_query_memory` MCP tool.
+
+### WATERCOOLER_GRAPHITI_ENABLED
+
+**Purpose:** Master switch to enable Graphiti memory query functionality.
+
+**Required:** No
+
+**Default:** `"0"` (disabled)
+
+**Format:** Boolean string (`"1"` to enable, `"0"` to disable)
+
+**Used by:** MCP Server (memory queries)
+
+**Details:**
+
+Enables the `watercooler_v1_query_memory` tool for asking questions about thread history. When disabled, the tool returns an error message directing users to enable it.
+
+**Prerequisites** (when enabled):
+- FalkorDB running (default: localhost:6379)
+- OpenAI API key configured
+- Memory extras installed: `pip install watercooler-cloud[memory]`
+- Index built via CLI: `python -m watercooler_memory.pipeline run --backend graphiti --threads /path/to/threads`
+
+**Configuration examples:**
+
+**Codex (`~/.codex/config.toml`):**
+```toml
+[mcp_servers.watercooler_cloud.env]
+WATERCOOLER_GRAPHITI_ENABLED = "1"
+WATERCOOLER_GRAPHITI_OPENAI_API_KEY = "sk-..."
+```
+
+**Claude Desktop (`~/Library/Application Support/Claude/claude_desktop_config.json`):**
+```json
+{
+  "mcpServers": {
+    "watercooler-cloud": {
+      "env": {
+        "WATERCOOLER_GRAPHITI_ENABLED": "1",
+        "WATERCOOLER_GRAPHITI_OPENAI_API_KEY": "sk-..."
+      }
+    }
+  }
+}
+```
+
+**Claude Code (`.mcp.json`):**
+```json
+{
+  "mcpServers": {
+    "watercooler-cloud": {
+      "env": {
+        "WATERCOOLER_GRAPHITI_ENABLED": "1",
+        "WATERCOOLER_GRAPHITI_OPENAI_API_KEY": "sk-..."
+      }
+    }
+  }
+}
+```
+
+**Shell:**
+```bash
+export WATERCOOLER_GRAPHITI_ENABLED="1"
+```
+
+**Related:**
+- See [GRAPHITI_SETUP.md](./GRAPHITI_SETUP.md) for complete setup guide
+- See [MEMORY.md](./MEMORY.md) for memory backend overview
+- See [mcp-server.md](./mcp-server.md#watercooler_v1_query_memory) for tool reference
+
+---
+
+### WATERCOOLER_GRAPHITI_OPENAI_API_KEY
+
+**Purpose:** OpenAI API key for Graphiti memory queries.
+
+**Required:** Yes (when Graphiti enabled), unless `OPENAI_API_KEY` is set
+
+**Default:** Falls back to `OPENAI_API_KEY` if not set
+
+**Format:** OpenAI API key string (e.g., `"sk-..."`)
+
+**Used by:** MCP Server (memory queries)
+
+**Details:**
+
+Required for Graphiti memory queries. The backend uses OpenAI's embedding and chat models to:
+- Generate embeddings for semantic search
+- Perform entity/relation extraction from thread content
+- Answer natural language queries about thread history
+
+**Fallback priority:**
+1. `WATERCOOLER_GRAPHITI_OPENAI_API_KEY` (highest priority)
+2. `OPENAI_API_KEY` (standard fallback)
+
+If neither is set and Graphiti is enabled, `load_graphiti_config()` returns `None` with a warning.
+
+**Configuration examples:**
+
+**Shell:**
+```bash
+export WATERCOOLER_GRAPHITI_OPENAI_API_KEY="sk-..."
+```
+
+**MCP config:**
+```toml
+[mcp_servers.watercooler_cloud.env]
+WATERCOOLER_GRAPHITI_OPENAI_API_KEY = "sk-..."
+```
+
+**Related:**
+- See [WATERCOOLER_GRAPHITI_OPENAI_MODEL](#watercooler_graphiti_openai_model) for model selection
+- See [WATERCOOLER_GRAPHITI_OPENAI_API_BASE](#watercooler_graphiti_openai_api_base) for custom endpoints
+
+---
+
+### WATERCOOLER_GRAPHITI_PATH
+
+**Purpose:** Path to Graphiti git submodule.
+
+**Required:** No
+
+**Default:** `"external/graphiti"`
+
+**Format:** Relative or absolute path to Graphiti submodule directory
+
+**Used by:** MCP Server (memory queries)
+
+**Details:**
+
+Points to the Graphiti library submodule. The default assumes Graphiti is installed as a git submodule at `external/graphiti`.
+
+**When to override:**
+- Graphiti submodule is in a custom location
+- Using a different Graphiti installation path
+
+**Configuration examples:**
+
+**Shell:**
+```bash
+export WATERCOOLER_GRAPHITI_PATH="/opt/graphiti"
+```
+
+**MCP config:**
+```toml
+[mcp_servers.watercooler_cloud.env]
+WATERCOOLER_GRAPHITI_PATH = "vendor/graphiti"
+```
+
+---
+
+### WATERCOOLER_GRAPHITI_WORK_DIR
+
+**Purpose:** Directory for storing Graphiti index data and metadata.
+
+**Required:** No
+
+**Default:** `"~/.watercooler/graphiti"`
+
+**Format:** Path string (supports `~` expansion)
+
+**Used by:** MCP Server (memory queries)
+
+**Details:**
+
+Specifies where Graphiti stores:
+- Index metadata files
+- Configuration cache
+- Temporary processing data
+
+The directory is created automatically if it doesn't exist. The FalkorDB graph databases are stored in FalkorDB's own data directory (not here).
+
+**Database structure:**
+All threads are stored in a single FalkorDB database with logical partitioning:
+- Each episode (thread entry) has a `group_id` field set to the sanitized thread_id
+- Queries can search across ALL threads (when `topic` parameter is omitted)
+- Queries can filter to a single thread (when `topic` parameter is specified)
+- Example group_ids: `memory_backend`, `graphiti_integration`, `docs_update`
+
+**Configuration examples:**
+
+**Shell:**
+```bash
+export WATERCOOLER_GRAPHITI_WORK_DIR="/var/lib/watercooler/graphiti"
+```
+
+**MCP config:**
+```toml
+[mcp_servers.watercooler_cloud.env]
+WATERCOOLER_GRAPHITI_WORK_DIR = "~/.config/watercooler/graphiti"
+```
+
+**Related:**
+- See [WATERCOOLER_GRAPHITI_FALKORDB_HOST](#watercooler_graphiti_falkordb_host) for database server configuration
+
+---
+
+### WATERCOOLER_GRAPHITI_FALKORDB_HOST
+
+**Purpose:** FalkorDB server hostname.
+
+**Required:** No
+
+**Default:** `"localhost"`
+
+**Format:** Hostname or IP address string
+
+**Used by:** MCP Server (memory queries)
+
+**Details:**
+
+Specifies the FalkorDB server host for graph storage. FalkorDB is a Redis-compatible graph database required by Graphiti.
+
+**Starting FalkorDB:**
+```bash
+# Docker (recommended)
+docker run -d -p 6379:6379 falkordb/falkordb:latest
+
+# Or via docker-compose
+services:
+  falkordb:
+    image: falkordb/falkordb:latest
+    ports:
+      - "6379:6379"
+```
+
+**Configuration examples:**
+
+**Shell:**
+```bash
+export WATERCOOLER_GRAPHITI_FALKORDB_HOST="db.example.com"
+```
+
+**MCP config:**
+```toml
+[mcp_servers.watercooler_cloud.env]
+WATERCOOLER_GRAPHITI_FALKORDB_HOST = "192.168.1.100"
+```
+
+**Related:**
+- See [WATERCOOLER_GRAPHITI_FALKORDB_PORT](#watercooler_graphiti_falkordb_port) for port configuration
+- See [GRAPHITI_SETUP.md](./GRAPHITI_SETUP.md#falkordb-setup) for database setup
+
+---
+
+### WATERCOOLER_GRAPHITI_FALKORDB_PORT
+
+**Purpose:** FalkorDB server port.
+
+**Required:** No
+
+**Default:** `6379`
+
+**Format:** Integer port number
+
+**Used by:** MCP Server (memory queries)
+
+**Details:**
+
+Specifies the FalkorDB server port. FalkorDB is Redis-compatible and uses port 6379 by default.
+
+**Configuration examples:**
+
+**Shell:**
+```bash
+export WATERCOOLER_GRAPHITI_FALKORDB_PORT="7000"
+```
+
+**MCP config:**
+```toml
+[mcp_servers.watercooler_cloud.env]
+WATERCOOLER_GRAPHITI_FALKORDB_PORT = 7000
+```
+
+**Invalid values:**
+If the port value is invalid (non-numeric), it falls back to the default (6379) with a warning.
+
+**Related:**
+- See [WATERCOOLER_GRAPHITI_FALKORDB_HOST](#watercooler_graphiti_falkordb_host) for host configuration
+
+---
+
+### WATERCOOLER_GRAPHITI_OPENAI_MODEL
+
+**Purpose:** OpenAI model for Graphiti memory queries.
+
+**Required:** No
+
+**Default:** `"gpt-4o-mini"`
+
+**Format:** OpenAI model identifier string
+
+**Used by:** MCP Server (memory queries)
+
+**Details:**
+
+Specifies which OpenAI model to use for:
+- Embedding generation (semantic search)
+- Entity/relation extraction
+- Natural language query processing
+
+**Recommended models:**
+- `gpt-4o-mini` (default) - Fast and cost-effective
+- `gpt-4o` - Higher quality, more expensive
+- `gpt-4-turbo` - Good balance of speed and quality
+
+**Configuration examples:**
+
+**Shell:**
+```bash
+export WATERCOOLER_GRAPHITI_OPENAI_MODEL="gpt-4o"
+```
+
+**MCP config:**
+```toml
+[mcp_servers.watercooler_cloud.env]
+WATERCOOLER_GRAPHITI_OPENAI_MODEL = "gpt-4-turbo"
+```
+
+**Related:**
+- See [WATERCOOLER_GRAPHITI_OPENAI_API_KEY](#watercooler_graphiti_openai_api_key) for authentication
+- See [WATERCOOLER_GRAPHITI_OPENAI_API_BASE](#watercooler_graphiti_openai_api_base) for custom endpoints
+
+---
+
+### WATERCOOLER_GRAPHITI_OPENAI_API_BASE
+
+**Purpose:** Custom OpenAI API base URL (for proxy or compatible endpoints).
+
+**Required:** No
+
+**Default:** None (uses OpenAI's default: `https://api.openai.com/v1`)
+
+**Format:** URL string
+
+**Used by:** MCP Server (memory queries)
+
+**Details:**
+
+Override the OpenAI API endpoint. Useful for:
+- OpenAI-compatible proxies
+- Azure OpenAI endpoints
+- Local OpenAI-compatible servers
+
+**Configuration examples:**
+
+**Azure OpenAI:**
+```bash
+export WATERCOOLER_GRAPHITI_OPENAI_API_BASE="https://your-resource.openai.azure.com"
+```
+
+**OpenAI proxy:**
+```bash
+export WATERCOOLER_GRAPHITI_OPENAI_API_BASE="https://proxy.example.com/v1"
+```
+
+**MCP config:**
+```toml
+[mcp_servers.watercooler_cloud.env]
+WATERCOOLER_GRAPHITI_OPENAI_API_BASE = "https://proxy.example.com/v1"
+```
+
+**Related:**
+- See [WATERCOOLER_GRAPHITI_OPENAI_MODEL](#watercooler_graphiti_openai_model) for model configuration
+
+---
+
+### WATERCOOLER_GRAPHITI_STRICT_MODE
+
+**Purpose:** Controls error handling behavior for Graphiti backend.
+
+**Required:** No
+
+**Default:** `"0"` (soft mode)
+
+**Format:** Boolean string (`"1"` for strict, `"0"` for soft)
+
+**Used by:** MCP Server (memory queries)
+
+**Details:**
+
+**Soft mode (default, `"0"`):**
+- Missing dependencies → Return `None`, log warning
+- Backend initialization failures → Return `None`, log warning
+- Query failures → Return error JSON to user
+- **Recommended for production** - graceful degradation
+
+**Strict mode (`"1"`):**
+- Missing dependencies → Raise `ImportError`
+- Backend initialization failures → Raise exception
+- Query failures → Propagate exceptions
+- **Use for development/debugging** - fail fast on errors
+
+**Configuration examples:**
+
+**Development (strict mode):**
+```bash
+export WATERCOOLER_GRAPHITI_STRICT_MODE="1"
+```
+
+**Production (soft mode, default):**
+```bash
+export WATERCOOLER_GRAPHITI_STRICT_MODE="0"
+# Or simply don't set it (defaults to "0")
+```
+
+**MCP config:**
+```toml
+[mcp_servers.watercooler_cloud.env]
+WATERCOOLER_GRAPHITI_STRICT_MODE = "1"  # Development only
+```
+
+**Related:**
+- See [MEMORY.md](./MEMORY.md) for error handling details
+- See [TROUBLESHOOTING.md](./TROUBLESHOOTING.md) for common errors
 
 ---
 
