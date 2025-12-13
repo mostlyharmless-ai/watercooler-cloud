@@ -165,6 +165,12 @@ class ExportStageRunner(StageRunner):
 
         self.logger.info(f"Threads directory: {threads_dir}")
 
+        # Log thread filtering if active
+        if self.config.thread_filter:
+            self.logger.info(f"Thread filter active: processing {len(self.config.thread_filter)} threads")
+            for thread_file in self.config.thread_filter:
+                self.logger.debug(f"  - {thread_file}")
+
         # Build memory graph (skip embeddings - not needed for export)
         graph_config = GraphConfig(generate_embeddings=False)
         graph = MemoryGraph(graph_config)
@@ -173,7 +179,11 @@ class ExportStageRunner(StageRunner):
             self.logger.progress(current, total, message)
 
         with self.logger.timed("graph_build"):
-            graph.build(threads_dir, progress_callback=progress_cb)
+            graph.build(
+                threads_dir,
+                progress_callback=progress_cb,
+                thread_filter=self.config.thread_filter,
+            )
 
         stats = graph.stats()
         self.logger.info(f"Graph built: {stats['threads']} threads, {stats['entries']} entries, {stats['chunks']} chunks")

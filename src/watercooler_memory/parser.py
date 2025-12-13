@@ -159,12 +159,14 @@ def parse_thread_to_nodes(
 def parse_threads_directory(
     threads_dir: Path,
     branch_context: Optional[str] = None,
+    thread_filter: Optional[list[str]] = None,
 ) -> tuple[list[ThreadNode], list[EntryNode], list[Edge], list[Hyperedge]]:
     """Parse all threads in a directory into graph nodes.
 
     Args:
         threads_dir: Path to the threads directory.
         branch_context: Optional git branch name for context.
+        thread_filter: Optional list of thread .md filenames to process (None = all).
 
     Returns:
         Tuple of (thread_nodes, entry_nodes, edges, hyperedges)
@@ -177,7 +179,22 @@ def parse_threads_directory(
     all_edges: list[Edge] = []
     all_hyperedges: list[Hyperedge] = []
 
-    for thread_path in sorted(threads_dir.glob("*.md")):
+    # Determine which thread files to process
+    if thread_filter:
+        # Process only specified threads
+        thread_paths = []
+        for filename in thread_filter:
+            thread_path = threads_dir / filename
+            if thread_path.exists():
+                thread_paths.append(thread_path)
+            else:
+                print(f"Warning: Thread file not found: {thread_path}")
+        thread_paths = sorted(thread_paths)
+    else:
+        # Process all *.md files in directory
+        thread_paths = sorted(threads_dir.glob("*.md"))
+
+    for thread_path in thread_paths:
         # Skip index.md or other non-thread files
         if thread_path.stem.startswith("_") or thread_path.stem == "index":
             continue

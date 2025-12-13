@@ -2812,6 +2812,200 @@ def recover_branch_state(
         )])
 
 
+@mcp.tool(name="watercooler_v1_query_memory")
+def query_memory(
+    query: str,
+    ctx: Context,
+    code_path: str = "",
+    limit: int = 10,
+    topic: Optional[str] = None,
+) -> ToolResult:
+    """Query thread history using Graphiti temporal graph memory.
+
+    Searches indexed watercooler threads using semantic search and graph traversal.
+    Returns relevant facts, entities, and relationships from thread history.
+
+    Prerequisites:
+        1. Graphiti backend enabled: WATERCOOLER_GRAPHITI_ENABLED=1
+        2. Index built: Use watercooler memory CLI to index threads first
+        3. FalkorDB running: localhost:6379 (or configured host/port)
+
+    Args:
+        query: Search query (e.g., "What authentication method was implemented?")
+        code_path: Path to code repository (for resolving threads directory)
+        limit: Maximum results to return (default: 10, range: 1-50)
+        topic: Optional thread topic to restrict search (default: search all threads)
+
+    Returns:
+        JSON response with search results containing:
+        - results: List of matching facts/entities with scores
+        - query: Original query text
+        - result_count: Number of results returned
+        - message: Status/error message
+
+    Example:
+        query_memory(
+            query="Who implemented OAuth2?",
+            code_path=".",
+            limit=5
+        )
+
+    Response Format:
+        {
+          "query": "Who implemented OAuth2?",
+          "result_count": 2,
+          "results": [
+            {
+              "content": "Claude implemented OAuth2 with JWT tokens",
+              "score": 0.89,
+              "metadata": {
+                "thread_id": "auth-feature",
+                "entry_id": "01ABC...",
+                "valid_at": "2025-10-01T10:00:00Z"
+              }
+            }
+          ],
+          "message": "Found 2 results"
+        }
+    """
+    try:
+        # Import memory module (lazy-load)
+        try:
+            from . import memory as mem
+        except ImportError as e:
+            return ToolResult(content=[TextContent(
+                type="text",
+                text=json.dumps(
+                    {
+                        "error": "Memory module unavailable",
+                        "message": f"Install with: pip install watercooler-cloud[memory]. Details: {e}",
+                        "query": query,
+                        "result_count": 0,
+                        "results": [],
+                    },
+                    indent=2,
+                )
+            )])
+
+        # Load configuration
+        config = mem.load_graphiti_config()
+        if config is None:
+            return ToolResult(content=[TextContent(
+                type="text",
+                text=json.dumps(
+                    {
+                        "error": "Graphiti not enabled",
+                        "message": (
+                            "Set WATERCOOLER_GRAPHITI_ENABLED=1 and configure "
+                            "WATERCOOLER_GRAPHITI_OPENAI_API_KEY to enable memory queries."
+                        ),
+                        "query": query,
+                        "result_count": 0,
+                        "results": [],
+                    },
+                    indent=2,
+                )
+            )])
+
+        # Validate limit parameter
+        if limit < 1:
+            limit = 10
+        if limit > 50:
+            limit = 50
+
+        # Get backend instance
+        backend = mem.get_graphiti_backend(config)
+        if backend is None:
+            return ToolResult(content=[TextContent(
+                type="text",
+                text=json.dumps(
+                    {
+                        "error": "Backend initialization failed",
+                        "message": "Check logs for Graphiti backend errors",
+                        "query": query,
+                        "result_count": 0,
+                        "results": [],
+                    },
+                    indent=2,
+                )
+            )])
+
+        # Resolve threads directory (for context logging, not directly used in query)
+        error, context = _require_context(code_path)
+        if error:
+            log_warning(f"MEMORY: Could not resolve context: {error}")
+            # Continue anyway - query may work with existing index
+
+        # Execute query
+        log_action("memory.query", query=query, limit=limit, topic=topic)
+
+        try:
+            results = mem.query_memory(backend, query, limit)
+
+            # Filter by topic if specified
+            if topic:
+                results = [
+                    r
+                    for r in results
+                    if r.get("metadata", {}).get("thread_id") == topic
+                ]
+
+            # Format response
+            response = {
+                "query": query,
+                "result_count": len(results),
+                "results": [
+                    {
+                        "content": r.get("content", ""),
+                        "score": r.get("score", 0.0),
+                        "metadata": r.get("metadata", {}),
+                    }
+                    for r in results
+                ],
+                "message": f"Found {len(results)} results",
+            }
+
+            if topic:
+                response["filtered_by_topic"] = topic
+
+            return ToolResult(content=[TextContent(
+                type="text",
+                text=json.dumps(response, indent=2)
+            )])
+
+        except Exception as e:
+            log_error(f"MEMORY: Query failed: {e}")
+            return ToolResult(content=[TextContent(
+                type="text",
+                text=json.dumps(
+                    {
+                        "error": "Query execution failed",
+                        "message": str(e),
+                        "query": query,
+                        "result_count": 0,
+                        "results": [],
+                    },
+                    indent=2,
+                )
+            )])
+
+    except Exception as e:
+        log_error(f"MEMORY: Unexpected error in query_memory: {e}")
+        return ToolResult(content=[TextContent(
+            type="text",
+            text=json.dumps(
+                {
+                    "error": "Internal error",
+                    "message": str(e),
+                    "query": query,
+                    "result_count": 0,
+                    "results": [],
+                },
+                indent=2,
+            )
+        )])
+
+
 # ============================================================================
 # Server Entry Point
 # ============================================================================

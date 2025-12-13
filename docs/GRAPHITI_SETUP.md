@@ -269,6 +269,61 @@ for result in results:
 
 ---
 
+## MCP Integration
+
+The Watercooler MCP server includes a `watercooler_v1_query_memory` tool for querying Graphiti-indexed thread history. This enables agents to ask natural language questions about project context.
+
+### Quick Setup
+
+**1. Configure MCP server** (example for Codex):
+```toml
+[mcp_servers.watercooler_cloud.env]
+WATERCOOLER_GRAPHITI_ENABLED = "1"
+WATERCOOLER_GRAPHITI_OPENAI_API_KEY = "sk-..."
+```
+
+**2. Build index:**
+
+Full corpus:
+```bash
+python -m watercooler_memory.pipeline run \
+  --backend graphiti \
+  --threads /path/to/watercooler-cloud-threads
+```
+
+Specific threads (for testing or focused analysis):
+```bash
+# Index specific threads by topic
+python -m watercooler_memory.pipeline run \
+  --backend graphiti \
+  --threads /path/to/watercooler-cloud-threads \
+  --topics auth-feature memory-backend
+
+# Or use a thread list file
+python -m watercooler_memory.pipeline run \
+  --backend graphiti \
+  --threads /path/to/watercooler-cloud-threads \
+  --thread-list threads-to-index.txt
+```
+
+**3. Query via MCP:**
+```python
+watercooler_v1_query_memory(
+    query="How was authentication implemented?",
+    code_path=".",
+    limit=10
+)
+```
+
+**Database structure:** All threads are stored in a single FalkorDB database with logical partitioning via `group_id`. Queries can search across all threads (omit `topic`) or filter to a single thread (specify `topic`).
+
+**Complete documentation:**
+- **MCP Tool Reference**: [mcp-server.md#watercooler_v1_query_memory](./mcp-server.md#watercooler_v1_query_memory)
+- **Environment Variables**: [ENVIRONMENT_VARS.md#graphiti-memory-variables](./ENVIRONMENT_VARS.md#graphiti-memory-variables)
+- **MCP Querying Guide**: [MEMORY.md#querying-memory-via-mcp](./MEMORY.md#querying-memory-via-mcp)
+
+---
+
 ## Comparison with LeanRAG
 
 | Feature | Graphiti | LeanRAG |

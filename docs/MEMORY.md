@@ -234,6 +234,108 @@ See [ADR 0001](adr/0001-memory-backend-contract.md) for complete contract specif
 
 ---
 
+## Querying Memory via MCP
+
+The Watercooler MCP server provides a `watercooler_v1_query_memory` tool for querying thread history using Graphiti's temporal graph memory. This enables agents to ask natural language questions about project context, implementation details, and decisions.
+
+### Quick Setup
+
+**1. Install memory extras:**
+```bash
+pip install watercooler-cloud[memory]
+```
+
+**2. Configure MCP server** (example for Codex):
+```toml
+[mcp_servers.watercooler_cloud.env]
+WATERCOOLER_GRAPHITI_ENABLED = "1"
+WATERCOOLER_GRAPHITI_OPENAI_API_KEY = "sk-..."
+```
+
+**3. Start FalkorDB:**
+```bash
+docker run -d -p 6379:6379 falkordb/falkordb:latest
+```
+
+**4. Build index:**
+
+Full corpus:
+```bash
+python -m watercooler_memory.pipeline run \
+  --backend graphiti \
+  --threads /path/to/watercooler-cloud-threads
+```
+
+Specific threads (for testing or focused analysis):
+```bash
+# Index specific threads by topic
+python -m watercooler_memory.pipeline run \
+  --backend graphiti \
+  --threads /path/to/watercooler-cloud-threads \
+  --topics auth-feature memory-backend graphiti-integration
+
+# Or use a thread list file
+python -m watercooler_memory.pipeline run \
+  --backend graphiti \
+  --threads /path/to/watercooler-cloud-threads \
+  --thread-list threads-to-index.txt
+```
+
+Example `threads-to-index.txt`:
+```
+auth-feature.md
+memory-backend.md
+graphiti-integration.md
+```
+
+**5. Query via MCP:**
+```python
+watercooler_v1_query_memory(
+    query="How was authentication implemented?",
+    code_path=".",
+    limit=10
+)
+```
+
+### Query Capabilities
+
+**Cross-thread queries** (search entire project):
+```python
+# Find context across all threads
+watercooler_v1_query_memory(
+    query="What error handling patterns were used?",
+    code_path="."
+)
+```
+
+**Single-thread queries** (focused search):
+```python
+# Search within specific thread
+watercooler_v1_query_memory(
+    query="What tests were added?",
+    topic="auth-feature",
+    code_path="."
+)
+```
+
+**Temporal queries:**
+```python
+# Discover evolution over time
+watercooler_v1_query_memory(
+    query="How did the API design change over time?",
+    code_path=".",
+    limit=20
+)
+```
+
+### Complete Documentation
+
+- **MCP Tool Reference**: [mcp-server.md#watercooler_v1_query_memory](./mcp-server.md#watercooler_v1_query_memory)
+- **Environment Variables**: [ENVIRONMENT_VARS.md#graphiti-memory-variables](./ENVIRONMENT_VARS.md#graphiti-memory-variables)
+- **Graphiti Setup Guide**: [GRAPHITI_SETUP.md](./GRAPHITI_SETUP.md)
+
+---
+
 ## Architecture
 
 The graph uses a hierarchical structure:
