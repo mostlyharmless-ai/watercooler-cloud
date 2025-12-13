@@ -30,12 +30,34 @@ def cmd_run(args: argparse.Namespace) -> int:
     work_dir = Path(args.work_dir) if args.work_dir else None
     leanrag_dir = Path(args.leanrag_dir) if args.leanrag_dir else None
 
+    # Build thread filter from arguments
+    thread_filter = None
+    if args.thread_list:
+        # Read thread list from file
+        thread_list_path = Path(args.thread_list)
+        if not thread_list_path.exists():
+            print(f"Error: Thread list file not found: {thread_list_path}", file=sys.stderr)
+            return 1
+        thread_filter = []
+        with open(thread_list_path) as f:
+            for line in f:
+                line = line.strip()
+                if line and not line.startswith("#"):
+                    # Ensure .md extension
+                    if not line.endswith(".md"):
+                        line = f"{line}.md"
+                    thread_filter.append(line)
+    elif args.topics:
+        # Convert topics to .md filenames
+        thread_filter = [f"{topic}.md" if not topic.endswith(".md") else topic for topic in args.topics]
+
     # Create config
     config = load_config_from_env(
         threads_dir=threads_dir,
         work_dir=work_dir,
         leanrag_dir=leanrag_dir,
         test_mode=args.test,
+        thread_filter=thread_filter,
     )
 
     # Override test limit if specified
@@ -227,6 +249,8 @@ Examples:
     run_parser.add_argument("--from", dest="from_stage", help="Start from this stage")
     run_parser.add_argument("--to", dest="to_stage", help="Stop after this stage")
     run_parser.add_argument("--force", action="store_true", help="Force re-run of completed stages")
+    run_parser.add_argument("--thread-list", help="Path to text file with list of thread .md files to process (one per line)")
+    run_parser.add_argument("--topics", nargs="+", help="List of thread topics (without .md) to process")
 
     # Status command
     status_parser = subparsers.add_parser("status", help="Show pipeline status")

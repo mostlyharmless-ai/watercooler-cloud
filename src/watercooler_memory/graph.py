@@ -113,18 +113,20 @@ class MemoryGraph:
         self,
         threads_dir: Path,
         branch_context: Optional[str] = None,
+        thread_filter: Optional[list[str]] = None,
     ) -> list[ThreadNode]:
         """Add all threads from a directory.
 
         Args:
             threads_dir: Path to threads directory.
             branch_context: Optional git branch name.
+            thread_filter: Optional list of thread .md filenames to process (None = all).
 
         Returns:
             List of created ThreadNodes.
         """
         threads, entries, edges, hyperedges = parse_threads_directory(
-            threads_dir, branch_context
+            threads_dir, branch_context, thread_filter
         )
 
         for thread in threads:
@@ -297,6 +299,7 @@ class MemoryGraph:
         progress_callback=None,
         timeout: Optional[float] = None,
         checkpoint_path: Optional[Path] = None,
+        thread_filter: Optional[list[str]] = None,
     ) -> None:
         """Build complete graph from threads directory.
 
@@ -313,6 +316,7 @@ class MemoryGraph:
             timeout: Optional timeout in seconds. Raises TimeoutError if exceeded.
             checkpoint_path: Optional path to save intermediate state after each step.
                 This allows recovery if the build fails partway through.
+            thread_filter: Optional list of thread .md filenames to process (None = all).
 
         Raises:
             TimeoutError: If timeout is exceeded during build.
@@ -337,7 +341,7 @@ class MemoryGraph:
         # Parse threads
         if progress_callback:
             progress_callback(0, 0, "Parsing threads...")
-        self.add_threads_directory(threads_dir, branch_context)
+        self.add_threads_directory(threads_dir, branch_context, thread_filter)
         check_timeout()
         checkpoint("parsing")
 

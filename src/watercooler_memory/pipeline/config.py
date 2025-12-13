@@ -108,6 +108,9 @@ class PipelineConfig:
     test_mode: bool = False
     test_limit: int = 5  # Max documents in test mode
 
+    # Thread filtering
+    thread_filter: Optional[list[str]] = None  # List of thread .md filenames to process (None = all)
+
     def validate(self) -> list[str]:
         """Validate full configuration. Returns list of errors."""
         errors = []
@@ -149,6 +152,7 @@ def load_config_from_env(
     work_dir: Optional[Path] = None,
     leanrag_dir: Optional[Path] = None,
     test_mode: bool = False,
+    thread_filter: Optional[list[str]] = None,
 ) -> PipelineConfig:
     """Load pipeline configuration from environment variables.
 
@@ -157,6 +161,7 @@ def load_config_from_env(
         work_dir: Override work directory (defaults to ~/.watercooler/cache/)
         leanrag_dir: Override LeanRAG directory
         test_mode: Enable test mode with limited data
+        thread_filter: List of thread .md filenames to process (None = all)
 
     Returns:
         Configured PipelineConfig
@@ -171,6 +176,7 @@ def load_config_from_env(
         batch_size=max(1, int(os.environ.get("WC_BATCH_SIZE", "10"))),
         max_concurrent=max(1, int(os.environ.get("WC_MAX_CONCURRENT", "4"))),
         test_mode=test_mode,
+        thread_filter=thread_filter,
     )
 
     return config
