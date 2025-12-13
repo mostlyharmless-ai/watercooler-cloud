@@ -99,4 +99,5 @@ markers = [
     "http: marks tests as requiring HTTP facade dependencies (deselect with '-m \"not http\"')",
     "integration_falkor: marks tests requiring real FalkorDB connection (run with '-m integration_falkor')",
     "integration_leanrag_llm: marks tests requiring LeanRAG with LLM APIs (DeepSeek, GLM embeddings)",
+    "integration_graphiti: marks tests requiring Graphiti backend with API key (run with '-m integration_graphiti')",
 ]
