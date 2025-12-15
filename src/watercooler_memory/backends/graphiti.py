@@ -217,6 +217,7 @@ class GraphitiBackend(MemoryBackend):
             '<': ' ',      # Angle brackets → space
             '>': ' ',
             '=': ' ',      # Equals → space
+            '`': ' ',      # Backtick → space
         })
 
         # Apply translation and collapse multiple spaces
@@ -509,12 +510,20 @@ class GraphitiBackend(MemoryBackend):
                 for query_item in query.queries:
                     query_text = query_item.get("query", "")
                     limit = query_item.get("limit", 10)
+                    
+                    # Extract optional topic for group_id filtering
+                    topic = query_item.get("topic")
+                    group_ids = None
+                    if topic:
+                        # Sanitize topic to group_id format
+                        group_ids = [self._sanitize_thread_id(topic)]
 
                     try:
                         # Graphiti search is async
                         search_results = await graphiti.search(
                             query=query_text,
                             num_results=limit,
+                            group_ids=group_ids,
                         )
 
                         # Map Graphiti results to canonical format

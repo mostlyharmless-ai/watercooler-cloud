@@ -119,6 +119,7 @@ def query_memory(
     backend: Any,
     query_text: str,
     limit: int = 10,
+    topic: Optional[str] = None,
 ) -> Sequence[Mapping[str, Any]]:
     """Execute memory query against Graphiti backend.
 
@@ -126,6 +127,7 @@ def query_memory(
         backend: GraphitiBackend instance
         query_text: Search query string
         limit: Maximum results to return (1-50)
+        topic: Optional thread topic to filter by (will be converted to group_id)
 
     Returns:
         List of result dictionaries with keys: query, content, score, metadata
@@ -141,9 +143,19 @@ def query_memory(
     """
     from watercooler_memory.backends import QueryPayload
 
+    # Build query dict
+    query_dict: dict[str, Any] = {
+        "query": query_text,
+        "limit": limit,
+    }
+    
+    # Add group_ids if topic specified (backend will sanitize it)
+    if topic:
+        query_dict["topic"] = topic
+
     payload = QueryPayload(
         manifest_version="1.0",
-        queries=[{"query": query_text, "limit": limit}],
+        queries=[query_dict],
     )
 
     result = backend.query(payload)

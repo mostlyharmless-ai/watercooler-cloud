@@ -2897,7 +2897,7 @@ def query_memory(
                         "error": "Graphiti not enabled",
                         "message": (
                             "Set WATERCOOLER_GRAPHITI_ENABLED=1 and configure "
-                            "WATERCOOLER_GRAPHITI_OPENAI_API_KEY to enable memory queries."
+                            "OPENAI_API_KEY to enable memory queries."
                         ),
                         "query": query,
                         "result_count": 0,
@@ -2940,15 +2940,7 @@ def query_memory(
         log_action("memory.query", query=query, limit=limit, topic=topic)
 
         try:
-            results = mem.query_memory(backend, query, limit)
-
-            # Filter by topic if specified
-            if topic:
-                results = [
-                    r
-                    for r in results
-                    if r.get("metadata", {}).get("thread_id") == topic
-                ]
+            results = mem.query_memory(backend, query, limit, topic=topic)
 
             # Format response
             response = {
