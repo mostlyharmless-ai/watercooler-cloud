@@ -279,7 +279,7 @@ The Watercooler MCP server includes a `watercooler_v1_query_memory` tool for que
 ```toml
 [mcp_servers.watercooler_cloud.env]
 WATERCOOLER_GRAPHITI_ENABLED = "1"
-WATERCOOLER_GRAPHITI_OPENAI_API_KEY = "sk-..."
+OPENAI_API_KEY = "sk-..."
 ```
 
 **2. Build index:**

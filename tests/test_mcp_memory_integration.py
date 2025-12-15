@@ -37,14 +37,13 @@ class TestGraphitiMemoryIntegration:
 
         # Test with enabled but no API key
         monkeypatch.setenv("WATERCOOLER_GRAPHITI_ENABLED", "1")
-        monkeypatch.delenv("WATERCOOLER_GRAPHITI_OPENAI_API_KEY", raising=False)
         monkeypatch.delenv("OPENAI_API_KEY", raising=False)
         config = memory.load_graphiti_config()
         assert config is None
 
         # Test with enabled and API key
         monkeypatch.setenv("WATERCOOLER_GRAPHITI_ENABLED", "1")
-        monkeypatch.setenv("WATERCOOLER_GRAPHITI_OPENAI_API_KEY", "sk-test")
+        monkeypatch.setenv("OPENAI_API_KEY", "sk-test")
         config = memory.load_graphiti_config()
         assert config is not None
         assert config.enabled is True
@@ -54,7 +53,7 @@ class TestGraphitiMemoryIntegration:
         from watercooler_mcp import memory
 
         monkeypatch.setenv("WATERCOOLER_GRAPHITI_ENABLED", "1")
-        monkeypatch.setenv("WATERCOOLER_GRAPHITI_OPENAI_API_KEY", "sk-test")
+        monkeypatch.setenv("OPENAI_API_KEY", "sk-test")
 
         config = memory.load_graphiti_config()
         assert config is not None

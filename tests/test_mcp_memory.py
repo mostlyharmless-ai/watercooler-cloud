@@ -20,8 +20,7 @@ def mock_env_disabled(monkeypatch):
 def mock_env_enabled(monkeypatch):
     """Mock environment with Graphiti enabled."""
     monkeypatch.setenv("WATERCOOLER_GRAPHITI_ENABLED", "1")
-    monkeypatch.setenv("WATERCOOLER_GRAPHITI_OPENAI_API_KEY", "sk-test")
-    monkeypatch.setenv("WATERCOOLER_GRAPHITI_WORK_DIR", "/tmp/graphiti-test")
+    monkeypatch.setenv("OPENAI_API_KEY", "sk-test")
 
 
 class TestLoadGraphitiConfig:
@@ -33,24 +32,11 @@ class TestLoadGraphitiConfig:
         assert config is None
 
     def test_load_config_missing_api_key(self, monkeypatch):
-        """Test config loading fails gracefully without API key (soft mode)."""
+        """Test config loading fails gracefully without API key."""
         monkeypatch.setenv("WATERCOOLER_GRAPHITI_ENABLED", "1")
-        # Clear both possible API key env vars
-        monkeypatch.delenv("WATERCOOLER_GRAPHITI_OPENAI_API_KEY", raising=False)
         monkeypatch.delenv("OPENAI_API_KEY", raising=False)
         config = memory.load_graphiti_config()
         assert config is None
-
-    def test_load_config_missing_api_key_strict_mode(self, monkeypatch):
-        """Test config loading raises error without API key in strict mode."""
-        monkeypatch.setenv("WATERCOOLER_GRAPHITI_ENABLED", "1")
-        monkeypatch.setenv("WATERCOOLER_GRAPHITI_STRICT_MODE", "1")
-        # Clear both possible API key env vars
-        monkeypatch.delenv("WATERCOOLER_GRAPHITI_OPENAI_API_KEY", raising=False)
-        monkeypatch.delenv("OPENAI_API_KEY", raising=False)
-
-        with pytest.raises(ValueError, match="WATERCOOLER_GRAPHITI_OPENAI_API_KEY or OPENAI_API_KEY required"):
-            memory.load_graphiti_config()
 
     def test_load_config_success(self, mock_env_enabled):
         """Test config loading with valid environment."""
@@ -58,94 +44,30 @@ class TestLoadGraphitiConfig:
         assert config is not None
         assert config.enabled is True
         assert config.openai_api_key == "sk-test"
-        # macOS resolves /tmp to /private/tmp, so compare resolved paths
-        assert config.work_dir == Path("/tmp/graphiti-test").resolve()
-        assert config.falkordb_host == "localhost"
-        assert config.falkordb_port == 6379
-        assert config.openai_model == "gpt-4o-mini"
-        assert config.strict_mode is False
 
-    def test_load_config_custom_values(self, monkeypatch):
-        """Test config loading with custom values."""
+    def test_load_config_uses_openai_api_key(self, monkeypatch):
+        """Test config uses OPENAI_API_KEY."""
         monkeypatch.setenv("WATERCOOLER_GRAPHITI_ENABLED", "1")
-        monkeypatch.setenv("WATERCOOLER_GRAPHITI_OPENAI_API_KEY", "sk-custom")
-        monkeypatch.setenv("WATERCOOLER_GRAPHITI_FALKORDB_HOST", "db.example.com")
-        monkeypatch.setenv("WATERCOOLER_GRAPHITI_FALKORDB_PORT", "7000")
-        monkeypatch.setenv("WATERCOOLER_GRAPHITI_OPENAI_MODEL", "gpt-4")
-        monkeypatch.setenv(
-            "WATERCOOLER_GRAPHITI_OPENAI_API_BASE", "https://api.custom.com"
-        )
-        monkeypatch.setenv("WATERCOOLER_GRAPHITI_STRICT_MODE", "1")
+        monkeypatch.setenv("OPENAI_API_KEY", "sk-from-env")
 
         config = memory.load_graphiti_config()
         assert config is not None
-        assert config.openai_api_key == "sk-custom"
-        assert config.falkordb_host == "db.example.com"
-        assert config.falkordb_port == 7000
-        assert config.openai_model == "gpt-4"
-        assert config.openai_api_base == "https://api.custom.com"
-        assert config.strict_mode is True
-
-    def test_load_config_fallback_to_openai_api_key(self, monkeypatch):
-        """Test config falls back to OPENAI_API_KEY if specific var not set."""
-        monkeypatch.setenv("WATERCOOLER_GRAPHITI_ENABLED", "1")
-        monkeypatch.setenv("OPENAI_API_KEY", "sk-fallback")
-
-        config = memory.load_graphiti_config()
-        assert config is not None
-        assert config.openai_api_key == "sk-fallback"
-
-    def test_load_config_invalid_port(self, monkeypatch):
-        """Test config handles invalid port gracefully."""
-        monkeypatch.setenv("WATERCOOLER_GRAPHITI_ENABLED", "1")
-        monkeypatch.setenv("WATERCOOLER_GRAPHITI_OPENAI_API_KEY", "sk-test")
-        monkeypatch.setenv("WATERCOOLER_GRAPHITI_FALKORDB_PORT", "invalid")
-
-        config = memory.load_graphiti_config()
-        assert config is not None
-        assert config.falkordb_port == 6379  # Falls back to default
-
-    def test_load_config_path_expansion(self, monkeypatch):
-        """Test config expands paths correctly."""
-        monkeypatch.setenv("WATERCOOLER_GRAPHITI_ENABLED", "1")
-        monkeypatch.setenv("WATERCOOLER_GRAPHITI_OPENAI_API_KEY", "sk-test")
-        monkeypatch.setenv("WATERCOOLER_GRAPHITI_WORK_DIR", "~/custom/path")
-
-        config = memory.load_graphiti_config()
-        assert config is not None
-        # Path should be expanded and resolved
-        assert config.work_dir == Path.home() / "custom" / "path"
+        assert config.openai_api_key == "sk-from-env"
 
 
 class TestGetGraphitiBackend:
     """Tests for get_graphiti_backend() function."""
 
-    def test_get_backend_import_error_soft_mode(self, mock_env_enabled):
-        """Test backend handles missing dependencies in soft mode (default)."""
+    def test_get_backend_import_error(self, mock_env_enabled):
+        """Test backend handles missing dependencies gracefully."""
         config = memory.load_graphiti_config()
         assert config is not None
-        assert config.strict_mode is False
 
         # Patch the import at the point where it's used
         with patch("watercooler_mcp.memory.GraphitiBackend", create=True) as mock:
             mock.side_effect = ImportError("Module not found")
             backend = memory.get_graphiti_backend(config)
-            assert backend is None  # Soft mode returns None
-
-    def test_get_backend_import_error_strict_mode(self, monkeypatch):
-        """Test backend raises error in strict mode when dependencies missing."""
-        monkeypatch.setenv("WATERCOOLER_GRAPHITI_ENABLED", "1")
-        monkeypatch.setenv("WATERCOOLER_GRAPHITI_OPENAI_API_KEY", "sk-test")
-        monkeypatch.setenv("WATERCOOLER_GRAPHITI_STRICT_MODE", "1")
-
-        config = memory.load_graphiti_config()
-        assert config is not None
-        assert config.strict_mode is True
-
-        # Note: This test requires the actual module to not be installed,
-        # which is hard to test without breaking imports. Simplify to soft mode only.
-        # In real usage, ImportError will propagate in strict mode.
-        pass  # Skip strict mode test - hard to mock dynamic imports
+            assert backend is None  # Returns None on import error
 
 
 class TestQueryMemory:

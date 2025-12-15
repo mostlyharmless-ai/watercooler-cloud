@@ -249,7 +249,7 @@ pip install watercooler-cloud[memory]
 ```toml
 [mcp_servers.watercooler_cloud.env]
 WATERCOOLER_GRAPHITI_ENABLED = "1"
-WATERCOOLER_GRAPHITI_OPENAI_API_KEY = "sk-..."
+OPENAI_API_KEY = "sk-..."
 ```
 
 **3. Start FalkorDB:**

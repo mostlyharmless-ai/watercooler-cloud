@@ -11,7 +11,7 @@ from dataclasses import dataclass
 from pathlib import Path
 from typing import Any, Mapping, Optional, Sequence
 
-from .observability import log_debug, log_error, log_warning
+from .observability import log_debug, log_warning
 
 
 @dataclass
@@ -19,14 +19,7 @@ class GraphitiConfig:
     """Configuration for Graphiti memory backend."""
 
     enabled: bool
-    graphiti_path: Path
-    work_dir: Path
-    falkordb_host: str
-    falkordb_port: int
     openai_api_key: str
-    openai_api_base: Optional[str]
-    openai_model: str
-    strict_mode: bool  # If True, raise errors; if False, return None on failures
 
 
 def load_graphiti_config() -> Optional[GraphitiConfig]:
@@ -37,14 +30,7 @@ def load_graphiti_config() -> Optional[GraphitiConfig]:
 
     Environment Variables:
         WATERCOOLER_GRAPHITI_ENABLED: "1" to enable (default: "0")
-        WATERCOOLER_GRAPHITI_PATH: Path to graphiti submodule (default: external/graphiti)
-        WATERCOOLER_GRAPHITI_WORK_DIR: Index storage directory (default: ~/.watercooler/graphiti)
-        WATERCOOLER_GRAPHITI_FALKORDB_HOST: FalkorDB host (default: localhost)
-        WATERCOOLER_GRAPHITI_FALKORDB_PORT: FalkorDB port (default: 6379)
-        WATERCOOLER_GRAPHITI_OPENAI_API_KEY: OpenAI API key (required if enabled)
-        WATERCOOLER_GRAPHITI_OPENAI_API_BASE: Custom API base URL (optional)
-        WATERCOOLER_GRAPHITI_OPENAI_MODEL: Model name (default: gpt-4o-mini)
-        WATERCOOLER_GRAPHITI_STRICT_MODE: "1" for strict mode (default: "0")
+        OPENAI_API_KEY: OpenAI API key (required if enabled)
 
     Returns:
         GraphitiConfig instance or None if disabled/invalid
@@ -60,64 +46,18 @@ def load_graphiti_config() -> Optional[GraphitiConfig]:
         log_debug("MEMORY: Graphiti disabled (WATERCOOLER_GRAPHITI_ENABLED != '1')")
         return None
 
-    # Load configuration with defaults
-    graphiti_path_str = os.getenv("WATERCOOLER_GRAPHITI_PATH", "external/graphiti")
-    graphiti_path = Path(graphiti_path_str).expanduser().resolve()
-
-    work_dir_str = os.getenv(
-        "WATERCOOLER_GRAPHITI_WORK_DIR",
-        str(Path.home() / ".watercooler" / "graphiti"),
-    )
-    work_dir = Path(work_dir_str).expanduser().resolve()
-
-    falkordb_host = os.getenv("WATERCOOLER_GRAPHITI_FALKORDB_HOST", "localhost")
-
-    falkordb_port_str = os.getenv("WATERCOOLER_GRAPHITI_FALKORDB_PORT", "6379")
-    try:
-        falkordb_port = int(falkordb_port_str)
-    except ValueError:
-        log_warning(
-            f"MEMORY: Invalid WATERCOOLER_GRAPHITI_FALKORDB_PORT='{falkordb_port_str}', "
-            "using default 6379"
-        )
-        falkordb_port = 6379
-
-    # Strict mode: raise errors vs return None (check early for API key validation)
-    strict_mode = os.getenv("WATERCOOLER_GRAPHITI_STRICT_MODE", "0") == "1"
-
     # OpenAI API key is required
-    openai_api_key = os.getenv("WATERCOOLER_GRAPHITI_OPENAI_API_KEY", "")
+    openai_api_key = os.getenv("OPENAI_API_KEY", "")
     if not openai_api_key:
-        # Fall back to OPENAI_API_KEY if not set
-        openai_api_key = os.getenv("OPENAI_API_KEY", "")
-        if not openai_api_key:
-            msg = (
-                "MEMORY: Graphiti enabled but WATERCOOLER_GRAPHITI_OPENAI_API_KEY not set. "
-                "Memory queries will fail."
-            )
-            if strict_mode:
-                log_error(msg)
-                raise ValueError(
-                    "WATERCOOLER_GRAPHITI_OPENAI_API_KEY or OPENAI_API_KEY required when "
-                    "WATERCOOLER_GRAPHITI_ENABLED=1 and WATERCOOLER_GRAPHITI_STRICT_MODE=1"
-                )
-            else:
-                log_warning(msg)
-                return None
-
-    openai_api_base = os.getenv("WATERCOOLER_GRAPHITI_OPENAI_API_BASE")
-    openai_model = os.getenv("WATERCOOLER_GRAPHITI_OPENAI_MODEL", "gpt-4o-mini")
+        log_warning(
+            "MEMORY: Graphiti enabled but OPENAI_API_KEY not set. "
+            "Memory queries will fail."
+        )
+        return None
 
     return GraphitiConfig(
         enabled=enabled,
-        graphiti_path=graphiti_path,
-        work_dir=work_dir,
-        falkordb_host=falkordb_host,
-        falkordb_port=falkordb_port,
         openai_api_key=openai_api_key,
-        openai_api_base=openai_api_base,
-        openai_model=openai_model,
-        strict_mode=strict_mode,
     )
 
 
@@ -131,8 +71,7 @@ def get_graphiti_backend(config: GraphitiConfig) -> Any:
         GraphitiBackend instance or None if dependencies unavailable
 
     Raises:
-        ImportError: If watercooler_memory.backends not installed (strict mode)
-        ConfigError: If Graphiti configuration is invalid (strict mode)
+        ImportError: If watercooler_memory.backends not installed
 
     Example:
         >>> config = load_graphiti_config()
@@ -147,40 +86,33 @@ def get_graphiti_backend(config: GraphitiConfig) -> Any:
             GraphitiConfig as BackendConfig,
         )
     except ImportError as e:
-        msg = (
+        log_warning(
             f"MEMORY: Graphiti backend unavailable: {e}. "
             "Install with: pip install watercooler-cloud[memory]"
         )
-        if config.strict_mode:
-            log_error(msg)
-            raise
-        else:
-            log_warning(msg)
-            return None
+        return None
 
-    # Map MCP config to backend config
+    # Use hardcoded defaults for all configuration
     backend_config = BackendConfig(
-        graphiti_path=config.graphiti_path,
-        falkordb_host=config.falkordb_host,
-        falkordb_port=config.falkordb_port,
+        graphiti_path=Path("external/graphiti"),
+        falkordb_host="localhost",
+        falkordb_port=6379,
         openai_api_key=config.openai_api_key,
-        openai_api_base=config.openai_api_base,
-        openai_model=config.openai_model,
-        work_dir=config.work_dir,
+        openai_api_base=None,
+        openai_model="gpt-4o-mini",
+        work_dir=Path.home() / ".watercooler" / "graphiti",
     )
 
     try:
         backend = GraphitiBackend(backend_config)
-        log_debug(f"MEMORY: Initialized Graphiti backend (work_dir={config.work_dir})")
+        log_debug(
+            f"MEMORY: Initialized Graphiti backend "
+            f"(work_dir={backend_config.work_dir})"
+        )
         return backend
     except Exception as e:
-        msg = f"MEMORY: Failed to initialize Graphiti backend: {e}"
-        if config.strict_mode:
-            log_error(msg)
-            raise
-        else:
-            log_warning(msg)
-            return None
+        log_warning(f"MEMORY: Failed to initialize Graphiti backend: {e}")
+        return None
 
 
 def query_memory(
