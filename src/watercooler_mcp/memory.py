@@ -92,9 +92,14 @@ def get_graphiti_backend(config: GraphitiConfig) -> Any:
         )
         return None
 
+    # Compute absolute path to graphiti submodule
+    # memory.py is at src/watercooler_mcp/memory.py, so go up 3 levels to project root
+    project_root = Path(__file__).parent.parent.parent
+    graphiti_path = project_root / "external" / "graphiti"
+
     # Use hardcoded defaults for all configuration
     backend_config = BackendConfig(
-        graphiti_path=Path("external/graphiti"),
+        graphiti_path=graphiti_path,
         falkordb_host="localhost",
         falkordb_port=6379,
         openai_api_key=config.openai_api_key,
