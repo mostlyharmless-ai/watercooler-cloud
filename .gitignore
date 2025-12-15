@@ -241,3 +241,4 @@ cloudflare-worker/.cache/
 
 # Scratch/notes file
 .scratch.txt
+tests/test-artifacts/

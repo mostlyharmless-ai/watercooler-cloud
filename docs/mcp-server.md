@@ -404,6 +404,183 @@ Generate index summary of all threads.
 - In Review threads
 - Closed threads (limited to 10 most recent)
 
+### Memory Query Tools
+
+Tools for querying thread history using Graphiti temporal graph memory. These tools enable semantic search across project context to answer questions about implementation details, decisions, and temporal evolution.
+
+#### `watercooler_v1_query_memory`
+Query thread history using Graphiti temporal graph memory.
+
+**Purpose:** Ask natural language questions about thread history, implementation details, architectural decisions, and temporal evolution of the project.
+
+**Prerequisites:**
+- Graphiti enabled: `WATERCOOLER_GRAPHITI_ENABLED="1"`
+- FalkorDB running (default: localhost:6379)
+- OpenAI API key configured
+- Memory extras installed: `pip install watercooler-cloud[memory]`
+- Index built via CLI: `python -m watercooler_memory.pipeline run --backend graphiti --threads /path/to/threads`
+
+**Parameters:**
+- `query` (str): Natural language search query (e.g., "What authentication was implemented?")
+- `code_path` (str): Code repository root (for resolving threads directory)
+- `limit` (int): Maximum results to return (1-50, default: 10)
+- `topic` (str | None): Optional thread filter - omit for cross-thread search, specify for single-thread queries
+
+**Returns:** JSON object with:
+```json
+{
+  "query": "What authentication was implemented?",
+  "result_count": 2,
+  "results": [
+    {
+      "content": "Claude implemented OAuth2 with JWT tokens",
+      "score": 0.0,
+      "metadata": {
+        "uuid": "edge-uuid",
+        "thread_id": "auth-feature",
+        "entry_id": "01ABC...",
+        "valid_at": "2025-10-01T10:00:00Z",
+        "invalid_at": null,
+        "created_at": "2025-10-01T10:05:00Z"
+      }
+    }
+  ],
+  "message": "Found 2 results"
+}
+```
+
+**Query Scope:**
+- **Cross-thread queries** (recommended): Omit `topic` parameter to search across ALL threads in the project
+  - Example: `query_memory(query="How was error handling implemented?", code_path=".")`
+  - Useful for discovering context across different features/threads
+- **Single-thread queries**: Specify `topic` to filter results to one thread
+  - Example: `query_memory(query="What tests were added?", topic="auth-feature", code_path=".")`
+  - Useful for focused investigation within a specific feature
+
+**Usage Examples:**
+
+**Cross-thread implementation search:**
+```python
+watercooler_v1_query_memory(
+    query="How was authentication implemented?",
+    code_path=".",
+    limit=10
+)
+```
+
+**Single-thread decision search:**
+```python
+watercooler_v1_query_memory(
+    query="Why was PostgreSQL chosen over MySQL?",
+    topic="database-selection",
+    code_path=".",
+    limit=5
+)
+```
+
+**Temporal evolution query:**
+```python
+watercooler_v1_query_memory(
+    query="What changes were made to the API between v1 and v2?",
+    code_path=".",
+    limit=20
+)
+```
+
+**Error Responses:**
+
+All errors return JSON format (never raises exceptions):
+
+**Graphiti disabled:**
+```json
+{
+  "error": "graphiti_disabled",
+  "message": "Graphiti memory queries are disabled. Set WATERCOOLER_GRAPHITI_ENABLED=1",
+  "query": "...",
+  "result_count": 0,
+  "results": []
+}
+```
+
+**Missing dependencies:**
+```json
+{
+  "error": "import_error",
+  "message": "Graphiti backend unavailable: No module named 'watercooler_memory'. Install with: pip install watercooler-cloud[memory]",
+  "query": "...",
+  "result_count": 0,
+  "results": []
+}
+```
+
+**Backend initialization failed:**
+```json
+{
+  "error": "backend_init_failed",
+  "message": "Failed to initialize Graphiti backend. Check FalkorDB is running (docker run -d -p 6379:6379 falkordb/falkordb:latest)",
+  "query": "...",
+  "result_count": 0,
+  "results": []
+}
+```
+
+**Query execution failed:**
+```json
+{
+  "error": "query_failed",
+  "message": "Query execution failed: connection refused",
+  "query": "...",
+  "result_count": 0,
+  "results": []
+}
+```
+
+**Performance Notes:**
+- Query latency: Typically 2-5 seconds (depends on graph size, query complexity, and OpenAI API latency)
+- API costs: Each query incurs OpenAI API costs (embedding generation + LLM processing)
+- Result quality: Improves with richer thread context and clearer queries
+- Index freshness: Manually rebuild index after significant thread updates
+
+**Best Practices:**
+- Use specific, focused queries rather than broad open-ended questions
+- Omit `topic` parameter to discover context across the entire project
+- Specify `topic` only when you know which thread contains the answer
+- Build index regularly to keep memory up-to-date with latest threads
+- Use higher `limit` values (20-50) for exploratory queries
+- Use lower `limit` values (5-10) for targeted fact retrieval
+
+**Related Documentation:**
+- [GRAPHITI_SETUP.md](./GRAPHITI_SETUP.md) - Complete setup guide
+- [MEMORY.md](./MEMORY.md) - Memory backend overview
+- [ENVIRONMENT_VARS.md](./ENVIRONMENT_VARS.md#graphiti-memory-variables) - Configuration reference
+
+**Index Building:**
+```bash
+# Build index for all threads in current project
+python -m watercooler_memory.pipeline run \
+  --backend graphiti \
+  --threads /path/to/watercooler-cloud-threads
+
+# Update index after thread changes
+python -m watercooler_memory.pipeline run \
+  --backend graphiti \
+  --threads /path/to/watercooler-cloud-threads \
+  --force
+```
+
+**FalkorDB Setup:**
+```bash
+# Docker (recommended)
+docker run -d -p 6379:6379 falkordb/falkordb:latest
+
+# Or docker-compose
+services:
+  falkordb:
+    image: falkordb/falkordb:latest
+    ports:
+      - "6379:6379"
+```
+
 ### Branch Sync Enforcement Tools
 
 These tools ensure that code and threads repos maintain 1:1 branch correspondence, preventing drift and enforcing the branch pairing protocol.
