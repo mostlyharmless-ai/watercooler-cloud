@@ -479,7 +479,7 @@ class GraphitiBackend(MemoryBackend):
         except Exception as e:
             raise BackendError(f"Unexpected error during indexing: {e}") from e
 
-    def query(self, query: QueryPayload) -> QueryResult:
+    async def query(self, query: QueryPayload) -> QueryResult:
         """
         Query Graphiti temporal graph.
 
@@ -504,57 +504,53 @@ class GraphitiBackend(MemoryBackend):
             except Exception as e:
                 raise TransientError(f"Database connection failed: {e}") from e
 
-            # Execute queries (async operation wrapped in sync)
-            async def execute_queries():
-                results = []
-                for query_item in query.queries:
-                    query_text = query_item.get("query", "")
-                    limit = query_item.get("limit", 10)
-                    
-                    # Extract optional topic for group_id filtering
-                    topic = query_item.get("topic")
-                    group_ids = None
-                    if topic:
-                        # Sanitize topic to group_id format
-                        group_ids = [self._sanitize_thread_id(topic)]
+            # Execute queries (async operation)
+            results = []
+            for query_item in query.queries:
+                query_text = query_item.get("query", "")
+                limit = query_item.get("limit", 10)
+                
+                # Extract optional topic for group_id filtering
+                topic = query_item.get("topic")
+                group_ids = None
+                if topic:
+                    # Sanitize topic to group_id format
+                    group_ids = [self._sanitize_thread_id(topic)]
 
-                    try:
-                        # Graphiti search is async
-                        search_results = await graphiti.search(
-                            query=query_text,
-                            num_results=limit,
-                            group_ids=group_ids,
-                        )
+                try:
+                    # Graphiti search is async
+                    search_results = await graphiti.search(
+                        query=query_text,
+                        num_results=limit,
+                        group_ids=group_ids,
+                    )
 
-                        # Map Graphiti results to canonical format
-                        # search_results is a list of EntityEdge Pydantic models
-                        for edge in search_results:
-                            results.append({
-                                "query": query_text,
-                                "content": edge.fact,  # The fact/relationship text
-                                "score": 0.0,  # Graphiti doesn't expose scores directly
-                                "metadata": {
-                                    "uuid": edge.uuid,
-                                    "source_node_uuid": edge.source_node_uuid,
-                                    "target_node_uuid": edge.target_node_uuid,
-                                    "valid_at": edge.valid_at.isoformat() if edge.valid_at else None,
-                                    "invalid_at": edge.invalid_at.isoformat() if edge.invalid_at else None,
-                                    "created_at": edge.created_at.isoformat() if edge.created_at else None,
-                                },
-                            })
+                    # Map Graphiti results to canonical format
+                    # search_results is a list of EntityEdge Pydantic models
+                    for edge in search_results:
+                        results.append({
+                            "query": query_text,
+                            "content": edge.fact,  # The fact/relationship text
+                            "score": 0.0,  # Graphiti doesn't expose scores directly
+                            "metadata": {
+                                "uuid": edge.uuid,
+                                "source_node_uuid": edge.source_node_uuid,
+                                "target_node_uuid": edge.target_node_uuid,
+                                "valid_at": edge.valid_at.isoformat() if edge.valid_at else None,
+                                "invalid_at": edge.invalid_at.isoformat() if edge.invalid_at else None,
+                                "created_at": edge.created_at.isoformat() if edge.created_at else None,
+                            },
+                        })
 
-                    except Exception as e:
-                        raise BackendError(
-                            f"Query '{query_text}' failed: {e}"
-                        ) from e
-                return results
-
-            all_results = asyncio.run(execute_queries())
+                except Exception as e:
+                    raise BackendError(
+                        f"Query '{query_text}' failed: {e}"
+                    ) from e
 
             return QueryResult(
                 manifest_version=query.manifest_version,
-                results=all_results,
-                message=f"Executed {len(query.queries)} queries, returned {len(all_results)} results",
+                results=results,
+                message=f"Executed {len(query.queries)} queries, returned {len(results)} results",
             )
 
         except ConfigError:

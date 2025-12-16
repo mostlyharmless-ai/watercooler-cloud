@@ -2813,7 +2813,7 @@ def recover_branch_state(
 
 
 @mcp.tool(name="watercooler_v1_query_memory")
-def query_memory(
+async def query_memory(
     query: str,
     ctx: Context,
     code_path: str = "",
@@ -2915,20 +2915,53 @@ def query_memory(
 
         # Get backend instance
         backend = mem.get_graphiti_backend(config)
-        if backend is None:
-            return ToolResult(content=[TextContent(
-                type="text",
-                text=json.dumps(
-                    {
-                        "error": "Backend initialization failed",
-                        "message": "Check logs for Graphiti backend errors",
+        if backend is None or isinstance(backend, dict):
+            if isinstance(backend, dict):
+                # Structured error with details
+                error_type = backend.get("error", "unknown")
+                details = backend.get("details", "No details available")
+                package_path = backend.get("package_path", "unknown")
+                python_version = backend.get("python_version", "unknown")
+
+                # Determine fix based on error type
+                if "uv/archive" in package_path or "cache" in package_path:
+                    fix_msg = (
+                        f"Python {python_version} is loading from UV cache. "
+                        "Fix: Ensure MCP server uses the correct Python environment, "
+                        f"or install in Python {python_version} with: "
+                        "uv pip install --reinstall --no-cache -e \".[memory,mcp]\""
+                    )
+                else:
+                    fix_msg = "Check MCP server configuration and Python environment"
+
+                return ToolResult(content=[TextContent(
+                    type="text",
+                    text=json.dumps({
+                        "error": f"Backend {error_type}",
+                        "message": details,
+                        "python_version": python_version,
+                        "package_path": package_path,
+                        "fix": fix_msg,
                         "query": query,
                         "result_count": 0,
                         "results": [],
-                    },
-                    indent=2,
-                )
-            )])
+                    }, indent=2)
+                )])
+            else:
+                # Fallback for None (shouldn't happen with new code, but kept for safety)
+                return ToolResult(content=[TextContent(
+                    type="text",
+                    text=json.dumps(
+                        {
+                            "error": "Backend initialization failed",
+                            "message": "Check logs for Graphiti backend errors",
+                            "query": query,
+                            "result_count": 0,
+                            "results": [],
+                        },
+                        indent=2,
+                    )
+                )])
 
         # Resolve threads directory (for context logging, not directly used in query)
         error, context = _require_context(code_path)
@@ -2940,7 +2973,7 @@ def query_memory(
         log_action("memory.query", query=query, limit=limit, topic=topic)
 
         try:
-            results = mem.query_memory(backend, query, limit, topic=topic)
+            results = await mem.query_memory(backend, query, limit, topic=topic)
 
             # Format response
             response = {
@@ -2992,6 +3025,104 @@ def query_memory(
                     "query": query,
                     "result_count": 0,
                     "results": [],
+                },
+                indent=2,
+            )
+        )])
+
+
+@mcp.tool(name="watercooler_v1_diagnose_memory")
+def diagnose_memory(ctx: Context) -> ToolResult:
+    """Diagnose Graphiti memory backend installation and configuration.
+
+    Returns diagnostic information about package paths, imports, and configuration.
+    Useful for debugging backend initialization issues.
+
+    Returns:
+        JSON with diagnostic information including:
+        - Python version
+        - watercooler_memory package path
+        - GraphitiBackend import status
+        - Configuration status
+        - Backend initialization status
+
+    Example:
+        diagnose_memory()
+    """
+    try:
+        # Import memory module (lazy-load)
+        try:
+            from . import memory as mem
+        except ImportError as e:
+            return ToolResult(content=[TextContent(
+                type="text",
+                text=json.dumps(
+                    {
+                        "error": "Memory module unavailable",
+                        "message": f"Install with: pip install watercooler-cloud[memory]. Details: {e}",
+                    },
+                    indent=2,
+                )
+            )])
+
+        import sys
+        diagnostics = {
+            "python_version": f"{sys.version_info.major}.{sys.version_info.minor}.{sys.version_info.micro}",
+            "python_executable": sys.executable,
+        }
+
+        # Check watercooler_memory import and path
+        try:
+            import watercooler_memory
+            diagnostics["watercooler_memory_path"] = watercooler_memory.__file__
+            diagnostics["watercooler_memory_version"] = getattr(
+                watercooler_memory, "__version__", "unknown"
+            )
+        except ImportError as e:
+            diagnostics["watercooler_memory_import"] = f"✗ Failed: {e}"
+
+        # Check GraphitiBackend import
+        try:
+            from watercooler_memory.backends import GraphitiBackend
+            diagnostics["graphiti_backend_import"] = "✓ Success"
+            diagnostics["graphiti_backend_in_all"] = "GraphitiBackend" in getattr(
+                __import__("watercooler_memory.backends"), "__all__", []
+            )
+        except ImportError as e:
+            diagnostics["graphiti_backend_import"] = f"✗ Failed: {e}"
+
+        # Check config
+        config = mem.load_graphiti_config()
+        diagnostics["graphiti_enabled"] = config is not None
+        if config:
+            diagnostics["openai_key_set"] = bool(config.openai_api_key)
+        else:
+            diagnostics["config_issue"] = "WATERCOOLER_GRAPHITI_ENABLED != '1' or OPENAI_API_KEY not set"
+
+        # Check backend initialization
+        if config:
+            backend = mem.get_graphiti_backend(config)
+            if isinstance(backend, dict):
+                diagnostics["backend_init"] = f"✗ Failed: {backend.get('error', 'unknown')}"
+                diagnostics["backend_error_details"] = backend
+            elif backend is None:
+                diagnostics["backend_init"] = "✗ Failed: Returned None"
+            else:
+                diagnostics["backend_init"] = "✓ Success"
+
+        return ToolResult(content=[TextContent(
+            type="text",
+            text=json.dumps(diagnostics, indent=2)
+        )])
+
+    except Exception as e:
+        log_error(f"MEMORY: Unexpected error in diagnose_memory: {e}")
+        return ToolResult(content=[TextContent(
+            type="text",
+            text=json.dumps(
+                {
+                    "error": "Diagnostic failed",
+                    "message": str(e),
                 },
                 indent=2,
             )

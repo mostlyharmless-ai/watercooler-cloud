@@ -86,26 +86,42 @@ def get_graphiti_backend(config: GraphitiConfig) -> Any:
             GraphitiConfig as BackendConfig,
         )
     except ImportError as e:
-        log_warning(
-            f"MEMORY: Graphiti backend unavailable: {e}. "
-            "Install with: pip install watercooler-cloud[memory]"
+        # Add path and Python version diagnostics
+        import sys
+        python_version = f"{sys.version_info.major}.{sys.version_info.minor}"
+
+        # Try to get package path, but guard against watercooler_memory itself being missing
+        package_path = "unknown"
+        try:
+            import watercooler_memory
+            package_path = watercooler_memory.__file__
+        except ImportError:
+            # watercooler_memory itself is missing - keep original error
+            pass
+
+        error_msg = (
+            f"MEMORY: Graphiti backend unavailable: {e}\n"
+            f"Python version: {python_version}\n"
+            f"Package loaded from: {package_path}\n"
+            f"Expected source path: {Path(__file__).parent.parent.parent}/src\n"
+            f"Fix: Ensure MCP server uses correct Python environment"
         )
-        return None
+        log_warning(error_msg)
+        return {
+            "error": "import_failed",
+            "details": str(e),
+            "package_path": package_path,
+            "python_version": python_version,
+        }
 
-    # Compute absolute path to graphiti submodule
-    # memory.py is at src/watercooler_mcp/memory.py, so go up 3 levels to project root
-    project_root = Path(__file__).parent.parent.parent
-    graphiti_path = project_root / "external" / "graphiti"
-
-    # Use hardcoded defaults for all configuration
+    # Use backend defaults with env var overrides for FalkorDB settings
+    # Backend GraphitiConfig provides defaults for graphiti_path, work_dir, model, etc.
+    # We only override what's needed: API key and optionally FalkorDB connection
     backend_config = BackendConfig(
-        graphiti_path=graphiti_path,
-        falkordb_host="localhost",
-        falkordb_port=6379,
         openai_api_key=config.openai_api_key,
-        openai_api_base=None,
-        openai_model="gpt-4o-mini",
-        work_dir=Path.home() / ".watercooler" / "graphiti",
+        falkordb_host=os.getenv("FALKORDB_HOST", "localhost"),
+        falkordb_port=int(os.getenv("FALKORDB_PORT", "6379")),
+        falkordb_password=os.getenv("FALKORDB_PASSWORD") or None,
     )
 
     try:
@@ -116,11 +132,19 @@ def get_graphiti_backend(config: GraphitiConfig) -> Any:
         )
         return backend
     except Exception as e:
-        log_warning(f"MEMORY: Failed to initialize Graphiti backend: {e}")
-        return None
+        import sys
+        python_version = f"{sys.version_info.major}.{sys.version_info.minor}"
+        error_msg = f"MEMORY: Failed to initialize Graphiti backend: {e}"
+        log_warning(error_msg)
+        return {
+            "error": "init_failed",
+            "details": str(e),
+            "python_version": python_version,
+            "backend_config": str(backend_config),
+        }
 
 
-def query_memory(
+async def query_memory(
     backend: Any,
     query_text: str,
     limit: int = 10,
@@ -142,7 +166,7 @@ def query_memory(
 
     Example:
         >>> backend = get_graphiti_backend(config)
-        >>> results = query_memory(backend, "What auth was implemented?", limit=5)
+        >>> results = await query_memory(backend, "What auth was implemented?", limit=5)
         >>> for result in results:
         ...     print(f"{result['content']} (score: {result['score']})")
     """
@@ -163,5 +187,5 @@ def query_memory(
         queries=[query_dict],
     )
 
-    result = backend.query(payload)
+    result = await backend.query(payload)
     return result.results
