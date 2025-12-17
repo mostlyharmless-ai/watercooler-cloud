@@ -157,6 +157,7 @@ async def query_memory(
         query_text: Search query string
         limit: Maximum results to return (1-50)
         topic: Optional thread topic to filter by (will be converted to group_id)
+              If None, searches across ALL indexed threads.
 
     Returns:
         List of result dictionaries with keys: query, content, score, metadata
@@ -177,8 +178,9 @@ async def query_memory(
         "query": query_text,
         "limit": limit,
     }
-    
-    # Add group_ids if topic specified (backend will sanitize it)
+
+    # Add topic for group_id filtering
+    # Note: If topic is None, backend will search across all available graphs
     if topic:
         query_dict["topic"] = topic
 

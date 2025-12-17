@@ -270,46 +270,57 @@ class GraphitiBackend(MemoryBackend):
         return Graphiti(graph_driver=falkor_driver, llm_client=llm_client)
 
     def _sanitize_thread_id(self, thread_id: str) -> str:
-        """Sanitize thread ID for use as Graphiti group_id (database name).
+        """Sanitize thread ID for use as Graphiti group_id.
 
-        Ensures the thread ID is a valid FalkorDB database name by:
-        - Replacing non-alphanumeric characters with underscores
-        - Collapsing multiple underscores into one
-        - Ensuring non-empty result (defaults to "unknown")
-        - Ensuring starts with a letter (prepends "t_" if needed)
-        - Enforcing maximum length (64 chars, minus pytest__ prefix space if needed)
-        - Adding pytest__ prefix if in test mode
+        With RediSearch escaping now handled in FalkorDB driver (external/graphiti),
+        we only need minimal sanitization to remove truly problematic characters.
+        
+        Preserves hyphens and underscores for readability and provenance.
 
-        Note: Unicode characters (including emoji) are stripped by the [^a-zA-Z0-9]+
-        regex and replaced with underscores. Consider explicit Unicode handling if
-        thread IDs commonly include non-ASCII characters.
+        Sanitization rules:
+        - Remove control characters and null bytes
+        - Strip leading/trailing whitespace
+        - Ensure non-empty (defaults to "unknown")
+        - Ensure starts with letter (prepends "t_" if needed, following FalkorDB best practice)
+        - Enforce maximum length (64 chars, minus pytest__ prefix space if needed)
+        - Add pytest__ prefix if in test mode
 
         Args:
-            thread_id: Original thread identifier
+            thread_id: Original thread identifier (e.g., "memory-backend.md")
 
         Returns:
-            Sanitized database-safe thread ID with pytest__ prefix if test_mode=True
+            Sanitized group_id with pytest__ prefix if test_mode=True
+            
+        Examples:
+            "memory-backend.md" → "memory-backend.md"
+            "123-test" → "t_123-test"
+            "  spaces  " → "spaces"
         """
-        # Replace non-alphanumeric with underscore, collapse multiples, strip edges
-        sanitized = re.sub(r'[^a-zA-Z0-9]+', '_', thread_id).strip('_')
-
-        # Ensure non-empty and starts with letter
+        # Remove control characters and null bytes (keep printable chars including hyphens/underscores)
+        sanitized = ''.join(c for c in thread_id if c.isprintable() and c != '\x00')
+        
+        # Strip whitespace from edges
+        sanitized = sanitized.strip()
+        
+        # Ensure non-empty
         if not sanitized:
             sanitized = "unknown"
+            
+        # Ensure starts with letter (FalkorDB best practice)
         if not sanitized[0].isalpha():
             sanitized = "t_" + sanitized
-
+        
         # Apply length limit (reserve space for pytest__ prefix if in test mode)
         max_len = self._MAX_DB_NAME_LENGTH - (self._TEST_PREFIX_LENGTH if self.config.test_mode else 0)
         if len(sanitized) > max_len:
             sanitized = sanitized[:max_len]
-
+        
         # Add pytest__ prefix for test database identification (if in test mode)
         if self.config.test_mode:
             # Don't duplicate prefix if already present
             if not sanitized.startswith("pytest__"):
                 sanitized = "pytest__" + sanitized
-
+        
         return sanitized
 
     def _map_entries_to_episodes(
@@ -509,21 +520,53 @@ class GraphitiBackend(MemoryBackend):
             for query_item in query.queries:
                 query_text = query_item.get("query", "")
                 limit = query_item.get("limit", 10)
-                
+
                 # Extract optional topic for group_id filtering
                 topic = query_item.get("topic")
-                group_ids = None
                 if topic:
                     # Sanitize topic to group_id format
                     group_ids = [self._sanitize_thread_id(topic)]
+                else:
+                    # No topic specified - search across all available graphs
+                    # List all graphs from FalkorDB
+                    try:
+                        import redis
+                        r = redis.Redis(
+                            host=self.config.falkordb_host,
+                            port=self.config.falkordb_port,
+                            password=self.config.falkordb_password,
+                        )
+                        graph_list = r.execute_command('GRAPH.LIST')
+                        # Filter out default_db and decode bytes to strings
+                        group_ids = [
+                            g.decode() if isinstance(g, bytes) else g
+                            for g in graph_list
+                            if (g.decode() if isinstance(g, bytes) else g) != 'default_db'
+                        ]
+                    except Exception as e:
+                        # If we can't list graphs, fall back to None (searches default_db)
+                        group_ids = None
 
                 try:
-                    # Graphiti search is async
-                    search_results = await graphiti.search(
-                        query=query_text,
-                        num_results=limit,
-                        group_ids=group_ids,
-                    )
+                    # Handle single group_id case: @handle_multiple_group_ids decorator
+                    # only activates for len(group_ids) > 1, so we need to manually
+                    # clone the driver for single group_id queries
+                    if group_ids and len(group_ids) == 1:
+                        # Clone driver to point at the specific database
+                        driver = graphiti.clients.driver.clone(database=group_ids[0])
+                        search_results = await graphiti.search(
+                            query=query_text,
+                            num_results=limit,
+                            group_ids=group_ids,
+                            driver=driver,
+                        )
+                    else:
+                        # Multiple group_ids or None - let decorator handle it
+                        search_results = await graphiti.search(
+                            query=query_text,
+                            num_results=limit,
+                            group_ids=group_ids,
+                        )
 
                     # Map Graphiti results to canonical format
                     # search_results is a list of EntityEdge Pydantic models
@@ -538,19 +581,15 @@ class GraphitiBackend(MemoryBackend):
                                 "target_node_uuid": edge.target_node_uuid,
                                 "valid_at": edge.valid_at.isoformat() if edge.valid_at else None,
                                 "invalid_at": edge.invalid_at.isoformat() if edge.invalid_at else None,
-                                "created_at": edge.created_at.isoformat() if edge.created_at else None,
+                                "group_id": edge.group_id,
                             },
                         })
-
                 except Exception as e:
-                    raise BackendError(
-                        f"Query '{query_text}' failed: {e}"
-                    ) from e
+                    raise BackendError(f"Query '{query_text}' failed: {e}") from e
 
             return QueryResult(
                 manifest_version=query.manifest_version,
                 results=results,
-                message=f"Executed {len(query.queries)} queries, returned {len(results)} results",
             )
 
         except ConfigError:
@@ -560,7 +599,7 @@ class GraphitiBackend(MemoryBackend):
         except BackendError:
             raise
         except Exception as e:
-            raise BackendError(f"Query failed: {e}") from e
+            raise BackendError(f"Query execution failed: {e}") from e
 
     def healthcheck(self) -> HealthStatus:
         """
