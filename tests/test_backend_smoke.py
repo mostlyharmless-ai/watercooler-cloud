@@ -625,6 +625,47 @@ class TestGraphitiSmoke:
                 assert "valid_at" in ep, "Episode should have valid_at (t_ref)"
                 assert "source" in ep, "Episode should have source type"
 
+        # Verify nodes are present (Codex: add size sanity checks)
+        for result in query_result.results:
+            nodes = result.get("metadata", {}).get("nodes", [])
+            if nodes:  # Not all edges may have node metadata
+                for node in nodes:
+                    assert "uuid" in node, "Node should have uuid"
+                    assert "name" in node, "Node should have name"
+                    assert "labels" in node, "Node should have labels"
+                    assert "role" in node, "Node should have role (source/target)"
+                    assert "edge_uuid" in node, "Node should link back to edge"
+
+                    # Size sanity check (Codex: prevent payload bloat)
+                    if node.get("summary"):
+                        summary_len = len(node["summary"])
+                        assert summary_len <= 2048 + 20, \
+                            f"Node summary should be truncated to ~2KB, got {summary_len} chars"
+
+        # Verify episode scores are present
+        for result in query_result.results:
+            episodes = result.get("metadata", {}).get("episodes", [])
+            for ep in episodes:
+                assert "score" in ep, "Episode should have score"
+                assert isinstance(ep["score"], (int, float)), "Episode score should be numeric"
+
+        # Verify communities in QueryResult (Codex: add size sanity checks)
+        if hasattr(query_result, 'communities'):
+            communities = query_result.communities
+            # Codex: limit to small top-k
+            assert len(communities) <= 5, f"Should limit to top-5 communities, got {len(communities)}"
+
+            for comm in communities:
+                assert "name" in comm or "uuid" in comm, "Community should have identifier"
+                if "score" in comm:
+                    assert isinstance(comm["score"], (int, float)), "Community score should be numeric"
+
+                # Size sanity check if summaries present
+                if comm.get("summary"):
+                    summary_len = len(comm["summary"])
+                    assert summary_len <= 4096, \
+                        f"Community summary should be reasonable size, got {summary_len} chars"
+
         print(f"✓ Query returned {len(query_result.results)} results with max score={max_score:.2f}")
         print(f"  Reranker: {query_result.results[0]['metadata']['reranker']}")
 

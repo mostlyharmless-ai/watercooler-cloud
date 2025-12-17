@@ -159,7 +159,7 @@ async def query_memory(
     query_text: str,
     limit: int = 10,
     topic: Optional[str] = None,
-) -> Sequence[Mapping[str, Any]]:
+) -> tuple[Sequence[Mapping[str, Any]], Sequence[Mapping[str, Any]]]:
     """Execute memory query against Graphiti backend.
 
     Args:
@@ -170,16 +170,19 @@ async def query_memory(
               If None, searches across ALL indexed threads.
 
     Returns:
-        List of result dictionaries with keys: query, content, score, metadata
+        Tuple of (results, communities):
+        - results: List of result dictionaries with keys: query, content, score, metadata
+        - communities: List of community dictionaries with top-level domain clusters
 
     Raises:
         Exception: For query execution failures
 
     Example:
         >>> backend = get_graphiti_backend(config)
-        >>> results = await query_memory(backend, "What auth was implemented?", limit=5)
+        >>> results, communities = await query_memory(backend, "What auth was implemented?", limit=5)
         >>> for result in results:
         ...     print(f"{result['content']} (score: {result['score']})")
+        >>> print(f"Found {len(communities)} communities")
     """
     from watercooler_memory.backends import QueryPayload
 
@@ -203,4 +206,4 @@ async def query_memory(
     # Use to_thread to avoid "cannot call asyncio.run from running loop" error
     import asyncio
     result = await asyncio.to_thread(backend.query, payload)
-    return result.results
+    return result.results, result.communities

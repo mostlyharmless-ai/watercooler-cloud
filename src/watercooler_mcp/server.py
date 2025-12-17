@@ -2973,7 +2973,7 @@ async def query_memory(
         log_action("memory.query", query=query, limit=limit, topic=topic)
 
         try:
-            results = await mem.query_memory(backend, query, limit, topic=topic)
+            results, communities = await mem.query_memory(backend, query, limit, topic=topic)
 
             # Format response
             response = {
@@ -2987,7 +2987,8 @@ async def query_memory(
                     }
                     for r in results
                 ],
-                "message": f"Found {len(results)} results",
+                "communities": communities,
+                "message": f"Found {len(results)} results and {len(communities)} communities",
             }
 
             if topic:

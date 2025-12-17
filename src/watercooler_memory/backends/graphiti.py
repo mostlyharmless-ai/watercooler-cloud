@@ -89,6 +89,11 @@ class GraphitiBackend(MemoryBackend):
     # to keep response sizes manageable while providing sufficient context for RAG
     _MAX_EPISODE_CONTENT_LENGTH = 8192
 
+    # Maximum node summary length (2KB - shorter than episodes)
+    # Node summaries are regional consolidations that can be verbose,
+    # truncate to prevent payload bloat per Codex feedback
+    _MAX_NODE_SUMMARY_LENGTH = 2048
+
     def __init__(self, config: GraphitiConfig | None = None) -> None:
         self.config = config or GraphitiConfig()
         self._validate_config()
@@ -404,6 +409,31 @@ class GraphitiBackend(MemoryBackend):
 
         return content[:max_length] + "\n...[truncated]"
 
+    def _truncate_node_summary(self, summary: str | None) -> str | None:
+        """Truncate node summary to prevent payload bloat.
+
+        Args:
+            summary: Node summary to truncate (may be None)
+
+        Returns:
+            Truncated summary with marker if needed, or None if input was None
+
+        Example:
+            >>> backend._truncate_node_summary(None)
+            None
+            >>> backend._truncate_node_summary("Short summary")
+            'Short summary'
+            >>> backend._truncate_node_summary("A" * 3000)
+            'AAA...[truncated]'  # Truncated to 2048 chars
+        """
+        if not summary:
+            return None
+
+        if len(summary) <= self._MAX_NODE_SUMMARY_LENGTH:
+            return summary
+
+        return summary[:self._MAX_NODE_SUMMARY_LENGTH] + "...[truncated]"
+
     def _map_entries_to_episodes(
         self, corpus: CorpusPayload
     ) -> list[dict[str, Any]]:
@@ -575,7 +605,7 @@ class GraphitiBackend(MemoryBackend):
         """
         Query Graphiti temporal graph with comprehensive multi-layer retrieval.
 
-        Executes hybrid search across:
+        Executes hybrid search across all four Graphiti subgraphs:
         - Edges: Extracted facts with bi-temporal tracking
         - Episodes: Full original content (non-lossy source data)
         - Nodes: Entity-centric summaries
@@ -585,29 +615,38 @@ class GraphitiBackend(MemoryBackend):
             query: Query payload with search queries
 
         Returns:
-            QueryResult with results containing:
-            - content: Brief extracted fact (edge.fact)
-            - score: Reranker relevance score (0.0-10.0+)
-            - metadata:
-                - uuid, source_node_uuid, target_node_uuid: Edge identifiers
-                - valid_at, invalid_at: Fact validity period
-                - group_id: Thread/topic identifier
-                - source_backend: "graphiti"
-                - reranker: Algorithm used (rrf, mmr, cross_encoder, etc.)
-                - episodes: List of source episodes with full content
-                    - uuid: Episode identifier
-                    - content: Full original text (truncated to 8KB max)
-                    - source: Episode type (text, json, message)
-                    - source_description: Origin context
-                    - valid_at: Creation timestamp (t_ref)
-                    - created_at: Database creation time (if available)
-                    - name: Episode identifier/title
+            QueryResult with:
+            - results: List of edge-centric results, each containing:
+                - content: Brief extracted fact (edge.fact)
+                - score: Edge reranker relevance score (0.0-10.0+)
+                - metadata:
+                    - Edge identifiers (uuid, source_node_uuid, target_node_uuid)
+                    - Temporal tracking (valid_at, invalid_at)
+                    - Backend provenance (source_backend, reranker)
+                    - episodes: List of source episodes with:
+                        - uuid, content (truncated to 8KB), score (episode relevance)
+                        - source, source_description, valid_at, created_at, name
+                        - NOTE: episode.score represents episode relevance, may differ
+                          from edge.score (fact relevance). For fact-based ranking, use
+                          edge scores. For content-based ranking, use episode scores.
+                    - nodes: List of connected entities with:
+                        - uuid, name, labels, summary (truncated to 2KB), created_at
+                        - role (source/target), edge_uuid (for context stitching)
+            - communities: Top 5 domain-level clusters (optional) with:
+                - uuid, name, summary, score
 
-        Example RAG Usage:
-            1. Rank by edge scores (brief facts)
-            2. Select top N edges
-            3. Extract episode content from metadata for context
-            4. Generate comprehensive answer from episodes
+        Scoring Precedence (Codex feedback):
+            - Edge scores: Rank extracted facts by relevance to query
+            - Episode scores: Rank source content by relevance to query
+            - Use edge scores for fact-based RAG (precise facts)
+            - Use episode scores for content-based RAG (rich context)
+            - Both are valid strategies depending on use case
+
+        Example Multi-Strategy RAG:
+            1. Fact-based: Rank by edge scores, extract episodes for context
+            2. Entity-based: Filter by node labels, use node summaries
+            3. Topic-based: Group by communities, aggregate related content
+            4. Content-based: Rank by episode scores, use episodes as primary source
 
         Raises:
             BackendError: If query fails
@@ -624,6 +663,7 @@ class GraphitiBackend(MemoryBackend):
             # Execute queries asynchronously
             async def execute_queries():
                 results = []
+                all_communities = []  # Collect communities across all queries
                 for query_item in query.queries:
                     query_text = query_item.get("query", "")
                     limit = query_item.get("limit", 10)
@@ -694,6 +734,24 @@ class GraphitiBackend(MemoryBackend):
                                     episode_index[edge_uuid] = []
                                 episode_index[edge_uuid].append(ep)
 
+                        # Build node index for efficient edge→node lookup
+                        # Nodes are connected entities (source/target) for each edge
+                        node_index: dict[str, Any] = {}
+                        for node in search_results.nodes:
+                            node_index[node.uuid] = node
+
+                        # Build episode score index with defensive length checks
+                        # Codex: defend against array length mismatches
+                        episode_score_index: dict[str, float] = {}
+                        num_episode_scores = len(search_results.episode_reranker_scores)
+                        for idx, ep in enumerate(search_results.episodes):
+                            # Use positional alignment but defend against array length mismatch
+                            if idx < num_episode_scores:
+                                episode_score_index[ep.uuid] = search_results.episode_reranker_scores[idx]
+                            else:
+                                # Default to 0.0 if scores missing (shouldn't happen but defend anyway)
+                                episode_score_index[ep.uuid] = 0.0
+
                         # Return only top N results after reranking
                         # Graphiti already sorted edges by reranker score
                         for idx, edge in enumerate(search_results.edges[:limit]):
@@ -704,6 +762,39 @@ class GraphitiBackend(MemoryBackend):
 
                             # Find episodes that contain this edge
                             source_episodes = episode_index.get(edge.uuid, [])
+
+                            # Find connected nodes (entities) for this edge
+                            # Codex: include edge UUID for context stitching
+                            source_node = node_index.get(edge.source_node_uuid)
+                            target_node = node_index.get(edge.target_node_uuid)
+
+                            # Build nodes list with role and edge linkage
+                            edge_nodes = []
+                            if source_node:
+                                edge_nodes.append({
+                                    "uuid": source_node.uuid,
+                                    "name": source_node.name,
+                                    "labels": source_node.labels,
+                                    "summary": self._truncate_node_summary(
+                                        source_node.summary if hasattr(source_node, 'summary') else None
+                                    ),
+                                    "created_at": source_node.created_at.isoformat() if source_node.created_at else None,
+                                    "role": "source",
+                                    "edge_uuid": edge.uuid,
+                                })
+                            if target_node and target_node.uuid != (source_node.uuid if source_node else None):
+                                # Avoid duplicates when source and target are the same node
+                                edge_nodes.append({
+                                    "uuid": target_node.uuid,
+                                    "name": target_node.name,
+                                    "labels": target_node.labels,
+                                    "summary": self._truncate_node_summary(
+                                        target_node.summary if hasattr(target_node, 'summary') else None
+                                    ),
+                                    "created_at": target_node.created_at.isoformat() if target_node.created_at else None,
+                                    "role": "target",
+                                    "edge_uuid": edge.uuid,
+                                })
 
                             results.append({
                                 "query": query_text,
@@ -725,6 +816,7 @@ class GraphitiBackend(MemoryBackend):
                                         {
                                             "uuid": ep.uuid,
                                             "content": self._truncate_episode_content(ep.content),
+                                            "score": episode_score_index.get(ep.uuid, 0.0),  # Episode relevance score
                                             "source": ep.source.value if hasattr(ep.source, 'value') else str(ep.source),
                                             "source_description": ep.source_description,
                                             "valid_at": ep.valid_at.isoformat() if ep.valid_at else None,
@@ -733,19 +825,42 @@ class GraphitiBackend(MemoryBackend):
                                         }
                                         for ep in source_episodes
                                     ],
+                                    # Connected nodes (entities) with summaries
+                                    # Codex: include for entity-centric queries and context stitching
+                                    "nodes": edge_nodes,
                                 },
                             })
+
+                        # Extract top 5 communities (domain-level clusters)
+                        # Codex: limit to small top-k to prevent payload bloat
+                        for idx, comm in enumerate(search_results.communities[:5]):
+                            comm_dict = {
+                                "uuid": comm.uuid if hasattr(comm, 'uuid') else None,
+                                "name": comm.name if hasattr(comm, 'name') else f"Community {idx}",
+                                "summary": comm.summary if hasattr(comm, 'summary') else None,
+                            }
+                            # Add score if available (positional alignment)
+                            if idx < len(search_results.community_reranker_scores):
+                                comm_dict["score"] = search_results.community_reranker_scores[idx]
+                            else:
+                                comm_dict["score"] = 0.0
+
+                            # Add if not already present (avoid duplicates across queries)
+                            if comm_dict not in all_communities:
+                                all_communities.append(comm_dict)
+
                     except Exception as e:
                         raise BackendError(f"Query '{query_text}' failed: {e}") from e
-                
-                return results
+
+                return results, all_communities
 
             # Run async query execution
-            results = asyncio.run(execute_queries())
+            results, communities = asyncio.run(execute_queries())
 
             return QueryResult(
                 manifest_version=query.manifest_version,
                 results=results,
+                communities=communities,
             )
 
         except ConfigError:
