@@ -18,8 +18,8 @@ from .observability import log_debug, log_warning
 class GraphitiConfig:
     """Configuration for Graphiti memory backend."""
 
-    enabled: bool
     openai_api_key: str
+    reranker: str = "rrf"
 
 
 def load_graphiti_config() -> Optional[GraphitiConfig]:
