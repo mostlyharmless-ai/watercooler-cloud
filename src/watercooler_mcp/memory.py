@@ -107,14 +107,10 @@ def get_graphiti_backend(config: GraphitiConfig) -> Any:
             pass
 
         error_msg = (
-            f"MEMORY: Graphiti backend unavailable: {e}
-"
-            f"Python version: {python_version}
-"
-            f"Package loaded from: {package_path}
-"
-            f"Expected source path: {Path(__file__).parent.parent.parent}/src
-"
+            f"MEMORY: Graphiti backend unavailable: {e}\n"
+            f"Python version: {python_version}\n"
+            f"Package loaded from: {package_path}\n"
+            f"Expected source path: {Path(__file__).parent.parent.parent}/src\n"
             f"Fix: Ensure MCP server uses correct Python environment"
         )
         log_warning(error_msg)
