@@ -7,19 +7,22 @@ Follows MCP server patterns for configuration, observability, and error handling
 from __future__ import annotations
 
 import os
-from dataclasses import dataclass
 from pathlib import Path
 from typing import Any, Mapping, Optional, Sequence
 
 from .observability import log_debug, log_warning
 
-
-@dataclass
-class GraphitiConfig:
-    """Configuration for Graphiti memory backend."""
-
-    openai_api_key: str
-    reranker: str = "rrf"
+# Import backend's GraphitiConfig directly (consolidates duplicate configs)
+try:
+    from watercooler_memory.backends.graphiti import GraphitiConfig
+except ImportError:
+    # If backend not installed, define minimal config for type hints
+    from dataclasses import dataclass
+    @dataclass
+    class GraphitiConfig:  # type: ignore
+        """Minimal config stub when backend unavailable."""
+        openai_api_key: str
+        reranker: str = "rrf"
 
 
 def load_graphiti_config() -> Optional[GraphitiConfig]:
@@ -60,6 +63,8 @@ def load_graphiti_config() -> Optional[GraphitiConfig]:
     # Get reranker algorithm (default: rrf for speed)
     reranker = os.getenv("WATERCOOLER_GRAPHITI_RERANKER", "rrf").lower()
 
+    # Return backend's GraphitiConfig with defaults
+    # Only specify required/overridden fields - backend provides the rest
     return GraphitiConfig(
         openai_api_key=openai_api_key,
         reranker=reranker,
@@ -87,9 +92,6 @@ def get_graphiti_backend(config: GraphitiConfig) -> Any:
     """
     try:
         from watercooler_memory.backends import GraphitiBackend  # type: ignore[attr-defined]
-        from watercooler_memory.backends.graphiti import (  # type: ignore[import-not-found]
-            GraphitiConfig as BackendConfig,
-        )
     except ImportError as e:
         # Add path and Python version diagnostics
         import sys
@@ -105,10 +107,14 @@ def get_graphiti_backend(config: GraphitiConfig) -> Any:
             pass
 
         error_msg = (
-            f"MEMORY: Graphiti backend unavailable: {e}\n"
-            f"Python version: {python_version}\n"
-            f"Package loaded from: {package_path}\n"
-            f"Expected source path: {Path(__file__).parent.parent.parent}/src\n"
+            f"MEMORY: Graphiti backend unavailable: {e}
+"
+            f"Python version: {python_version}
+"
+            f"Package loaded from: {package_path}
+"
+            f"Expected source path: {Path(__file__).parent.parent.parent}/src
+"
             f"Fix: Ensure MCP server uses correct Python environment"
         )
         log_warning(error_msg)
@@ -119,16 +125,18 @@ def get_graphiti_backend(config: GraphitiConfig) -> Any:
             "python_version": python_version,
         }
 
-    # Use backend defaults with env var overrides for FalkorDB settings
-    # Backend GraphitiConfig provides defaults for graphiti_path, work_dir, model, etc.
-    # We only override what's needed: API key and optionally FalkorDB connection
-    backend_config = BackendConfig(
-        openai_api_key=config.openai_api_key,
-        reranker=config.reranker,
-        falkordb_host=os.getenv("FALKORDB_HOST", "localhost"),
-        falkordb_port=int(os.getenv("FALKORDB_PORT", "6379")),
-        falkordb_password=os.getenv("FALKORDB_PASSWORD") or None,
-    )
+    # Config is already the backend's GraphitiConfig, just use it directly
+    # (with optional FalkorDB environment overrides)
+    backend_config = config
+    if os.getenv("FALKORDB_HOST") or os.getenv("FALKORDB_PORT") or os.getenv("FALKORDB_PASSWORD"):
+        # Override FalkorDB settings from environment if specified
+        from dataclasses import replace
+        backend_config = replace(
+            config,
+            falkordb_host=os.getenv("FALKORDB_HOST", config.falkordb_host),
+            falkordb_port=int(os.getenv("FALKORDB_PORT", str(config.falkordb_port))),
+            falkordb_password=os.getenv("FALKORDB_PASSWORD") or config.falkordb_password,
+        )
 
     try:
         backend = GraphitiBackend(backend_config)
