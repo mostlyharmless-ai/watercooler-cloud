@@ -685,6 +685,7 @@ class GraphitiBackend(MemoryBackend):
 
                         # Build episode index for efficient edge→episode lookup
                         # Episodes link to edges via episode.entity_edges (list of edge UUIDs)
+                        # Note: Not all edges have linked episodes (some are inferred/derived facts)
                         episode_index: dict[str, list[Any]] = {}
                         for ep in search_results.episodes:
                             # entity_edges is a list of edge UUIDs that reference this episode
@@ -693,7 +694,9 @@ class GraphitiBackend(MemoryBackend):
                                     episode_index[edge_uuid] = []
                                 episode_index[edge_uuid].append(ep)
 
-                        for idx, edge in enumerate(search_results.edges):
+                        # Return only top N results after reranking
+                        # Graphiti already sorted edges by reranker score
+                        for idx, edge in enumerate(search_results.edges[:limit]):
                             # Extract score (defaults to 0.0 if not available)
                             score = 0.0
                             if idx < len(search_results.edge_reranker_scores):

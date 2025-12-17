@@ -563,12 +563,14 @@ class TestGraphitiSmoke:
         assert index_result.manifest_version == "1.0.0"
 
         # Step 3: Query with a query that should match indexed content
+        # Request more results to ensure we get edges with linked episodes
+        # (not all edges have episodes - some are inferred/derived facts)
         query = QueryPayload(
             manifest_version="1.0.0",
             queries=[
                 {
                     "query": "OAuth2 authentication JWT tokens",
-                    "limit": 5,
+                    "limit": 20,
                 },
             ],
         )
@@ -593,11 +595,15 @@ class TestGraphitiSmoke:
             assert "reranker" in metadata, "Missing reranker in metadata"
 
         # Verify at least one result has episode content
+        # Note: Not all edges have episodes (some are inferred/derived facts)
+        # but we should see episodes for edges that came from indexed content
         has_episode = any(
             len(result.get("metadata", {}).get("episodes", [])) > 0
             for result in query_result.results
         )
-        assert has_episode, "Expected at least one result with episode content"
+        assert has_episode, (
+            f"Expected at least one result with episode content out of {len(query_result.results)} results"
+        )
 
         # Verify episode content and metadata
         for result in query_result.results:
