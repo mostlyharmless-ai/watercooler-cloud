@@ -199,5 +199,8 @@ async def query_memory(
         queries=[query_dict],
     )
 
-    result = await backend.query(payload)
+    # Backend query() is synchronous (uses asyncio.run internally)
+    # Use to_thread to avoid "cannot call asyncio.run from running loop" error
+    import asyncio
+    result = await asyncio.to_thread(backend.query, payload)
     return result.results
