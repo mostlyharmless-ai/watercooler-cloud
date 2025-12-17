@@ -641,7 +641,7 @@ class GraphitiBackend(MemoryBackend):
                                     "group_id": edge.group_id,
                                     # Backend provenance for cross-backend reranking
                                     "source_backend": "graphiti",
-                                    "reranker": self.config.reranker,
+                                    "reranker": self.config.reranker.lower(),
                                 },
                             })
                     except Exception as e:
