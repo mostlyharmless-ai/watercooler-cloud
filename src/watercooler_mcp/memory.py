@@ -31,6 +31,8 @@ def load_graphiti_config() -> Optional[GraphitiConfig]:
     Environment Variables:
         WATERCOOLER_GRAPHITI_ENABLED: "1" to enable (default: "0")
         OPENAI_API_KEY: OpenAI API key (required if enabled)
+        WATERCOOLER_GRAPHITI_RERANKER: Reranker algorithm (default: "rrf")
+            Options: rrf, mmr, cross_encoder, node_distance, episode_mentions
 
     Returns:
         GraphitiConfig instance or None if disabled/invalid
@@ -55,9 +57,12 @@ def load_graphiti_config() -> Optional[GraphitiConfig]:
         )
         return None
 
+    # Get reranker algorithm (default: rrf for speed)
+    reranker = os.getenv("WATERCOOLER_GRAPHITI_RERANKER", "rrf").lower()
+
     return GraphitiConfig(
-        enabled=enabled,
         openai_api_key=openai_api_key,
+        reranker=reranker,
     )
 
 

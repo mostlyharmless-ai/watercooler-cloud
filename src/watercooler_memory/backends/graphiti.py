@@ -48,6 +48,10 @@ class GraphitiConfig:
     # Embedding configuration
     embedding_model: str = "text-embedding-3-small"
 
+    # Search reranker algorithm (rrf, mmr, cross_encoder, node_distance, episode_mentions)
+    # RRF (Reciprocal Rank Fusion) is fast and provides good results for most cases
+    reranker: str = "rrf"
+
     # Working directory for exports
     work_dir: Path | None = None
 
@@ -268,6 +272,48 @@ class GraphitiBackend(MemoryBackend):
         )
 
         return Graphiti(graph_driver=falkor_driver, llm_client=llm_client)
+
+    def _get_search_config(self) -> Any:
+        """Get SearchConfig based on configured reranker algorithm.
+        
+        Returns:
+            SearchConfig instance for edge-focused hybrid search
+            
+        Raises:
+            ConfigError: If reranker name is invalid
+        """
+        try:
+            from graphiti_core.search.search_config_recipes import (
+                EDGE_HYBRID_SEARCH_RRF,
+                EDGE_HYBRID_SEARCH_MMR,
+                EDGE_HYBRID_SEARCH_CROSS_ENCODER,
+                EDGE_HYBRID_SEARCH_NODE_DISTANCE,
+                EDGE_HYBRID_SEARCH_EPISODE_MENTIONS,
+            )
+        except ImportError as e:
+            raise ConfigError(
+                f"Graphiti search config not available: {e}. "
+                "Ensure graphiti_core is properly installed."
+            ) from e
+        
+        # Map reranker names to SearchConfig objects
+        reranker_configs = {
+            "rrf": EDGE_HYBRID_SEARCH_RRF,
+            "mmr": EDGE_HYBRID_SEARCH_MMR,
+            "cross_encoder": EDGE_HYBRID_SEARCH_CROSS_ENCODER,
+            "node_distance": EDGE_HYBRID_SEARCH_NODE_DISTANCE,
+            "episode_mentions": EDGE_HYBRID_SEARCH_EPISODE_MENTIONS,
+        }
+        
+        reranker = self.config.reranker.lower()
+        if reranker not in reranker_configs:
+            valid_options = ", ".join(reranker_configs.keys())
+            raise ConfigError(
+                f"Invalid reranker '{reranker}'. "
+                f"Valid options: {valid_options}"
+            )
+        
+        return reranker_configs[reranker]
 
     def _sanitize_thread_id(self, thread_id: str) -> str:
         """Sanitize thread ID for use as Graphiti group_id.
@@ -490,7 +536,7 @@ class GraphitiBackend(MemoryBackend):
         except Exception as e:
             raise BackendError(f"Unexpected error during indexing: {e}") from e
 
-    async def query(self, query: QueryPayload) -> QueryResult:
+    def query(self, query: QueryPayload) -> QueryResult:
         """
         Query Graphiti temporal graph.
 
@@ -515,77 +561,96 @@ class GraphitiBackend(MemoryBackend):
             except Exception as e:
                 raise TransientError(f"Database connection failed: {e}") from e
 
-            # Execute queries (async operation)
-            results = []
-            for query_item in query.queries:
-                query_text = query_item.get("query", "")
-                limit = query_item.get("limit", 10)
+            # Execute queries asynchronously
+            async def execute_queries():
+                results = []
+                for query_item in query.queries:
+                    query_text = query_item.get("query", "")
+                    limit = query_item.get("limit", 10)
 
-                # Extract optional topic for group_id filtering
-                topic = query_item.get("topic")
-                if topic:
-                    # Sanitize topic to group_id format
-                    group_ids = [self._sanitize_thread_id(topic)]
-                else:
-                    # No topic specified - search across all available graphs
-                    # List all graphs from FalkorDB
-                    try:
-                        import redis
-                        r = redis.Redis(
-                            host=self.config.falkordb_host,
-                            port=self.config.falkordb_port,
-                            password=self.config.falkordb_password,
-                        )
-                        graph_list = r.execute_command('GRAPH.LIST')
-                        # Filter out default_db and decode bytes to strings
-                        group_ids = [
-                            g.decode() if isinstance(g, bytes) else g
-                            for g in graph_list
-                            if (g.decode() if isinstance(g, bytes) else g) != 'default_db'
-                        ]
-                    except Exception as e:
-                        # If we can't list graphs, fall back to None (searches default_db)
-                        group_ids = None
-
-                try:
-                    # Handle single group_id case: @handle_multiple_group_ids decorator
-                    # only activates for len(group_ids) > 1, so we need to manually
-                    # clone the driver for single group_id queries
-                    if group_ids and len(group_ids) == 1:
-                        # Clone driver to point at the specific database
-                        driver = graphiti.clients.driver.clone(database=group_ids[0])
-                        search_results = await graphiti.search(
-                            query=query_text,
-                            num_results=limit,
-                            group_ids=group_ids,
-                            driver=driver,
-                        )
+                    # Extract optional topic for group_id filtering
+                    topic = query_item.get("topic")
+                    if topic:
+                        # Sanitize topic to group_id format
+                        group_ids = [self._sanitize_thread_id(topic)]
                     else:
-                        # Multiple group_ids or None - let decorator handle it
-                        search_results = await graphiti.search(
-                            query=query_text,
-                            num_results=limit,
-                            group_ids=group_ids,
-                        )
+                        # No topic specified - search across all available graphs
+                        # List all graphs from FalkorDB
+                        try:
+                            import redis
+                            r = redis.Redis(
+                                host=self.config.falkordb_host,
+                                port=self.config.falkordb_port,
+                                password=self.config.falkordb_password,
+                            )
+                            graph_list = r.execute_command('GRAPH.LIST')
+                            # Filter out default_db and decode bytes to strings
+                            group_ids = [
+                                g.decode() if isinstance(g, bytes) else g
+                                for g in graph_list
+                                if (g.decode() if isinstance(g, bytes) else g) != 'default_db'
+                            ]
+                        except Exception as e:
+                            # If we can't list graphs, fall back to None (searches default_db)
+                            group_ids = None
 
-                    # Map Graphiti results to canonical format
-                    # search_results is a list of EntityEdge Pydantic models
-                    for edge in search_results:
-                        results.append({
-                            "query": query_text,
-                            "content": edge.fact,  # The fact/relationship text
-                            "score": 0.0,  # Graphiti doesn't expose scores directly
-                            "metadata": {
-                                "uuid": edge.uuid,
-                                "source_node_uuid": edge.source_node_uuid,
-                                "target_node_uuid": edge.target_node_uuid,
-                                "valid_at": edge.valid_at.isoformat() if edge.valid_at else None,
-                                "invalid_at": edge.invalid_at.isoformat() if edge.invalid_at else None,
-                                "group_id": edge.group_id,
-                            },
-                        })
-                except Exception as e:
-                    raise BackendError(f"Query '{query_text}' failed: {e}") from e
+                    try:
+                        # Get search config with configured reranker
+                        search_config = self._get_search_config()
+                        
+                        # Handle single group_id case: @handle_multiple_group_ids decorator
+                        # only activates for len(group_ids) > 1, so we need to manually
+                        # clone the driver for single group_id queries
+                        if group_ids and len(group_ids) == 1:
+                            # Clone driver to point at the specific database
+                            driver = graphiti.clients.driver.clone(database=group_ids[0])
+                            search_results = await graphiti.search_(
+                                query=query_text,
+                                config=search_config,
+                                group_ids=group_ids,
+                                driver=driver,
+                            )
+                        else:
+                            # Multiple group_ids or None - let decorator handle it
+                            search_results = await graphiti.search_(
+                                query=query_text,
+                                config=search_config,
+                                group_ids=group_ids,
+                            )
+
+                        # Map Graphiti SearchResults to canonical format
+                        # search_results.edges contains EntityEdge models
+                        # search_results.edge_reranker_scores contains scores (positionally aligned)
+                        for idx, edge in enumerate(search_results.edges):
+                            # Extract score (defaults to 0.0 if not available)
+                            score = 0.0
+                            if idx < len(search_results.edge_reranker_scores):
+                                score = search_results.edge_reranker_scores[idx]
+                            
+                            results.append({
+                                "query": query_text,
+                                "content": edge.fact,  # The fact/relationship text
+                                "score": score,  # Actual reranker score
+                                "metadata": {
+                                    # Graphiti-specific IDs
+                                    "uuid": edge.uuid,
+                                    "source_node_uuid": edge.source_node_uuid,
+                                    "target_node_uuid": edge.target_node_uuid,
+                                    "valid_at": edge.valid_at.isoformat() if edge.valid_at else None,
+                                    "invalid_at": edge.invalid_at.isoformat() if edge.invalid_at else None,
+                                    "group_id": edge.group_id,
+                                    # Backend provenance for cross-backend reranking
+                                    "source_backend": "graphiti",
+                                    "reranker": self.config.reranker,
+                                },
+                            })
+                    except Exception as e:
+                        raise BackendError(f"Query '{query_text}' failed: {e}") from e
+                
+                return results
+
+            # Run async query execution
+            results = asyncio.run(execute_queries())
 
             return QueryResult(
                 manifest_version=query.manifest_version,
