@@ -124,6 +124,7 @@ def get_graphiti_backend(config: GraphitiConfig) -> Any:
     # We only override what's needed: API key and optionally FalkorDB connection
     backend_config = BackendConfig(
         openai_api_key=config.openai_api_key,
+        reranker=config.reranker,
         falkordb_host=os.getenv("FALKORDB_HOST", "localhost"),
         falkordb_port=int(os.getenv("FALKORDB_PORT", "6379")),
         falkordb_password=os.getenv("FALKORDB_PASSWORD") or None,
