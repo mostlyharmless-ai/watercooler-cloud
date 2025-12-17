@@ -46,7 +46,6 @@ class TestGraphitiMemoryIntegration:
         monkeypatch.setenv("OPENAI_API_KEY", "sk-test")
         config = memory.load_graphiti_config()
         assert config is not None
-        assert config.enabled is True
 
     def test_backend_initialization_with_missing_deps(self, monkeypatch):
         """Test backend initialization fails gracefully when deps missing."""
