@@ -84,6 +84,11 @@ class GraphitiBackend(MemoryBackend):
     # Length of test database prefix (pytest__) for test isolation
     _TEST_PREFIX_LENGTH = len("pytest__")  # 8 characters
 
+    # Maximum episode content length to include in query results (8KB)
+    # Episodes can be large (multi-KB watercooler entries), so we truncate
+    # to keep response sizes manageable while providing sufficient context for RAG
+    _MAX_EPISODE_CONTENT_LENGTH = 8192
+
     def __init__(self, config: GraphitiConfig | None = None) -> None:
         self.config = config or GraphitiConfig()
         self._validate_config()
@@ -275,18 +280,20 @@ class GraphitiBackend(MemoryBackend):
 
     def _get_search_config(self) -> Any:
         """Get SearchConfig based on configured reranker algorithm.
-        
+
         Returns:
-            SearchConfig instance for edge-focused hybrid search
-            
+            SearchConfig instance for multi-layer hybrid search.
+            COMBINED configs populate edges, episodes, nodes, and communities
+            for comprehensive RAG with full episode content.
+
         Raises:
             ConfigError: If reranker name is invalid
         """
         try:
             from graphiti_core.search.search_config_recipes import (
-                EDGE_HYBRID_SEARCH_RRF,
-                EDGE_HYBRID_SEARCH_MMR,
-                EDGE_HYBRID_SEARCH_CROSS_ENCODER,
+                COMBINED_HYBRID_SEARCH_RRF,
+                COMBINED_HYBRID_SEARCH_MMR,
+                COMBINED_HYBRID_SEARCH_CROSS_ENCODER,
                 EDGE_HYBRID_SEARCH_NODE_DISTANCE,
                 EDGE_HYBRID_SEARCH_EPISODE_MENTIONS,
             )
@@ -295,16 +302,18 @@ class GraphitiBackend(MemoryBackend):
                 f"Graphiti search config not available: {e}. "
                 "Ensure graphiti_core is properly installed."
             ) from e
-        
+
         # Map reranker names to SearchConfig objects
+        # Use COMBINED configs for rrf/mmr/cross_encoder to get episodes + nodes + communities
+        # node_distance and episode_mentions remain edge-focused (no COMBINED variants)
         reranker_configs = {
-            "rrf": EDGE_HYBRID_SEARCH_RRF,
-            "mmr": EDGE_HYBRID_SEARCH_MMR,
-            "cross_encoder": EDGE_HYBRID_SEARCH_CROSS_ENCODER,
+            "rrf": COMBINED_HYBRID_SEARCH_RRF,
+            "mmr": COMBINED_HYBRID_SEARCH_MMR,
+            "cross_encoder": COMBINED_HYBRID_SEARCH_CROSS_ENCODER,
             "node_distance": EDGE_HYBRID_SEARCH_NODE_DISTANCE,
             "episode_mentions": EDGE_HYBRID_SEARCH_EPISODE_MENTIONS,
         }
-        
+
         reranker = self.config.reranker.lower()
         if reranker not in reranker_configs:
             valid_options = ", ".join(reranker_configs.keys())
@@ -312,7 +321,7 @@ class GraphitiBackend(MemoryBackend):
                 f"Invalid reranker '{reranker}'. "
                 f"Valid options: {valid_options}"
             )
-        
+
         return reranker_configs[reranker]
 
     def _sanitize_thread_id(self, thread_id: str) -> str:
@@ -366,8 +375,34 @@ class GraphitiBackend(MemoryBackend):
             # Don't duplicate prefix if already present
             if not sanitized.startswith("pytest__"):
                 sanitized = "pytest__" + sanitized
-        
+
         return sanitized
+
+    def _truncate_episode_content(
+        self, content: str, max_length: int | None = None
+    ) -> str:
+        """Truncate episode content to maximum length with ellipsis marker.
+
+        Args:
+            content: Episode content to truncate
+            max_length: Maximum character length (default: _MAX_EPISODE_CONTENT_LENGTH)
+
+        Returns:
+            Truncated content with "...[truncated]" marker if needed
+
+        Example:
+            >>> backend._truncate_episode_content("Short text")
+            'Short text'
+            >>> backend._truncate_episode_content("A" * 10000)
+            'AAA...[truncated]'  # Truncated to 8192 chars
+        """
+        if max_length is None:
+            max_length = self._MAX_EPISODE_CONTENT_LENGTH
+
+        if len(content) <= max_length:
+            return content
+
+        return content[:max_length] + "\n...[truncated]"
 
     def _map_entries_to_episodes(
         self, corpus: CorpusPayload
@@ -538,21 +573,46 @@ class GraphitiBackend(MemoryBackend):
 
     def query(self, query: QueryPayload) -> QueryResult:
         """
-        Query Graphiti temporal graph.
+        Query Graphiti temporal graph with comprehensive multi-layer retrieval.
 
-        Executes hybrid search:
-        - Semantic similarity search
-        - Graph traversal for related entities
-        - Temporal filtering
+        Executes hybrid search across:
+        - Edges: Extracted facts with bi-temporal tracking
+        - Episodes: Full original content (non-lossy source data)
+        - Nodes: Entity-centric summaries
+        - Communities: Domain-level context clusters
 
         Args:
             query: Query payload with search queries
 
         Returns:
-            QueryResult with ranked results
+            QueryResult with results containing:
+            - content: Brief extracted fact (edge.fact)
+            - score: Reranker relevance score (0.0-10.0+)
+            - metadata:
+                - uuid, source_node_uuid, target_node_uuid: Edge identifiers
+                - valid_at, invalid_at: Fact validity period
+                - group_id: Thread/topic identifier
+                - source_backend: "graphiti"
+                - reranker: Algorithm used (rrf, mmr, cross_encoder, etc.)
+                - episodes: List of source episodes with full content
+                    - uuid: Episode identifier
+                    - content: Full original text (truncated to 8KB max)
+                    - source: Episode type (text, json, message)
+                    - source_description: Origin context
+                    - valid_at: Creation timestamp (t_ref)
+                    - created_at: Database creation time (if available)
+                    - name: Episode identifier/title
+
+        Example RAG Usage:
+            1. Rank by edge scores (brief facts)
+            2. Select top N edges
+            3. Extract episode content from metadata for context
+            4. Generate comprehensive answer from episodes
 
         Raises:
             BackendError: If query fails
+            TransientError: If database connection fails
+            ConfigError: If configuration is invalid
         """
         try:
             # Create Graphiti client with FalkorDB connection
@@ -621,12 +681,27 @@ class GraphitiBackend(MemoryBackend):
                         # Map Graphiti SearchResults to canonical format
                         # search_results.edges contains EntityEdge models
                         # search_results.edge_reranker_scores contains scores (positionally aligned)
+                        # search_results.episodes contains EpisodicNode models with full content
+
+                        # Build episode index for efficient edge→episode lookup
+                        # Episodes link to edges via episode.entity_edges (list of edge UUIDs)
+                        episode_index: dict[str, list[Any]] = {}
+                        for ep in search_results.episodes:
+                            # entity_edges is a list of edge UUIDs that reference this episode
+                            for edge_uuid in ep.entity_edges:
+                                if edge_uuid not in episode_index:
+                                    episode_index[edge_uuid] = []
+                                episode_index[edge_uuid].append(ep)
+
                         for idx, edge in enumerate(search_results.edges):
                             # Extract score (defaults to 0.0 if not available)
                             score = 0.0
                             if idx < len(search_results.edge_reranker_scores):
                                 score = search_results.edge_reranker_scores[idx]
-                            
+
+                            # Find episodes that contain this edge
+                            source_episodes = episode_index.get(edge.uuid, [])
+
                             results.append({
                                 "query": query_text,
                                 "content": edge.fact,  # The fact/relationship text
@@ -642,6 +717,19 @@ class GraphitiBackend(MemoryBackend):
                                     # Backend provenance for cross-backend reranking
                                     "source_backend": "graphiti",
                                     "reranker": self.config.reranker.lower(),
+                                    # Episode content (non-lossy source data)
+                                    "episodes": [
+                                        {
+                                            "uuid": ep.uuid,
+                                            "content": self._truncate_episode_content(ep.content),
+                                            "source": ep.source.value if hasattr(ep.source, 'value') else str(ep.source),
+                                            "source_description": ep.source_description,
+                                            "valid_at": ep.valid_at.isoformat() if ep.valid_at else None,
+                                            "created_at": ep.created_at.isoformat() if hasattr(ep, 'created_at') and ep.created_at else None,
+                                            "name": ep.name,
+                                        }
+                                        for ep in source_episodes
+                                    ],
                                 },
                             })
                     except Exception as e:

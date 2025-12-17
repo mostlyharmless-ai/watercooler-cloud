@@ -591,7 +591,34 @@ class TestGraphitiSmoke:
             assert "source_backend" in metadata, "Missing source_backend in metadata"
             assert metadata["source_backend"] == "graphiti", "Wrong source_backend"
             assert "reranker" in metadata, "Missing reranker in metadata"
-            
+
+        # Verify at least one result has episode content
+        has_episode = any(
+            len(result.get("metadata", {}).get("episodes", [])) > 0
+            for result in query_result.results
+        )
+        assert has_episode, "Expected at least one result with episode content"
+
+        # Verify episode content and metadata
+        for result in query_result.results:
+            # Check reranker metadata still lowercased after COMBINED switch
+            assert result["metadata"]["reranker"] == result["metadata"]["reranker"].lower(), \
+                "Reranker should be lowercase"
+
+            episodes = result.get("metadata", {}).get("episodes", [])
+            for ep in episodes:
+                # Content validation
+                assert ep.get("content"), "Episode content should not be empty"
+                content_len = len(ep["content"])
+                assert content_len > 0, "Episode content should be non-empty"
+                assert content_len <= 8192 + 20, \
+                    f"Episode content should be truncated to ~8KB, got {content_len} chars"
+
+                # Metadata validation
+                assert "uuid" in ep, "Episode should have uuid"
+                assert "valid_at" in ep, "Episode should have valid_at (t_ref)"
+                assert "source" in ep, "Episode should have source type"
+
         print(f"✓ Query returned {len(query_result.results)} results with max score={max_score:.2f}")
         print(f"  Reranker: {query_result.results[0]['metadata']['reranker']}")
 
