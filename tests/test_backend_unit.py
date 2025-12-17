@@ -38,17 +38,17 @@ class TestGraphitiSanitization:
     def test_sanitize_basic_alphanumeric(self, backend: GraphitiBackend):
         """Test sanitization of simple alphanumeric thread IDs."""
         result = backend._sanitize_thread_id("simple-thread-name")
-        assert result == "simple_thread_name"
+        assert result == "simple-thread-name"  # Hyphens preserved
 
     def test_sanitize_special_chars(self, backend: GraphitiBackend):
-        """Test sanitization replaces special characters with underscores."""
+        """Test sanitization preserves printable special characters."""
         result = backend._sanitize_thread_id("thread@with#special$chars!")
-        assert result == "thread_with_special_chars"  # Trailing underscores stripped
+        assert result == "thread@with#special$chars!"  # Printable chars preserved
 
     def test_sanitize_consecutive_special_chars(self, backend: GraphitiBackend):
-        """Test sanitization collapses consecutive special chars into single underscore."""
+        """Test sanitization preserves consecutive special chars."""
         result = backend._sanitize_thread_id("thread@@##name")
-        assert result == "thread_name"
+        assert result == "thread@@##name"  # Consecutive chars preserved
 
     def test_sanitize_empty_string(self, backend: GraphitiBackend):
         """Test sanitization handles empty strings."""
@@ -58,7 +58,7 @@ class TestGraphitiSanitization:
     def test_sanitize_starts_with_number(self, backend: GraphitiBackend):
         """Test sanitization prepends 't_' when thread ID starts with number."""
         result = backend._sanitize_thread_id("123-thread")
-        assert result == "t_123_thread"
+        assert result == "t_123-thread"  # Hyphens preserved
 
     def test_sanitize_length_limit_production(self, backend: GraphitiBackend):
         """Test sanitization enforces 64-char limit in production mode."""
@@ -80,7 +80,7 @@ class TestGraphitiSanitization:
         """Test that test_mode=True adds pytest__ prefix."""
         result = backend_test_mode._sanitize_thread_id("my-thread")
         assert result.startswith("pytest__")
-        assert result == "pytest__my_thread"
+        assert result == "pytest__my-thread"  # Hyphens preserved
 
     def test_sanitize_test_mode_no_double_prefix(self, backend_test_mode: GraphitiBackend):
         """Test that pytest__ prefix is not duplicated."""
@@ -95,7 +95,7 @@ class TestGraphitiSanitization:
 
         # Production mode should NOT have pytest__ prefix
         assert not result.startswith("pytest__")
-        assert result == "thread_name"  # Just sanitized, no prefix
+        assert result == "thread-name"  # Hyphens preserved, no prefix
 
 
 class TestLeanRAGTestMode:

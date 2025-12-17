@@ -7,19 +7,22 @@ Follows MCP server patterns for configuration, observability, and error handling
 from __future__ import annotations
 
 import os
-from dataclasses import dataclass
 from pathlib import Path
 from typing import Any, Mapping, Optional, Sequence
 
 from .observability import log_debug, log_warning
 
-
-@dataclass
-class GraphitiConfig:
-    """Configuration for Graphiti memory backend."""
-
-    enabled: bool
-    openai_api_key: str
+# Import backend's GraphitiConfig directly (consolidates duplicate configs)
+try:
+    from watercooler_memory.backends.graphiti import GraphitiConfig
+except ImportError:
+    # If backend not installed, define minimal config for type hints
+    from dataclasses import dataclass
+    @dataclass
+    class GraphitiConfig:  # type: ignore
+        """Minimal config stub when backend unavailable."""
+        openai_api_key: str
+        reranker: str = "rrf"
 
 
 def load_graphiti_config() -> Optional[GraphitiConfig]:
@@ -31,6 +34,8 @@ def load_graphiti_config() -> Optional[GraphitiConfig]:
     Environment Variables:
         WATERCOOLER_GRAPHITI_ENABLED: "1" to enable (default: "0")
         OPENAI_API_KEY: OpenAI API key (required if enabled)
+        WATERCOOLER_GRAPHITI_RERANKER: Reranker algorithm (default: "rrf")
+            Options: rrf, mmr, cross_encoder, node_distance, episode_mentions
 
     Returns:
         GraphitiConfig instance or None if disabled/invalid
@@ -55,9 +60,14 @@ def load_graphiti_config() -> Optional[GraphitiConfig]:
         )
         return None
 
+    # Get reranker algorithm (default: rrf for speed)
+    reranker = os.getenv("WATERCOOLER_GRAPHITI_RERANKER", "rrf").lower()
+
+    # Return backend's GraphitiConfig with defaults
+    # Only specify required/overridden fields - backend provides the rest
     return GraphitiConfig(
-        enabled=enabled,
         openai_api_key=openai_api_key,
+        reranker=reranker,
     )
 
 
@@ -82,26 +92,47 @@ def get_graphiti_backend(config: GraphitiConfig) -> Any:
     """
     try:
         from watercooler_memory.backends import GraphitiBackend  # type: ignore[attr-defined]
-        from watercooler_memory.backends.graphiti import (  # type: ignore[import-not-found]
-            GraphitiConfig as BackendConfig,
-        )
     except ImportError as e:
-        log_warning(
-            f"MEMORY: Graphiti backend unavailable: {e}. "
-            "Install with: pip install watercooler-cloud[memory]"
-        )
-        return None
+        # Add path and Python version diagnostics
+        import sys
+        python_version = f"{sys.version_info.major}.{sys.version_info.minor}"
 
-    # Use hardcoded defaults for all configuration
-    backend_config = BackendConfig(
-        graphiti_path=Path("external/graphiti"),
-        falkordb_host="localhost",
-        falkordb_port=6379,
-        openai_api_key=config.openai_api_key,
-        openai_api_base=None,
-        openai_model="gpt-4o-mini",
-        work_dir=Path.home() / ".watercooler" / "graphiti",
-    )
+        # Try to get package path, but guard against watercooler_memory itself being missing
+        package_path = "unknown"
+        try:
+            import watercooler_memory
+            package_path = watercooler_memory.__file__
+        except ImportError:
+            # watercooler_memory itself is missing - keep original error
+            pass
+
+        error_msg = (
+            f"MEMORY: Graphiti backend unavailable: {e}\n"
+            f"Python version: {python_version}\n"
+            f"Package loaded from: {package_path}\n"
+            f"Expected source path: {Path(__file__).parent.parent.parent}/src\n"
+            f"Fix: Ensure MCP server uses correct Python environment"
+        )
+        log_warning(error_msg)
+        return {
+            "error": "import_failed",
+            "details": str(e),
+            "package_path": package_path,
+            "python_version": python_version,
+        }
+
+    # Config is already the backend's GraphitiConfig, just use it directly
+    # (with optional FalkorDB environment overrides)
+    backend_config = config
+    if os.getenv("FALKORDB_HOST") or os.getenv("FALKORDB_PORT") or os.getenv("FALKORDB_PASSWORD"):
+        # Override FalkorDB settings from environment if specified
+        from dataclasses import replace
+        backend_config = replace(
+            config,
+            falkordb_host=os.getenv("FALKORDB_HOST", config.falkordb_host),
+            falkordb_port=int(os.getenv("FALKORDB_PORT", str(config.falkordb_port))),
+            falkordb_password=os.getenv("FALKORDB_PASSWORD") or config.falkordb_password,
+        )
 
     try:
         backend = GraphitiBackend(backend_config)
@@ -111,14 +142,23 @@ def get_graphiti_backend(config: GraphitiConfig) -> Any:
         )
         return backend
     except Exception as e:
-        log_warning(f"MEMORY: Failed to initialize Graphiti backend: {e}")
-        return None
+        import sys
+        python_version = f"{sys.version_info.major}.{sys.version_info.minor}"
+        error_msg = f"MEMORY: Failed to initialize Graphiti backend: {e}"
+        log_warning(error_msg)
+        return {
+            "error": "init_failed",
+            "details": str(e),
+            "python_version": python_version,
+            "backend_config": str(backend_config),
+        }
 
 
-def query_memory(
+async def query_memory(
     backend: Any,
     query_text: str,
     limit: int = 10,
+    topic: Optional[str] = None,
 ) -> Sequence[Mapping[str, Any]]:
     """Execute memory query against Graphiti backend.
 
@@ -126,6 +166,8 @@ def query_memory(
         backend: GraphitiBackend instance
         query_text: Search query string
         limit: Maximum results to return (1-50)
+        topic: Optional thread topic to filter by (will be converted to group_id)
+              If None, searches across ALL indexed threads.
 
     Returns:
         List of result dictionaries with keys: query, content, score, metadata
@@ -135,16 +177,30 @@ def query_memory(
 
     Example:
         >>> backend = get_graphiti_backend(config)
-        >>> results = query_memory(backend, "What auth was implemented?", limit=5)
+        >>> results = await query_memory(backend, "What auth was implemented?", limit=5)
         >>> for result in results:
         ...     print(f"{result['content']} (score: {result['score']})")
     """
     from watercooler_memory.backends import QueryPayload
 
+    # Build query dict
+    query_dict: dict[str, Any] = {
+        "query": query_text,
+        "limit": limit,
+    }
+
+    # Add topic for group_id filtering
+    # Note: If topic is None, backend will search across all available graphs
+    if topic:
+        query_dict["topic"] = topic
+
     payload = QueryPayload(
         manifest_version="1.0",
-        queries=[{"query": query_text, "limit": limit}],
+        queries=[query_dict],
     )
 
-    result = backend.query(payload)
+    # Backend query() is synchronous (uses asyncio.run internally)
+    # Use to_thread to avoid "cannot call asyncio.run from running loop" error
+    import asyncio
+    result = await asyncio.to_thread(backend.query, payload)
     return result.results

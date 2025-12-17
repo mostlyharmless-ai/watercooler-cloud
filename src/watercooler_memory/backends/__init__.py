@@ -281,6 +281,8 @@ __all__ = [
     "list_backends",
     "resolve_backend",
     "auto_register_builtin",
+    # Backend implementations
+    "GraphitiBackend",
 ]
 
 # Registry re-exports
@@ -291,3 +293,6 @@ from .registry import (  # noqa: E402
     register_backend,
     resolve_backend,
 )
+
+# Backend re-exports
+from .graphiti import GraphitiBackend  # noqa: E402

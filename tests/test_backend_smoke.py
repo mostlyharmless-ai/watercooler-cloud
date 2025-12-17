@@ -545,6 +545,60 @@ class TestGraphitiSmoke:
         "os.environ.get('SKIP_GRAPHITI_INDEX') == '1'",
         reason="Graphiti indexing requires implementation completion",
     )
+    def test_query_returns_nonzero_scores(
+        self, graphiti_backend, minimal_corpus, minimal_chunks
+    ):
+        """Verify that Graphiti queries return non-zero relevance scores.
+        
+        This guards against regressions where scores might be hardcoded to 0.0.
+        Real Graphiti reranker scores should be in the range 0.0-10.0+ depending
+        on the reranker algorithm used.
+        """
+        # Step 1: Prepare
+        prepare_result = graphiti_backend.prepare(minimal_corpus)
+        assert prepare_result.prepared_count == 5
+
+        # Step 2: Index
+        index_result = graphiti_backend.index(minimal_chunks)
+        assert index_result.manifest_version == "1.0.0"
+
+        # Step 3: Query with a query that should match indexed content
+        query = QueryPayload(
+            manifest_version="1.0.0",
+            queries=[
+                {
+                    "query": "OAuth2 authentication JWT tokens",
+                    "limit": 5,
+                },
+            ],
+        )
+        query_result = graphiti_backend.query(query)
+        
+        # Verify we got results
+        assert len(query_result.results) > 0, "Query should return results"
+        
+        # Verify at least one result has non-zero score (guard against regression)
+        scores = [result.get("score", 0.0) for result in query_result.results]
+        max_score = max(scores)
+        assert max_score > 0.0, (
+            f"Expected at least one non-zero relevance score, got max={max_score}. "
+            f"All scores: {scores}"
+        )
+        
+        # Verify provenance metadata is present
+        for result in query_result.results:
+            metadata = result.get("metadata", {})
+            assert "source_backend" in metadata, "Missing source_backend in metadata"
+            assert metadata["source_backend"] == "graphiti", "Wrong source_backend"
+            assert "reranker" in metadata, "Missing reranker in metadata"
+            
+        print(f"✓ Query returned {len(query_result.results)} results with max score={max_score:.2f}")
+        print(f"  Reranker: {query_result.results[0]['metadata']['reranker']}")
+
+    @pytest.mark.skipif(
+        "os.environ.get('SKIP_GRAPHITI_INDEX') == '1'",
+        reason="Graphiti indexing requires implementation completion",
+    )
     def test_prepare_index_query(
         self, graphiti_backend, minimal_corpus, minimal_chunks, sample_queries
     ):
