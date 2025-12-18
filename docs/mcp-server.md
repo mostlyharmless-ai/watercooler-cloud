@@ -608,7 +608,8 @@ Search for entity nodes in the Graphiti knowledge graph using hybrid semantic se
       "labels": ["Class", "Authentication"],
       "summary": "OAuth2 provider implementation with JWT token support",
       "created_at": "2025-10-01T10:00:00Z",
-      "group_id": "auth-feature"
+      "group_id": "auth-feature",
+      "score": 0.89
     }
   ],
   "message": "Found 2 nodes"
@@ -731,20 +732,24 @@ watercooler_v1_search_memory_facts(
 
 #### `watercooler_v1_get_episodes`
 
-Retrieve episodic content from indexed watercooler threads.
+Search for episodic content using semantic search.
 
-**Purpose:** Access the raw episodic data that was ingested into Graphiti from thread entries.
+**Purpose:** Retrieve episodes (thread entry content) from Graphiti memory based on semantic relevance.
+
+**Note:** Graphiti doesn't support enumerating all episodes. This tool performs semantic search, so a query string is required.
 
 **Prerequisites:** Same as `watercooler_v1_query_memory`
 
 **Parameters:**
+- `query` (required): Search query string (must be non-empty)
 - `code_path` (optional): Path to code repository
-- `group_ids` (optional): List of thread topics to filter by (required for results)
+- `group_ids` (optional): List of thread topics to filter by
 - `max_episodes` (optional): Maximum episodes to return (default: 10, max: 50)
 
 **Returns:**
 ```json
 {
+  "query": "authentication implementation",
   "result_count": 2,
   "results": [
     {
@@ -755,24 +760,25 @@ Retrieve episodic content from indexed watercooler threads.
       "source": "thread_entry",
       "source_description": "Watercooler thread entry",
       "group_id": "auth-feature",
-      "valid_at": "2025-10-01T10:00:00Z"
+      "valid_at": "2025-10-01T10:00:00Z",
+      "score": 1.0
     }
   ],
-  "message": "Found 2 episode(s)",
-  "filtered_by_topics": ["auth-feature"]
+  "message": "Found 2 episode(s)"
 }
 ```
 
 **Example:**
 ```python
 watercooler_v1_get_episodes(
+    query="authentication implementation",
     code_path=".",
     group_ids=["auth-feature", "api-design"],
     max_episodes=5
 )
 ```
 
-**Note:** Without `group_ids`, returns empty list. Episodes are organized by thread topic (group_id).
+**Note:** Query parameter is required. Episodes are ranked by semantic relevance to the query.
 
 **Typical Workflow:**
 

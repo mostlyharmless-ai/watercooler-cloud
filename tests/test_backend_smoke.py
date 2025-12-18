@@ -762,7 +762,7 @@ class TestGraphitiSmoke:
         assert query_result.manifest_version == "1.0.0"
 
     def test_search_nodes(self, graphiti_backend):
-        """Test searching nodes with basic query."""
+        """Test searching nodes with reranker scores."""
         # Search for nodes (may return empty if no index exists)
         nodes = graphiti_backend.search_nodes(
             query="test",
@@ -770,6 +770,11 @@ class TestGraphitiSmoke:
             max_nodes=10,
         )
         assert isinstance(nodes, list)
+        
+        # If results exist, verify score field is present
+        if nodes:
+            assert "score" in nodes[0]
+            assert isinstance(nodes[0]["score"], (int, float))
         # Note: Results may be empty if database not populated
 
     def test_search_nodes_not_found(self, graphiti_backend):
@@ -790,13 +795,18 @@ class TestGraphitiSmoke:
             graphiti_backend.get_entity_edge("nonexistent-uuid-12345")
 
     def test_search_memory_facts(self, graphiti_backend):
-        """Test searching facts with basic query."""
+        """Test searching facts with reranker scores."""
         facts = graphiti_backend.search_memory_facts(
             query="test",
             group_ids=["test-group"],
             max_facts=10,
         )
         assert isinstance(facts, list)
+        
+        # If results exist, verify score field is present
+        if facts:
+            assert "score" in facts[0]
+            assert isinstance(facts[0]["score"], (int, float))
         # Note: Results may be empty if database not populated
 
     def test_search_memory_facts_with_center_node(self, graphiti_backend):
@@ -811,13 +821,18 @@ class TestGraphitiSmoke:
         # Note: Results may be empty if center node doesn't exist
 
     def test_get_episodes(self, graphiti_backend):
-        """Test episode search with query string."""
+        """Test episode search with query string and reranker scores."""
         episodes = graphiti_backend.get_episodes(
             query="test episode content",
             group_ids=["test-group"],
             max_episodes=10,
         )
         assert isinstance(episodes, list)
+        
+        # If results exist, verify score field is present
+        if episodes:
+            assert "score" in episodes[0]
+            assert isinstance(episodes[0]["score"], (int, float))
         # Note: Results may be empty if database not populated
 
     def test_get_episodes_empty_query(self, graphiti_backend):

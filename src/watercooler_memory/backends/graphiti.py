@@ -963,11 +963,17 @@ class GraphitiBackend(MemoryBackend):
             )
             
             # Extract nodes from results (official approach)
-            nodes = search_results.nodes[:min(max_nodes, 50)] if search_results.nodes else []
+            limit = min(max_nodes, 50)
+            nodes = search_results.nodes[:limit] if search_results.nodes else []
             
-            # Format results
+            # Format results with reranker scores
             results = []
-            for node in nodes:
+            for idx, node in enumerate(nodes):
+                # Extract score with defensive indexing (match query_memory pattern)
+                score = 0.0
+                if idx < len(search_results.node_reranker_scores):
+                    score = search_results.node_reranker_scores[idx]
+                
                 results.append({
                     "uuid": node.uuid,
                     "name": node.name,
@@ -977,6 +983,7 @@ class GraphitiBackend(MemoryBackend):
                     ),
                     "created_at": node.created_at.isoformat() if node.created_at else None,
                     "group_id": node.group_id if hasattr(node, 'group_id') else None,
+                    "score": score,  # Hybrid search reranker score
                 })
             
             return results
@@ -1068,18 +1075,28 @@ class GraphitiBackend(MemoryBackend):
             if effective_group_ids:
                 sanitized_group_ids = [self._sanitize_thread_id(gid) for gid in effective_group_ids]
 
-            # Use simpler search() API for facts (returns edges directly)
+            # Use search_() API for facts with reranker scores (match query_memory pattern)
             limit = min(max_facts, 50)
-            edges = await graphiti.search(
+            search_config = self._get_search_config()
+            
+            search_results = await graphiti.search_(
                 query=query,
+                config=search_config,
                 group_ids=sanitized_group_ids,
-                num_results=limit,
                 center_node_uuid=center_node_uuid,
             )
-
-            # Format results
+            
+            # Extract edges with scores
+            edges = search_results.edges[:limit] if search_results.edges else []
+            
+            # Format results with reranker scores
             results = []
-            for edge in edges:
+            for idx, edge in enumerate(edges):
+                # Extract score with defensive indexing (match query_memory pattern)
+                score = 0.0
+                if idx < len(search_results.edge_reranker_scores):
+                    score = search_results.edge_reranker_scores[idx]
+                
                 results.append({
                     "uuid": edge.uuid,
                     "fact": edge.fact,
@@ -1089,8 +1106,7 @@ class GraphitiBackend(MemoryBackend):
                     "invalid_at": edge.invalid_at.isoformat() if edge.invalid_at else None,
                     "created_at": edge.created_at.isoformat() if edge.created_at else None,
                     "group_id": edge.group_id if hasattr(edge, 'group_id') else None,
-                    # Note: search() doesn't return reranker scores
-                    "score": 0.0,
+                    "score": score,  # Hybrid search reranker score
                 })
 
             return results
@@ -1155,9 +1171,14 @@ class GraphitiBackend(MemoryBackend):
             # Extract episodes from search results
             episodes = search_results.episodes[:limit] if search_results.episodes else []
 
-            # Format results
+            # Format results with reranker scores
             results = []
-            for ep in episodes:
+            for idx, ep in enumerate(episodes):
+                # Extract score with defensive indexing (match query_memory pattern)
+                score = 0.0
+                if idx < len(search_results.episode_reranker_scores):
+                    score = search_results.episode_reranker_scores[idx]
+                
                 results.append({
                     "uuid": ep.uuid,
                     "name": ep.name,
@@ -1167,6 +1188,7 @@ class GraphitiBackend(MemoryBackend):
                     "source_description": ep.source_description,
                     "group_id": ep.group_id,
                     "valid_at": ep.valid_at.isoformat() if hasattr(ep, 'valid_at') and ep.valid_at else None,
+                    "score": score,  # Hybrid search reranker score
                 })
 
             return results
