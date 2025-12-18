@@ -19,8 +19,6 @@ jobs:
     #   github.event.pull_request.author_association == 'FIRST_TIME_CONTRIBUTOR'
 
     runs-on: ubuntu-latest
-    env:
-      CLAUDE_CODE_VERSION: "latest"
     permissions:
       contents: read
       pull-requests: write
