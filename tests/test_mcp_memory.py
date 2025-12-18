@@ -100,14 +100,16 @@ class TestQueryMemory:
                 "metadata": {"thread_id": "test-thread"},
             }
         ]
+        mock_result.communities = []
         mock_backend.query.return_value = mock_result
 
-        results = await memory.query_memory(mock_backend, "test query", limit=10)
+        results, communities = await memory.query_memory(mock_backend, "test query", limit=10)
 
         assert len(results) == 1
         assert results[0]["content"] == "test result"
         assert results[0]["score"] == 0.9
         assert results[0]["metadata"]["thread_id"] == "test-thread"
+        assert isinstance(communities, list)
 
         # Verify backend.query was called via asyncio.to_thread
         # (can't easily assert since it's called indirectly)
@@ -118,9 +120,10 @@ class TestQueryMemory:
         mock_backend = MagicMock()
         mock_result = MagicMock()
         mock_result.results = []
+        mock_result.communities = []
         mock_backend.query.return_value = mock_result
 
-        await memory.query_memory(mock_backend, "test", limit=5)
+        results, communities = await memory.query_memory(mock_backend, "test", limit=5)
 
         # Verify backend.query was called via asyncio.to_thread
         # (can't easily assert since it's called indirectly)
@@ -135,11 +138,13 @@ class TestQueryMemory:
             {"query": "q", "content": "result2", "score": 0.8, "metadata": {}},
             {"query": "q", "content": "result3", "score": 0.7, "metadata": {}},
         ]
+        mock_result.communities = []
         mock_backend.query.return_value = mock_result
 
-        results = await memory.query_memory(mock_backend, "q", limit=10)
+        results, communities = await memory.query_memory(mock_backend, "q", limit=10)
 
         assert len(results) == 3
         assert results[0]["content"] == "result1"
         assert results[1]["content"] == "result2"
         assert results[2]["content"] == "result3"
+        assert isinstance(communities, list)
