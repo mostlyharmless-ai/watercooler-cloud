@@ -581,6 +581,241 @@ services:
       - "6379:6379"
 ```
 
+#### `watercooler_v1_search_nodes`
+
+Search for entity nodes in the Graphiti knowledge graph using hybrid semantic search.
+
+**Purpose:** Discover entities (people, concepts, technologies, components) mentioned in threads and explore their relationships.
+
+**Prerequisites:** Same as `watercooler_v1_query_memory` (Graphiti enabled, index built, FalkorDB running)
+
+**Parameters:**
+- `query` (required): Search query string (e.g., "authentication")
+- `code_path` (optional): Path to code repository
+- `group_ids` (optional): List of thread topics to filter by
+- `max_nodes` (optional): Maximum nodes to return (default: 10, max: 50)
+- `entity_types` (optional): List of entity type names to filter
+
+**Returns:**
+```json
+{
+  "query": "OAuth2 implementation",
+  "result_count": 2,
+  "results": [
+    {
+      "uuid": "01ABC...",
+      "name": "OAuth2Provider",
+      "labels": ["Class", "Authentication"],
+      "summary": "OAuth2 provider implementation with JWT token support",
+      "created_at": "2025-10-01T10:00:00Z",
+      "group_id": "auth-feature"
+    }
+  ],
+  "message": "Found 2 nodes"
+}
+```
+
+**Example:**
+```python
+watercooler_v1_search_nodes(
+    query="database",
+    code_path=".",
+    group_ids=["backend-refactor"],
+    max_nodes=5
+)
+```
+
+#### `watercooler_v1_get_entity_edge`
+
+Retrieve a specific relationship (edge) between entities by UUID.
+
+**Purpose:** Inspect detailed information about a specific relationship discovered through searches.
+
+**Prerequisites:** Same as `watercooler_v1_query_memory`
+
+**Parameters:**
+- `uuid` (required): Edge UUID to retrieve
+- `code_path` (optional): Path to code repository
+
+**Returns:**
+```json
+{
+  "uuid": "01ABC...",
+  "fact": "Claude implemented OAuth2 authentication with JWT tokens",
+  "source_node_uuid": "01DEF...",
+  "target_node_uuid": "01GHI...",
+  "valid_at": "2025-10-01T10:00:00Z",
+  "created_at": "2025-10-01T10:00:00Z",
+  "group_id": "auth-feature",
+  "message": "Retrieved edge 01ABC..."
+}
+```
+
+**Example:**
+```python
+watercooler_v1_get_entity_edge(
+    uuid="01ABC123...",
+    code_path="."
+)
+```
+
+**Error Response (edge not found):**
+```json
+{
+  "error": "Edge retrieval failed",
+  "message": "Entity edge '01ABC...' not found",
+  "operation": "get_entity_edge",
+  "uuid": "01ABC..."
+}
+```
+
+#### `watercooler_v1_search_memory_facts`
+
+Search for facts (relationships) with optional center-node traversal.
+
+**Purpose:** Discover specific relationships and facts about entities, optionally centered around a specific entity node.
+
+**Prerequisites:** Same as `watercooler_v1_query_memory`
+
+**Parameters:**
+- `query` (required): Search query string
+- `code_path` (optional): Path to code repository
+- `group_ids` (optional): List of thread topics to filter by
+- `max_facts` (optional): Maximum facts to return (default: 10, max: 50)
+- `center_node_uuid` (optional): UUID of node to center search around
+
+**Returns:**
+```json
+{
+  "query": "authentication decisions",
+  "result_count": 3,
+  "results": [
+    {
+      "uuid": "01ABC...",
+      "fact": "Claude implemented OAuth2 with JWT tokens",
+      "source_node_uuid": "01DEF...",
+      "target_node_uuid": "01GHI...",
+      "score": 0.89,
+      "valid_at": "2025-10-01T10:00:00Z",
+      "group_id": "auth-feature"
+    }
+  ],
+  "message": "Found 3 fact(s)",
+  "centered_on_node": "01DEF..."
+}
+```
+
+**Example (basic search):**
+```python
+watercooler_v1_search_memory_facts(
+    query="API design decisions",
+    code_path=".",
+    group_ids=["api-v2"],
+    max_facts=10
+)
+```
+
+**Example (center-node traversal):**
+```python
+# First find a node
+nodes = watercooler_v1_search_nodes(query="AuthService", ...)
+node_uuid = nodes["results"][0]["uuid"]
+
+# Then search facts connected to that node
+watercooler_v1_search_memory_facts(
+    query="security considerations",
+    center_node_uuid=node_uuid,
+    max_facts=20
+)
+```
+
+#### `watercooler_v1_get_episodes`
+
+Retrieve episodic content from indexed watercooler threads.
+
+**Purpose:** Access the raw episodic data that was ingested into Graphiti from thread entries.
+
+**Prerequisites:** Same as `watercooler_v1_query_memory`
+
+**Parameters:**
+- `code_path` (optional): Path to code repository
+- `group_ids` (optional): List of thread topics to filter by (required for results)
+- `max_episodes` (optional): Maximum episodes to return (default: 10, max: 50)
+
+**Returns:**
+```json
+{
+  "result_count": 2,
+  "results": [
+    {
+      "uuid": "01ABC...",
+      "name": "Entry 01ABC...",
+      "content": "Implemented OAuth2 authentication with JWT token support...",
+      "created_at": "2025-10-01T10:00:00Z",
+      "source": "thread_entry",
+      "source_description": "Watercooler thread entry",
+      "group_id": "auth-feature",
+      "valid_at": "2025-10-01T10:00:00Z"
+    }
+  ],
+  "message": "Found 2 episode(s)",
+  "filtered_by_topics": ["auth-feature"]
+}
+```
+
+**Example:**
+```python
+watercooler_v1_get_episodes(
+    code_path=".",
+    group_ids=["auth-feature", "api-design"],
+    max_episodes=5
+)
+```
+
+**Note:** Without `group_ids`, returns empty list. Episodes are organized by thread topic (group_id).
+
+**Typical Workflow:**
+
+1. **Discovery** - Use `search_nodes` to find relevant entities:
+   ```python
+   nodes = watercooler_v1_search_nodes(
+       query="database schema",
+       max_nodes=10
+   )
+   ```
+
+2. **Exploration** - Use `search_memory_facts` to explore relationships:
+   ```python
+   facts = watercooler_v1_search_memory_facts(
+       query="migration strategy",
+       center_node_uuid=nodes["results"][0]["uuid"],
+       max_facts=20
+   )
+   ```
+
+3. **Deep Dive** - Use `get_entity_edge` to inspect specific relationships:
+   ```python
+   edge = watercooler_v1_get_entity_edge(
+       uuid=facts["results"][0]["uuid"]
+   )
+   ```
+
+4. **Context** - Use `get_episodes` to see source content:
+   ```python
+   episodes = watercooler_v1_get_episodes(
+       group_ids=[edge["group_id"]],
+       max_episodes=10
+   )
+   ```
+
+5. **Analysis** - Use `query_memory` for natural language questions:
+   ```python
+   watercooler_v1_query_memory(
+       query="Why was this migration approach chosen?",
+       topic=edge["group_id"]
+   )
+   ```
+
 ### Branch Sync Enforcement Tools
 
 These tools ensure that code and threads repos maintain 1:1 branch correspondence, preventing drift and enforcing the branch pairing protocol.

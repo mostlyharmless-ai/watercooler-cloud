@@ -761,6 +761,86 @@ class TestGraphitiSmoke:
         print(f"Query returned {len(query_result.results)} results")
         assert query_result.manifest_version == "1.0.0"
 
+    def test_search_nodes(self, graphiti_backend):
+        """Test searching nodes with basic query."""
+        # Search for nodes (may return empty if no index exists)
+        nodes = graphiti_backend.search_nodes(
+            query="test",
+            group_ids=["test-group"],
+            max_nodes=10,
+        )
+        assert isinstance(nodes, list)
+        # Note: Results may be empty if database not populated
+
+    def test_search_nodes_not_found(self, graphiti_backend):
+        """Test search_nodes with query that returns no results."""
+        nodes = graphiti_backend.search_nodes(
+            query="nonexistent-xyz-123-unique",
+            group_ids=["test-group"],
+            max_nodes=10,
+        )
+        assert isinstance(nodes, list)
+        assert len(nodes) == 0
+
+    def test_get_entity_edge(self, graphiti_backend):
+        """Test getting entity edge with nonexistent UUID."""
+        from watercooler_memory.backends import BackendError
+        
+        with pytest.raises(BackendError, match="not found"):
+            graphiti_backend.get_entity_edge("nonexistent-uuid-12345")
+
+    def test_search_memory_facts(self, graphiti_backend):
+        """Test searching facts with basic query."""
+        facts = graphiti_backend.search_memory_facts(
+            query="test",
+            group_ids=["test-group"],
+            max_facts=10,
+        )
+        assert isinstance(facts, list)
+        # Note: Results may be empty if database not populated
+
+    def test_search_memory_facts_with_center_node(self, graphiti_backend):
+        """Test fact search with center node UUID."""
+        facts = graphiti_backend.search_memory_facts(
+            query="test",
+            group_ids=["test-group"],
+            max_facts=10,
+            center_node_uuid="some-uuid-12345",
+        )
+        assert isinstance(facts, list)
+        # Note: Results may be empty if center node doesn't exist
+
+    def test_get_episodes(self, graphiti_backend):
+        """Test episode search with query string."""
+        episodes = graphiti_backend.get_episodes(
+            query="test episode content",
+            group_ids=["test-group"],
+            max_episodes=10,
+        )
+        assert isinstance(episodes, list)
+        # Note: Results may be empty if database not populated
+
+    def test_get_episodes_empty_query(self, graphiti_backend):
+        """Test get_episodes rejects empty query."""
+        from watercooler_memory.backends import ConfigError
+        
+        with pytest.raises(ConfigError, match="query parameter is required"):
+            graphiti_backend.get_episodes(
+                query="",
+                max_episodes=10
+            )
+
+    def test_get_episodes_limit_clamping(self, graphiti_backend):
+        """Test that max_episodes is clamped to 50."""
+        # Should not raise, just clamp to 50
+        episodes = graphiti_backend.get_episodes(
+            query="test",
+            group_ids=["test-group"],
+            max_episodes=100,  # Should be clamped to 50
+        )
+        assert isinstance(episodes, list)
+        # Backend will clamp to 50 internally
+
 
 @pytest.mark.integration_falkor
 class TestMultiBackendComparison:

@@ -329,6 +329,45 @@ class GraphitiBackend(MemoryBackend):
 
         return reranker_configs[reranker]
 
+    def _get_effective_group_ids(self, group_ids: list[str] | None) -> list[str] | None:
+        """Get effective group IDs for search, with GRAPH.LIST fallback.
+
+        When group_ids is None, attempts to list all available graphs from FalkorDB
+        and use all non-default databases. Falls back to None if listing fails.
+
+        This mirrors the logic from query() method to ensure search operations
+        target actual thread databases instead of only searching default_db.
+
+        Args:
+            group_ids: Optional list of group IDs
+
+        Returns:
+            List of group IDs to search, or None (searches default_db)
+        """
+        if group_ids is not None:
+            # Already have group_ids, use as-is (will be sanitized later)
+            return group_ids
+
+        # No group_ids specified - try to list all available graphs
+        try:
+            import redis
+            r = redis.Redis(
+                host=self.config.falkordb_host,
+                port=self.config.falkordb_port,
+                password=self.config.falkordb_password,
+            )
+            graph_list = r.execute_command('GRAPH.LIST')
+            # Filter out default_db and decode bytes to strings
+            effective_group_ids = [
+                g.decode() if isinstance(g, bytes) else g
+                for g in graph_list
+                if (g.decode() if isinstance(g, bytes) else g) != 'default_db'
+            ]
+            return effective_group_ids if effective_group_ids else None
+        except Exception:
+            # If we can't list graphs, fall back to None (searches default_db)
+            return None
+
     def _sanitize_thread_id(self, thread_id: str) -> str:
         """Sanitize thread ID for use as Graphiti group_id.
 
@@ -871,6 +910,271 @@ class GraphitiBackend(MemoryBackend):
             raise
         except Exception as e:
             raise BackendError(f"Query execution failed: {e}") from e
+
+    def search_nodes(
+        self,
+        query: str,
+        group_ids: list[str] | None = None,
+        max_nodes: int = 10,
+        entity_types: list[str] | None = None,
+    ) -> list[dict[str, Any]]:
+        """Search for nodes (entities) using hybrid semantic search.
+
+        Args:
+            query: Search query string
+            group_ids: Optional list of group IDs to filter by
+            max_nodes: Maximum nodes to return (default: 10, max: 50)
+            entity_types: Optional list of entity type names to filter
+
+        Returns:
+            List of node dicts with uuid, name, labels, summary, etc.
+
+        Raises:
+            BackendError: If search fails
+            TransientError: If database connection fails
+        """
+        try:
+            graphiti = self._create_graphiti_client()
+        except Exception as e:
+            raise TransientError(f"Database connection failed: {e}") from e
+
+        async def search_nodes_async():
+            # Get effective group_ids with GRAPH.LIST fallback
+            effective_group_ids = self._get_effective_group_ids(group_ids)
+            
+            # Sanitize group_ids
+            sanitized_group_ids = None
+            if effective_group_ids:
+                sanitized_group_ids = [self._sanitize_thread_id(gid) for gid in effective_group_ids]
+
+            # Use NODE_HYBRID_SEARCH_RRF (official Graphiti MCP server approach)
+            from graphiti_core.search.search_config_recipes import NODE_HYBRID_SEARCH_RRF
+            from graphiti_core.search.search_filters import SearchFilters
+            
+            # Always create SearchFilters (match official implementation)
+            search_filters = SearchFilters(node_labels=entity_types)
+
+            # Execute search with node-specific config
+            search_results = await graphiti.search_(
+                query=query,
+                config=NODE_HYBRID_SEARCH_RRF,
+                group_ids=sanitized_group_ids,
+                search_filter=search_filters,  # Note: singular 'filter' not 'filters'
+            )
+            
+            # Extract nodes from results (official approach)
+            nodes = search_results.nodes[:min(max_nodes, 50)] if search_results.nodes else []
+            
+            # Format results
+            results = []
+            for node in nodes:
+                results.append({
+                    "uuid": node.uuid,
+                    "name": node.name,
+                    "labels": node.labels if node.labels else [],
+                    "summary": self._truncate_node_summary(
+                        node.summary if hasattr(node, 'summary') else None
+                    ),
+                    "created_at": node.created_at.isoformat() if node.created_at else None,
+                    "group_id": node.group_id if hasattr(node, 'group_id') else None,
+                })
+            
+            return results
+
+        try:
+            return asyncio.run(search_nodes_async())
+        except Exception as e:
+            raise BackendError(f"Node search failed for '{query}': {e}") from e
+
+    def get_entity_edge(self, uuid: str) -> dict[str, Any]:
+        """Get an entity edge by UUID.
+
+        Args:
+            uuid: Edge UUID to retrieve
+
+        Returns:
+            Edge dict with uuid, fact, source/target nodes, timestamps
+
+        Raises:
+            BackendError: If edge not found or retrieval fails
+            TransientError: If database connection fails
+        """
+        try:
+            graphiti = self._create_graphiti_client()
+        except Exception as e:
+            raise TransientError(f"Database connection failed: {e}") from e
+
+        async def get_edge_async():
+            from graphiti_core.edges import EntityEdge
+
+            # Get edge by UUID
+            try:
+                edge = await EntityEdge.get_by_uuid(graphiti.driver, uuid)
+            except Exception as e:
+                raise BackendError(f"Entity edge '{uuid}' not found: {e}") from e
+
+            # Format result
+            return {
+                "uuid": edge.uuid,
+                "fact": edge.fact,
+                "source_node_uuid": edge.source_node_uuid,
+                "target_node_uuid": edge.target_node_uuid,
+                "valid_at": edge.valid_at.isoformat() if edge.valid_at else None,
+                "invalid_at": edge.invalid_at.isoformat() if edge.invalid_at else None,
+                "created_at": edge.created_at.isoformat() if edge.created_at else None,
+                "group_id": edge.group_id if hasattr(edge, 'group_id') else None,
+            }
+
+        try:
+            return asyncio.run(get_edge_async())
+        except BackendError:
+            raise
+        except Exception as e:
+            raise BackendError(f"Failed to get entity edge '{uuid}': {e}") from e
+
+    def search_memory_facts(
+        self,
+        query: str,
+        group_ids: list[str] | None = None,
+        max_facts: int = 10,
+        center_node_uuid: str | None = None,
+    ) -> list[dict[str, Any]]:
+        """Search for facts (edges) with optional center-node traversal.
+
+        Args:
+            query: Search query string
+            group_ids: Optional list of group IDs to filter by
+            max_facts: Maximum facts to return (default: 10, max: 50)
+            center_node_uuid: Optional node UUID to center search around
+
+        Returns:
+            List of fact dicts with edge data
+
+        Raises:
+            BackendError: If search fails
+            TransientError: If database connection fails
+        """
+        try:
+            graphiti = self._create_graphiti_client()
+        except Exception as e:
+            raise TransientError(f"Database connection failed: {e}") from e
+
+        async def search_facts_async():
+            # Get effective group_ids with GRAPH.LIST fallback
+            effective_group_ids = self._get_effective_group_ids(group_ids)
+            
+            # Sanitize group_ids
+            sanitized_group_ids = None
+            if effective_group_ids:
+                sanitized_group_ids = [self._sanitize_thread_id(gid) for gid in effective_group_ids]
+
+            # Use simpler search() API for facts (returns edges directly)
+            limit = min(max_facts, 50)
+            edges = await graphiti.search(
+                query=query,
+                group_ids=sanitized_group_ids,
+                num_results=limit,
+                center_node_uuid=center_node_uuid,
+            )
+
+            # Format results
+            results = []
+            for edge in edges:
+                results.append({
+                    "uuid": edge.uuid,
+                    "fact": edge.fact,
+                    "source_node_uuid": edge.source_node_uuid,
+                    "target_node_uuid": edge.target_node_uuid,
+                    "valid_at": edge.valid_at.isoformat() if edge.valid_at else None,
+                    "invalid_at": edge.invalid_at.isoformat() if edge.invalid_at else None,
+                    "created_at": edge.created_at.isoformat() if edge.created_at else None,
+                    "group_id": edge.group_id if hasattr(edge, 'group_id') else None,
+                    # Note: search() doesn't return reranker scores
+                    "score": 0.0,
+                })
+
+            return results
+
+        try:
+            return asyncio.run(search_facts_async())
+        except Exception as e:
+            raise BackendError(f"Fact search failed for '{query}': {e}") from e
+
+    def get_episodes(
+        self,
+        query: str,
+        group_ids: list[str] | None = None,
+        max_episodes: int = 10,
+    ) -> list[dict[str, Any]]:
+        """Search for episodes from Graphiti memory using semantic search.
+
+        Note: Graphiti doesn't support enumerating all episodes. This tool
+        performs semantic episode search using the query string.
+
+        Args:
+            query: Search query string (required, must be non-empty)
+            group_ids: Optional list of group IDs to filter by
+            max_episodes: Maximum episodes to return (default: 10, max: 50)
+
+        Returns:
+            List of episode dicts with uuid, name, content, timestamps
+
+        Raises:
+            ConfigError: If query is empty
+            BackendError: If search fails
+            TransientError: If database connection fails
+        """
+        # Validate query
+        if not query or not query.strip():
+            raise ConfigError("query parameter is required and must be non-empty")
+
+        try:
+            graphiti = self._create_graphiti_client()
+        except Exception as e:
+            raise TransientError(f"Database connection failed: {e}") from e
+
+        async def search_episodes_async():
+            # Get effective group_ids with GRAPH.LIST fallback
+            effective_group_ids = self._get_effective_group_ids(group_ids)
+            
+            # Sanitize group_ids
+            sanitized_group_ids = None
+            if effective_group_ids:
+                sanitized_group_ids = [self._sanitize_thread_id(gid) for gid in effective_group_ids]
+
+            # Search episodes via COMBINED config (retrieves episodes + edges + nodes)
+            limit = min(max_episodes, 50)
+            search_config = self._get_search_config()
+            
+            search_results = await graphiti.search_(
+                query=query,
+                config=search_config,
+                group_ids=sanitized_group_ids,
+            )
+            
+            # Extract episodes from search results
+            episodes = search_results.episodes[:limit] if search_results.episodes else []
+
+            # Format results
+            results = []
+            for ep in episodes:
+                results.append({
+                    "uuid": ep.uuid,
+                    "name": ep.name,
+                    "content": self._truncate_episode_content(ep.content),
+                    "created_at": ep.created_at.isoformat() if ep.created_at else None,
+                    "source": ep.source.value if hasattr(ep.source, 'value') else str(ep.source),
+                    "source_description": ep.source_description,
+                    "group_id": ep.group_id,
+                    "valid_at": ep.valid_at.isoformat() if hasattr(ep, 'valid_at') and ep.valid_at else None,
+                })
+
+            return results
+
+        try:
+            return asyncio.run(search_episodes_async())
+        except Exception as e:
+            raise BackendError(f"Episode search failed for '{query}': {e}") from e
 
     def healthcheck(self) -> HealthStatus:
         """
