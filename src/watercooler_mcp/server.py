@@ -3292,6 +3292,49 @@ async def get_entity_edge(
         }
     """
     try:
+        # Validate UUID parameter
+        if not uuid or not uuid.strip():
+            return ToolResult(content=[TextContent(
+                type="text",
+                text=json.dumps(
+                    {
+                        "error": "Invalid UUID",
+                        "message": "UUID parameter is required and must be non-empty",
+                        "operation": "get_entity_edge",
+                    },
+                    indent=2,
+                )
+            )])
+        
+        # Sanitize UUID (limit length and characters)
+        if len(uuid) > 100:
+            return ToolResult(content=[TextContent(
+                type="text",
+                text=json.dumps(
+                    {
+                        "error": "Invalid UUID",
+                        "message": "UUID too long (max 100 characters)",
+                        "operation": "get_entity_edge",
+                        "uuid": uuid[:50] + "...",
+                    },
+                    indent=2,
+                )
+            )])
+        
+        # Check for valid characters (alphanumeric, hyphen, underscore)
+        if not all(c.isalnum() or c in '-_' for c in uuid):
+            return ToolResult(content=[TextContent(
+                type="text",
+                text=json.dumps(
+                    {
+                        "error": "Invalid UUID",
+                        "message": "UUID contains invalid characters (only alphanumeric, hyphen, underscore allowed)",
+                        "operation": "get_entity_edge",
+                    },
+                    indent=2,
+                )
+            )])
+        
         # Import memory module (lazy-load)
         try:
             from . import memory as mem

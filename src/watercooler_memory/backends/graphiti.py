@@ -329,6 +329,11 @@ class GraphitiBackend(MemoryBackend):
 
         return reranker_configs[reranker]
 
+    # Class-level cache for graph list (avoid repeated GRAPH.LIST calls)
+    _graph_list_cache: dict[str, tuple[list[str], float]] = {}
+    _GRAPH_LIST_CACHE_TTL = 60  # seconds
+    _MAX_GRAPHS_LIMIT = 100  # Resource limit for GRAPH.LIST fallback
+
     def _get_effective_group_ids(self, group_ids: list[str] | None) -> list[str] | None:
         """Get effective group IDs for search, with GRAPH.LIST fallback.
 
@@ -337,6 +342,11 @@ class GraphitiBackend(MemoryBackend):
 
         This mirrors the logic from query() method to ensure search operations
         target actual thread databases instead of only searching default_db.
+
+        Resource limits:
+        - Caches graph list for 60 seconds to avoid repeated queries
+        - Limits to first 100 graphs to prevent memory exhaustion
+        - Logs warning when fallback is used or limit is hit
 
         Args:
             group_ids: Optional list of group IDs
@@ -348,24 +358,50 @@ class GraphitiBackend(MemoryBackend):
             # Already have group_ids, use as-is (will be sanitized later)
             return group_ids
 
+        # Check cache first
+        import time
+        cache_key = f"{self.config.falkordb_host}:{self.config.falkordb_port}"
+        if cache_key in self._graph_list_cache:
+            cached_graphs, cached_time = self._graph_list_cache[cache_key]
+            if time.time() - cached_time < self._GRAPH_LIST_CACHE_TTL:
+                return cached_graphs if cached_graphs else None
+
         # No group_ids specified - try to list all available graphs
         try:
             import redis
+            from ..observability import log_action
+            
+            log_action("MEMORY", "GRAPH.LIST fallback triggered (no group_ids provided)")
+            
             r = redis.Redis(
                 host=self.config.falkordb_host,
                 port=self.config.falkordb_port,
                 password=self.config.falkordb_password,
             )
             graph_list = r.execute_command('GRAPH.LIST')
-            # Filter out default_db and decode bytes to strings
-            effective_group_ids = [
-                g.decode() if isinstance(g, bytes) else g
-                for g in graph_list
-                if (g.decode() if isinstance(g, bytes) else g) != 'default_db'
-            ]
+            
+            # Decode bytes to strings (do this once, not twice)
+            decoded_graphs = [g.decode() if isinstance(g, bytes) else g for g in graph_list]
+            
+            # Filter out default_db
+            effective_group_ids = [g for g in decoded_graphs if g != 'default_db']
+            
+            # Apply resource limit
+            if len(effective_group_ids) > self._MAX_GRAPHS_LIMIT:
+                log_action(
+                    "MEMORY", 
+                    f"Warning: {len(effective_group_ids)} graphs found, limiting to {self._MAX_GRAPHS_LIMIT}"
+                )
+                effective_group_ids = effective_group_ids[:self._MAX_GRAPHS_LIMIT]
+            
+            # Cache the results
+            self._graph_list_cache[cache_key] = (effective_group_ids, time.time())
+            
             return effective_group_ids if effective_group_ids else None
-        except Exception:
+        except Exception as e:
+            from ..observability import log_error
             # If we can't list graphs, fall back to None (searches default_db)
+            log_error(f"MEMORY: GRAPH.LIST fallback failed: {e}")
             return None
 
     def _sanitize_thread_id(self, thread_id: str) -> str:
@@ -919,6 +955,12 @@ class GraphitiBackend(MemoryBackend):
         entity_types: list[str] | None = None,
     ) -> list[dict[str, Any]]:
         """Search for nodes (entities) using hybrid semantic search.
+
+        Note: This method uses a sync facade pattern (approved by Codex).
+        It's synchronous but internally uses asyncio.run() to call async
+        Graphiti operations. The MCP layer calls this via asyncio.to_thread()
+        to avoid blocking. This pattern matches the existing query() method
+        and avoids nested event loop issues.
 
         Args:
             query: Search query string
