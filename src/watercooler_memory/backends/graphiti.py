@@ -1036,11 +1036,13 @@ class GraphitiBackend(MemoryBackend):
         except Exception as e:
             raise BackendError(f"Node search failed for '{query}': {e}") from e
 
-    def get_entity_edge(self, uuid: str) -> dict[str, Any]:
+    def get_entity_edge(self, uuid: str, group_id: str | None = None) -> dict[str, Any]:
         """Get an entity edge by UUID.
 
         Args:
             uuid: Edge UUID to retrieve
+            group_id: Group ID (database name) where the edge is stored.
+                     Required for multi-database setups. If None, queries default_db.
 
         Returns:
             Edge dict with uuid, fact, source/target nodes, timestamps
@@ -1048,6 +1050,7 @@ class GraphitiBackend(MemoryBackend):
         Raises:
             BackendError: If edge not found or retrieval fails
             TransientError: If database connection fails
+            ConfigError: If group_id is required but not provided
         """
         try:
             graphiti = self._create_graphiti_client()
@@ -1057,11 +1060,18 @@ class GraphitiBackend(MemoryBackend):
         async def get_edge_async():
             from graphiti_core.edges import EntityEdge
 
+            # Clone driver to use specific database if group_id provided
+            driver = graphiti.driver
+            if group_id:
+                sanitized_group_id = self._sanitize_thread_id(group_id)
+                driver = graphiti.driver.clone(database=sanitized_group_id)
+
             # Get edge by UUID
             try:
-                edge = await EntityEdge.get_by_uuid(graphiti.driver, uuid)
+                edge = await EntityEdge.get_by_uuid(driver, uuid)
             except Exception as e:
-                raise BackendError(f"Entity edge '{uuid}' not found: {e}") from e
+                db_info = f" in database '{group_id}'" if group_id else " in default database"
+                raise BackendError(f"Entity edge '{uuid}' not found{db_info}: {e}") from e
 
             # Format result
             return {

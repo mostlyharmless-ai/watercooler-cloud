@@ -3190,6 +3190,7 @@ async def get_entity_edge(
     uuid: str,
     ctx: Context,
     code_path: str = "",
+    group_id: Optional[str] = None,
 ) -> ToolResult:
     """Get a specific entity edge (relationship) by UUID.
 
@@ -3205,6 +3206,8 @@ async def get_entity_edge(
         uuid: Edge UUID to retrieve
         ctx: MCP context
         code_path: Path to code repository (for resolving threads directory)
+        group_id: Thread topic (database name) where edge is stored.
+                 Required for multi-database setups. Searches default database if not provided.
 
     Returns:
         JSON response with edge details containing:
@@ -3273,10 +3276,10 @@ async def get_entity_edge(
         import asyncio
         from .observability import log_action, log_error
         
-        log_action("memory.get_entity_edge", uuid=uuid)
-        
+        log_action("memory.get_entity_edge", uuid=uuid, group_id=group_id)
+
         try:
-            edge = await asyncio.to_thread(backend.get_entity_edge, uuid)
+            edge = await asyncio.to_thread(backend.get_entity_edge, uuid, group_id=group_id)
             
             # Format response
             response = {
