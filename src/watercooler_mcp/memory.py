@@ -251,40 +251,26 @@ def create_error_response(
 
 def validate_memory_prerequisites(operation: str) -> tuple[Any, Optional[ToolResult]]:
     """Validate memory module, config, and backend prerequisites.
-    
+
     Centralizes common validation logic for all memory tools:
-    1. Import memory module
-    2. Load Graphiti configuration
-    3. Initialize backend
-    
+    1. Load Graphiti configuration
+    2. Initialize backend
+
     Args:
         operation: Tool name for error messages (e.g., "search_nodes")
-    
+
     Returns:
         Tuple of (backend, error_response):
         - (backend, None) if successful
         - (None, error_response) if validation fails
-    
+
     Example:
         >>> backend, error = validate_memory_prerequisites("search_nodes")
         >>> if error:
         ...     return error
         >>> # Use backend...
     """
-    # Step 1: Import memory module
-    try:
-        # Note: This is self-referential (we're in memory.py), but left
-        # here for consistency with the pattern. In practice, the import
-        # will succeed unless there's a circular import issue.
-        pass  # Module already imported since we're in it
-    except ImportError as e:
-        return None, create_error_response(
-            "Memory module unavailable",
-            f"Install with: pip install watercooler-cloud[memory]. Details: {e}",
-            operation
-        )
-    
-    # Step 2: Load configuration
+    # Step 1: Load configuration
     config = load_graphiti_config()
     if config is None:
         return None, create_error_response(
@@ -295,8 +281,8 @@ def validate_memory_prerequisites(operation: str) -> tuple[Any, Optional[ToolRes
             ),
             operation
         )
-    
-    # Step 3: Get backend instance
+
+    # Step 2: Get backend instance
     backend = get_graphiti_backend(config)
     if backend is None or isinstance(backend, dict):
         if isinstance(backend, dict):

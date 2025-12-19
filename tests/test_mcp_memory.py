@@ -418,3 +418,162 @@ class TestGetEpisodes:
                 query="",
                 max_episodes=10,
             )
+
+
+class TestCreateErrorResponse:
+    """Tests for create_error_response() helper function."""
+
+    def test_create_error_response_basic(self):
+        """Test basic error response creation."""
+        result = memory.create_error_response(
+            "TestError",
+            "Test message",
+            "test_operation"
+        )
+
+        # Verify it returns a ToolResult
+        from fastmcp.tools.tool import ToolResult
+        assert isinstance(result, ToolResult)
+
+        # Verify JSON structure
+        import json
+        from mcp.types import TextContent
+        assert len(result.content) == 1
+        assert isinstance(result.content[0], TextContent)
+
+        error_dict = json.loads(result.content[0].text)
+        assert error_dict["error"] == "TestError"
+        assert error_dict["message"] == "Test message"
+        assert error_dict["operation"] == "test_operation"
+
+    def test_create_error_response_with_kwargs(self):
+        """Test error response with additional fields."""
+        result = memory.create_error_response(
+            "ValidationError",
+            "Invalid input",
+            "validate_input",
+            query="test",
+            result_count=0,
+            results=[]
+        )
+
+        import json
+        error_dict = json.loads(result.content[0].text)
+
+        # Verify core fields
+        assert error_dict["error"] == "ValidationError"
+        assert error_dict["message"] == "Invalid input"
+        assert error_dict["operation"] == "validate_input"
+
+        # Verify additional fields
+        assert error_dict["query"] == "test"
+        assert error_dict["result_count"] == 0
+        assert error_dict["results"] == []
+
+    def test_create_error_response_preserves_core_fields(self):
+        """Test that core fields are always present even with many kwargs.
+
+        The defensive field ordering ensures error, message, and operation
+        are always set last, so they can't be accidentally omitted.
+        """
+        result = memory.create_error_response(
+            "CoreError",
+            "Core message",
+            "core_op",
+            query="test",
+            result_count=0,
+            results=[],
+            extra_field="value"
+        )
+
+        import json
+        error_dict = json.loads(result.content[0].text)
+
+        # Verify all core fields are present
+        assert "error" in error_dict
+        assert "message" in error_dict
+        assert "operation" in error_dict
+
+        # Verify core field values
+        assert error_dict["error"] == "CoreError"
+        assert error_dict["message"] == "Core message"
+        assert error_dict["operation"] == "core_op"
+
+        # Verify kwargs are also preserved
+        assert error_dict["query"] == "test"
+        assert error_dict["extra_field"] == "value"
+
+
+class TestValidateMemoryPrerequisites:
+    """Tests for validate_memory_prerequisites() helper function."""
+
+    def test_validate_prerequisites_disabled(self, monkeypatch):
+        """Test validation when Graphiti is disabled."""
+        monkeypatch.setenv("WATERCOOLER_GRAPHITI_ENABLED", "0")
+
+        backend, error = memory.validate_memory_prerequisites("test_operation")
+
+        # Should return None backend and error response
+        assert backend is None
+        assert error is not None
+
+        # Verify error structure
+        import json
+        error_dict = json.loads(error.content[0].text)
+        assert error_dict["error"] == "Graphiti not enabled"
+        assert error_dict["operation"] == "test_operation"
+        assert "WATERCOOLER_GRAPHITI_ENABLED" in error_dict["message"]
+
+    def test_validate_prerequisites_missing_api_key(self, monkeypatch):
+        """Test validation fails gracefully without API key."""
+        monkeypatch.setenv("WATERCOOLER_GRAPHITI_ENABLED", "1")
+        monkeypatch.delenv("OPENAI_API_KEY", raising=False)
+
+        backend, error = memory.validate_memory_prerequisites("test_operation")
+
+        # Should return None for both (config load fails)
+        assert backend is None
+        assert error is not None
+
+        import json
+        error_dict = json.loads(error.content[0].text)
+        assert error_dict["error"] == "Graphiti not enabled"
+        assert error_dict["operation"] == "test_operation"
+
+    def test_validate_prerequisites_backend_import_error(self, monkeypatch):
+        """Test validation when backend import fails."""
+        monkeypatch.setenv("WATERCOOLER_GRAPHITI_ENABLED", "1")
+        monkeypatch.setenv("OPENAI_API_KEY", "sk-test")
+
+        # Mock get_graphiti_backend to return error dict
+        with patch('watercooler_mcp.memory.get_graphiti_backend') as mock_backend:
+            mock_backend.return_value = {
+                "error": "import_failed",
+                "details": "Module not found"
+            }
+
+            backend, error = memory.validate_memory_prerequisites("test_operation")
+
+            assert backend is None
+            assert error is not None
+
+            import json
+            error_dict = json.loads(error.content[0].text)
+            assert "import_failed" in error_dict["error"]
+            assert error_dict["operation"] == "test_operation"
+
+    def test_validate_prerequisites_success(self, monkeypatch):
+        """Test successful validation."""
+        monkeypatch.setenv("WATERCOOLER_GRAPHITI_ENABLED", "1")
+        monkeypatch.setenv("OPENAI_API_KEY", "sk-test")
+
+        # Mock successful backend initialization
+        mock_backend_instance = MagicMock()
+        with patch('watercooler_mcp.memory.get_graphiti_backend') as mock_backend:
+            mock_backend.return_value = mock_backend_instance
+
+            backend, error = memory.validate_memory_prerequisites("test_operation")
+
+            # Should return backend and no error
+            assert backend is mock_backend_instance
+            assert error is None
