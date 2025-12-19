@@ -3117,7 +3117,6 @@ async def search_nodes(
         backend, error = mem.validate_memory_prerequisites("search_nodes")
         if error:
             # Add query/result fields to error response
-            import json
             error_dict = json.loads(error.content[0].text)
             error_dict.update({
                 "query": query,
@@ -3396,7 +3395,6 @@ async def search_memory_facts(
         backend, error = mem.validate_memory_prerequisites("search_memory_facts")
         if error:
             # Add query/result fields to error response
-            import json
             error_dict = json.loads(error.content[0].text)
             error_dict.update({
                 "query": query,
@@ -3555,7 +3553,6 @@ async def get_episodes(
         backend, error = mem.validate_memory_prerequisites("get_episodes")
         if error:
             # Add result fields to error response
-            import json
             error_dict = json.loads(error.content[0].text)
             error_dict.update({
                 "result_count": 0,
