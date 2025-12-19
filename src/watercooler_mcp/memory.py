@@ -237,10 +237,10 @@ def create_error_response(
         ... )
     """
     error_dict = {
+        **kwargs,
         "error": error,
         "message": message,
         "operation": operation,
-        **kwargs,
     }
     return ToolResult(content=[TextContent(
         type="text",
