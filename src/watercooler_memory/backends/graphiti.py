@@ -378,9 +378,6 @@ class GraphitiBackend(MemoryBackend):
         # No group_ids specified - try to list all available graphs
         try:
             import redis
-            from ..observability import log_action
-            
-            log_action("MEMORY", "GRAPH.LIST fallback triggered (no group_ids provided)")
             
             r = redis.Redis(
                 host=self.config.falkordb_host,
@@ -397,20 +394,15 @@ class GraphitiBackend(MemoryBackend):
             
             # Apply resource limit
             if len(effective_group_ids) > self._MAX_GRAPHS_LIMIT:
-                log_action(
-                    "MEMORY", 
-                    f"Warning: {len(effective_group_ids)} graphs found, limiting to {self._MAX_GRAPHS_LIMIT}"
-                )
+                # Limit to prevent memory exhaustion
                 effective_group_ids = effective_group_ids[:self._MAX_GRAPHS_LIMIT]
             
             # Cache the results
             self._graph_list_cache[cache_key] = (effective_group_ids, time.time())
             
             return effective_group_ids if effective_group_ids else None
-        except Exception as e:
-            from ..observability import log_error
+        except Exception:
             # If we can't list graphs, fall back to None (searches default_db)
-            log_error(f"MEMORY: GRAPH.LIST fallback failed: {e}")
             return None
 
     def _sanitize_thread_id(self, thread_id: str) -> str:
