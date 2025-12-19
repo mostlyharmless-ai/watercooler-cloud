@@ -236,7 +236,7 @@ See [ADR 0001](adr/0001-memory-backend-contract.md) for complete contract specif
 
 ## Querying Memory via MCP
 
-The Watercooler MCP server provides a `watercooler_v1_query_memory` tool for querying thread history using Graphiti's temporal graph memory. This enables agents to ask natural language questions about project context, implementation details, and decisions.
+The Watercooler MCP server provides a `watercooler_query_memory` tool for querying thread history using Graphiti's temporal graph memory. This enables agents to ask natural language questions about project context, implementation details, and decisions.
 
 ### Quick Setup
 
@@ -290,7 +290,7 @@ graphiti-integration.md
 
 **5. Query via MCP:**
 ```python
-watercooler_v1_query_memory(
+watercooler_query_memory(
     query="How was authentication implemented?",
     code_path=".",
     limit=10
@@ -302,7 +302,7 @@ watercooler_v1_query_memory(
 **Cross-thread queries** (search entire project):
 ```python
 # Find context across all threads
-watercooler_v1_query_memory(
+watercooler_query_memory(
     query="What error handling patterns were used?",
     code_path="."
 )
@@ -311,7 +311,7 @@ watercooler_v1_query_memory(
 **Single-thread queries** (focused search):
 ```python
 # Search within specific thread
-watercooler_v1_query_memory(
+watercooler_query_memory(
     query="What tests were added?",
     topic="auth-feature",
     code_path="."
@@ -321,7 +321,7 @@ watercooler_v1_query_memory(
 **Temporal queries:**
 ```python
 # Discover evolution over time
-watercooler_v1_query_memory(
+watercooler_query_memory(
     query="How did the API design change over time?",
     code_path=".",
     limit=20
@@ -330,7 +330,7 @@ watercooler_v1_query_memory(
 
 ### Complete Documentation
 
-- **MCP Tool Reference**: [mcp-server.md#watercooler_v1_query_memory](./mcp-server.md#watercooler_v1_query_memory)
+- **MCP Tool Reference**: [mcp-server.md#watercooler_query_memory](./mcp-server.md#watercooler_query_memory)
 - **Environment Variables**: [ENVIRONMENT_VARS.md#graphiti-memory-variables](./ENVIRONMENT_VARS.md#graphiti-memory-variables)
 - **Graphiti Setup Guide**: [GRAPHITI_SETUP.md](./GRAPHITI_SETUP.md)
 

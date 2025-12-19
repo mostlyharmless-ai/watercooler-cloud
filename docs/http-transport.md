@@ -102,7 +102,7 @@ Update `.cursor/mcp.json` with the same HTTP configuration.
 
 ## Health Checks
 
-The MCP server exposes a `watercooler_v1_health` tool via the MCP protocol for health checking. This is accessible through any MCP client, but not as a simple HTTP endpoint.
+The MCP server exposes a `watercooler_health` tool via the MCP protocol for health checking. This is accessible through any MCP client, but not as a simple HTTP endpoint.
 
 For monitoring, you can:
 1. Check if the process is running: `./scripts/mcp-server-daemon.sh status`

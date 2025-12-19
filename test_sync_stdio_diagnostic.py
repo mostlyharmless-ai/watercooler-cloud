@@ -11,7 +11,7 @@ import os
 from pathlib import Path
 
 async def main():
-    """Simulate Claude Code calling watercooler_v1_sync via stdio with diagnostics."""
+    """Simulate Claude Code calling watercooler_sync via stdio with diagnostics."""
     print("Testing stdio transport with DIAGNOSTICS enabled...")
     print(f"CWD: {Path.cwd()}\n")
 
@@ -68,13 +68,13 @@ async def main():
         response_line = server.stdout.readline()
         print(f"✓ Got response: {response_line[:100]}...\n")
 
-        # Now call watercooler_v1_sync
+        # Now call watercooler_sync
         sync_request = {
             "jsonrpc": "2.0",
             "id": 2,
             "method": "tools/call",
             "params": {
-                "name": "watercooler_v1_sync",
+                "name": "watercooler_sync",
                 "arguments": {
                     "code_path": str(Path.cwd()),
                     "action": "status"
@@ -83,7 +83,7 @@ async def main():
         }
 
         print("=" * 60)
-        print("Sending watercooler_v1_sync request...")
+        print("Sending watercooler_sync request...")
         print(f"  code_path: {Path.cwd()}")
         print(f"  action: status")
         print("=" * 60)

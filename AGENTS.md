@@ -256,7 +256,7 @@ Standardize how Codex (this assistant) uses Watercooler tools so entries remain 
 
 ### Setting Identity
 
-- **Preferred (cloud context)**: Call `watercooler_v1_set_agent` with `base="Codex"` and an appropriate `spec` (e.g., `pm`, `planner-architecture`, `implementer-code`, `tester`, `security-audit`, `docs`, `ops`, or `general-purpose`).
+- **Preferred (cloud context)**: Call `watercooler_set_agent` with `base="Codex"` and an appropriate `spec` (e.g., `pm`, `planner-architecture`, `implementer-code`, `tester`, `security-audit`, `docs`, `ops`, or `general-purpose`).
 - **Alternative (per-call)**: Supply `agent_func` parameter in format `<platform>:<model>:<role>` (e.g., `"Codex:gpt-4:implementer"`) where platform is the actual IDE/platform name, model is the exact model identifier, and role is the agent role.
 - **Local context (no explicit setter)**: Still enforce the rule by selecting the matching entry Role and adding a visible `Spec: <value>` line at the top of the entry body.
 
@@ -268,9 +268,9 @@ Standardize how Codex (this assistant) uses Watercooler tools so entries remain 
 
 ### Thread Reading & Entry Access
 
-- Use `watercooler_v1_list_thread_entries` with `format="json"` plus `offset`/`limit` to explore large conversations safely. Feed the returned `entry_id`/index into `watercooler_v1_get_thread_entry` or `watercooler_v1_get_thread_entry_range` for precise retrieval.
+- Use `watercooler_list_thread_entries` with `format="json"` plus `offset`/`limit` to explore large conversations safely. Feed the returned `entry_id`/index into `watercooler_get_thread_entry` or `watercooler_get_thread_entry_range` for precise retrieval.
 - Request `format="markdown"` only when you need to present the entry text directly to the user; otherwise stick with JSON for easier downstream parsing.
-- Reserve `watercooler_v1_read_thread(format="json")` for full exports or analytics. For normal reading, paginate with the entry tools to avoid exceeding stdio output limits (~10 KB per response).
+- Reserve `watercooler_read_thread(format="json")` for full exports or analytics. For normal reading, paginate with the entry tools to avoid exceeding stdio output limits (~10 KB per response).
 - Break huge responses into manageable slices (e.g., 5–10 entries per call) and cite the `entry_id` when referencing or quoting a specific entry later.
 
 ### Role Alignment
@@ -502,7 +502,7 @@ Do not silently fail or attempt workarounds that bypass the watercooler tools.
 
 When Codex uses Watercooler MCP tools:
 
-1. **Set identity first**: Call `watercooler_v1_set_agent` with `base="Codex"` and appropriate `spec`, or supply `agent_func="<platform>:<model>:<role>"` (e.g., `"Codex:gpt-4:implementer"`) on each write call
+1. **Set identity first**: Call `watercooler_set_agent` with `base="Codex"` and appropriate `spec`, or supply `agent_func="<platform>:<model>:<role>"` (e.g., `"Codex:gpt-4:implementer"`) on each write call
 2. **Use appropriate roles**: Match the role to the activity (planner, critic, implementer, tester, pm, scribe)
 3. **Include Spec marker**: Always include `Spec: <spec>` as the first line of entry body
 4. **Meaningful titles**: Use descriptive titles, not generic ones like "Update" or "Done"

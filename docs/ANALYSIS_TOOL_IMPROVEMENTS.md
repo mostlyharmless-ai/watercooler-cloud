@@ -1,19 +1,19 @@
-# Tool Usage Analysis: `watercooler_v1_sync_branch_state` Parameter Error
+# Tool Usage Analysis: `watercooler_sync_branch_state` Parameter Error
 
 ## Failure Sequence
 
 1. **Initial Attempt**: User requested posting entries to `linear-integration` thread
-   - **Action**: Called `watercooler_v1_say` with `agent_func` parameter
+   - **Action**: Called `watercooler_say` with `agent_func` parameter
    - **Result**: ✅ Correct usage, but blocked by branch pairing validation (expected behavior)
-   - **Error Message**: Clear and actionable: "Run: watercooler_v1_sync_branch_state with operation='checkout' to sync branches"
+   - **Error Message**: Clear and actionable: "Run: watercooler_sync_branch_state with operation='checkout' to sync branches"
 
 2. **First Sync Attempt**: Attempted to sync branches
-   - **Action**: Called `watercooler_v1_sync_branch_state` with `agent_func="Cursor:Auto:planner"` parameter
+   - **Action**: Called `watercooler_sync_branch_state` with `agent_func="Cursor:Auto:planner"` parameter
    - **Result**: ❌ Pydantic validation error: "Unexpected keyword argument [type=unexpected_keyword_argument, input_value='Cursor:Auto:planner', input_type=str]"
    - **Root Cause**: Function does NOT accept `agent_func` parameter, but model assumed it would (pattern matching from other tools)
 
 3. **Second Sync Attempt**: Retried without `agent_func`
-   - **Action**: Called `watercooler_v1_sync_branch_state` with only valid parameters
+   - **Action**: Called `watercooler_sync_branch_state` with only valid parameters
    - **Result**: ✅ Success - branches synced correctly
 
 ## Model Reasoning Error

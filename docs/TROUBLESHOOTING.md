@@ -85,7 +85,7 @@ Before diving into specific issues, always start with the health check:
 
 ```bash
 # In your MCP client, call:
-watercooler_v1_health
+watercooler_health
 ```
 
 This returns:
@@ -140,12 +140,12 @@ MCP tools don't appear in your client (Claude Desktop, Claude Code, Codex).
 ## Wrong Agent Identity
 
 ### Symptom
-`watercooler_v1_whoami` shows incorrect or unexpected agent name.
+`watercooler_whoami` shows incorrect or unexpected agent name.
 
 ### Solutions
 
 1. **Use identity tool before writing**
-   Call `watercooler_v1_set_agent(base="Claude Code", spec="implementer-code")` before any write operations (say, ack, handoff, set_status).
+   Call `watercooler_set_agent(base="Claude Code", spec="implementer-code")` before any write operations (say, ack, handoff, set_status).
 
 2. **Alternative: Use agent_func parameter**
    Supply `agent_func="<platform>:<model>:<role>"` on each write call (e.g., `"Claude Code:sonnet-4:implementer"`).
@@ -174,7 +174,7 @@ No threads directory found at: /some/path/threads-local
 
 2. **Check the health output**
    ```bash
-   watercooler_v1_health(code_path=".")
+   watercooler_health(code_path=".")
    ```
    Expect `Threads Dir` to live in the sibling `<repo>-threads` directory (e.g., `/workspace/<repo>-threads`)
 
@@ -223,7 +223,7 @@ PermissionError: [Errno 13] Permission denied: '/workspace/<repo>-threads/thread
 ## Client ID is None
 
 ### Symptom
-`watercooler_v1_whoami` shows `Client ID: None`
+`watercooler_whoami` shows `Client ID: None`
 
 ### Explanation
 This is **normal for local STDIO connections**. The `client_id` is:
@@ -233,7 +233,7 @@ This is **normal for local STDIO connections**. The `client_id` is:
 ### Solutions
 
 1. **For local usage**: This is expected and doesn't affect functionality
-   - Agent identity is set via `watercooler_v1_set_agent` tool or `agent_func` parameter
+   - Agent identity is set via `watercooler_set_agent` tool or `agent_func` parameter
    - Everything works normally
 
 2. **For multi-tenant cloud deployment**: Configure OAuth provider
@@ -248,12 +248,12 @@ Tool calls fail or return errors.
 ### Solutions
 
 1. **Check tool name**
-   All tools are namespaced: `watercooler_v1_*`
+   All tools are namespaced: `watercooler_*`
 
    ✅ Correct:
    ```
-   watercooler_v1_list_threads
-   watercooler_v1_say
+   watercooler_list_threads
+   watercooler_say
    ```
 
    ❌ Incorrect:
@@ -265,12 +265,12 @@ Tool calls fail or return errors.
 2. **Verify tool availability**
    Check your client's tool list:
    - Should show 9 tools total
-   - All prefixed with `watercooler_v1_`
+   - All prefixed with `watercooler_`
 
 3. **Check parameters**
    Each tool has required parameters. Example:
    ```
-   watercooler_v1_say(
+   watercooler_say(
        topic="required",
        title="required",
        body="required"
@@ -418,8 +418,8 @@ If you enabled cloud sync via `WATERCOOLER_GIT_REPO`, here are common problems a
 - Async push failures not visible
   - By default, writes commit locally and push asynchronously in the background
   - If the background push fails, the error may not be immediately visible
-  - Check queue status: `watercooler_v1_sync(action='status')`
-  - Force immediate push: `watercooler_v1_sync(action='now')` or set `priority_flush=True`
+  - Check queue status: `watercooler_sync(action='status')`
+  - Force immediate push: `watercooler_sync(action='now')` or set `priority_flush=True`
   - For critical writes (ball handoffs, closures), use `WATERCOOLER_SYNC_MODE=sync`
   - See [Async Path Scope](BRANCH_PAIRING.md#async-path-scope-known-limitation) for details
 
@@ -519,16 +519,16 @@ The MCP server provides tools for diagnosis and recovery:
 
 ```python
 # Diagnose issues
-watercooler_v1_recover_branch_state(code_path=".", diagnose_only=True)
+watercooler_recover_branch_state(code_path=".", diagnose_only=True)
 
 # Auto-fix safe issues
-watercooler_v1_recover_branch_state(code_path=".", auto_fix=True)
+watercooler_recover_branch_state(code_path=".", auto_fix=True)
 
 # Sync branches manually
-watercooler_v1_sync_branch_state(code_path=".", operation="checkout")
+watercooler_sync_branch_state(code_path=".", operation="checkout")
 
 # Full audit
-watercooler_v1_audit_branch_pairing(code_path=".")
+watercooler_audit_branch_pairing(code_path=".")
 ```
 
 ### Checking Parity Health
@@ -536,7 +536,7 @@ watercooler_v1_audit_branch_pairing(code_path=".")
 The health tool shows current parity status:
 
 ```python
-watercooler_v1_health(code_path=".")
+watercooler_health(code_path=".")
 
 # Look for the "Branch Parity" section:
 # Branch Parity:
@@ -561,7 +561,7 @@ Server resolves threads inside the code repository instead of the sibling `<repo
 
 1. **Confirm universal location**
    ```bash
-   watercooler_v1_health(code_path=".")
+   watercooler_health(code_path=".")
    ```
    Check the `Threads Dir` line (should be the sibling `<repo>-threads` path).
 
@@ -585,7 +585,7 @@ Server resolves threads inside the code repository instead of the sibling `<repo
 ## Ball Not Flipping
 
 ### Symptom
-`watercooler_v1_say` doesn't flip the ball to counterpart.
+`watercooler_say` doesn't flip the ball to counterpart.
 
 ### Solutions
 
@@ -610,7 +610,7 @@ Server resolves threads inside the code repository instead of the sibling `<repo
 
 3. **Verify with read_thread**
    ```
-   watercooler_v1_read_thread(topic="your-topic")
+   watercooler_read_thread(topic="your-topic")
    ```
    Check `Ball:` line in output.
 
@@ -657,9 +657,9 @@ Currently only markdown output is supported. JSON support is a deferred feature 
 
 1. **Use markdown format (default)**
    ```
-   watercooler_v1_list_threads()
+   watercooler_list_threads()
    # or explicitly
-   watercooler_v1_list_threads(format="markdown")
+   watercooler_list_threads(format="markdown")
    ```
 
 2. **Check ROADMAP.md for status**
@@ -683,7 +683,7 @@ JSON support will be implemented if real-world usage demonstrates the need.
 3. **Dev session (only for testing):** set `ALLOW_DEV_SESSION="true"` on the worker and reconnect with `?session=dev`. Never enable this in production.
 
 ### Verification
-- `watercooler_v1_whoami` returns a non-null `user_id` and `project_id`
+- `watercooler_whoami` returns a non-null `user_id` and `project_id`
 - Worker logs contain `session_validated` entries
 
 ## Getting More Help
@@ -693,7 +693,7 @@ JSON support will be implemented if real-world usage demonstrates the need.
 **Health Check:**
 ```bash
 # In your MCP client:
-watercooler_v1_health
+watercooler_health
 ```
 
 Returns comprehensive diagnostics:
@@ -707,7 +707,7 @@ Returns comprehensive diagnostics:
 **Identity Check:**
 ```bash
 # In your MCP client:
-watercooler_v1_whoami
+watercooler_whoami
 ```
 
 Returns:
@@ -745,7 +745,7 @@ Still stuck? Review these guides:
 If you encounter a bug, open an issue with:
 
 **Required Information:**
-1. ✅ Output from `watercooler_v1_health`
+1. ✅ Output from `watercooler_health`
 2. ✅ Your MCP configuration (sanitized - remove secrets!)
 3. ✅ Error messages and stack traces
 4. ✅ Steps to reproduce
@@ -766,8 +766,8 @@ If you encounter a bug, open an issue with:
 | Problem | Command | What to Look For |
 |---------|---------|-----------------|
 | Server not loading | `python3 -m watercooler_mcp` | FastMCP banner appears? |
-| Wrong agent | `watercooler_v1_whoami` | Agent name matches config? |
-| Wrong directory | `watercooler_v1_health` | Threads Dir path correct? |
+| Wrong agent | `watercooler_whoami` | Agent name matches config? |
+| Wrong directory | `watercooler_health` | Threads Dir path correct? |
 | Git issues | `which git && git --version` | Git installed and in PATH? |
 | Python issues | `python3 --version` | Python 3.10 or later? |
 | Package issues | `pip list \| grep -E "(fastmcp\|mcp)"` | fastmcp>=2.0 installed? |

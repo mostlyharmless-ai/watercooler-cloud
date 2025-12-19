@@ -91,7 +91,7 @@ For Claude Desktop, see the client appendices referenced from the main [README](
 
 Before any write (`say`, `ack`, `handoff`, `set_status`), your session must declare identity:
 
-1. Call `watercooler_v1_set_agent(base="Claude Code", spec="implementer-code")` **or** supply `agent_func="Claude Code:sonnet-4:implementer"` on each write (format: `<platform>:<model>:<role>`)
+1. Call `watercooler_set_agent(base="Claude Code", spec="implementer-code")` **or** supply `agent_func="Claude Code:sonnet-4:implementer"` on each write (format: `<platform>:<model>:<role>`)
 2. Include a visible `Spec: <value>` line in your entry body (Watercooler protocol requirement)
 3. Keep `spec` aligned with the entry role (`planner`, `critic`, `implementer`, `tester`, `pm`, `scribe`)
 
@@ -102,22 +102,22 @@ See [STRUCTURED_ENTRIES.md](STRUCTURED_ENTRIES.md#identity-pre-flight) for deepe
 `code_path` is mandatory for every tool. Use `"."` when your MCP client runs inside the repo; otherwise pass an absolute path.
 
 ```text
-watercooler_v1_list_threads(code_path=".")
-watercooler_v1_read_thread(topic="trial-run", code_path=".")
-watercooler_v1_say(topic="trial-run", title="Dev server OK", body="Spec: implementer-code — universal mode", role="implementer", code_path=".", agent_func="Claude Code:sonnet-4:implementer")
-watercooler_v1_ack(topic="trial-run", title="Ack", code_path=".", agent_func="Claude Code:sonnet-4:pm")
-watercooler_v1_handoff(topic="trial-run", note="Your turn", target_agent="Codex", code_path=".", agent_func="Claude Code:sonnet-4:pm")
-watercooler_v1_set_status(topic="trial-run", status="IN_REVIEW", code_path=".", agent_func="Claude Code:sonnet-4:pm")
+watercooler_list_threads(code_path=".")
+watercooler_read_thread(topic="trial-run", code_path=".")
+watercooler_say(topic="trial-run", title="Dev server OK", body="Spec: implementer-code — universal mode", role="implementer", code_path=".", agent_func="Claude Code:sonnet-4:implementer")
+watercooler_ack(topic="trial-run", title="Ack", code_path=".", agent_func="Claude Code:sonnet-4:pm")
+watercooler_handoff(topic="trial-run", note="Your turn", target_agent="Codex", code_path=".", agent_func="Claude Code:sonnet-4:pm")
+watercooler_set_status(topic="trial-run", status="IN_REVIEW", code_path=".", agent_func="Claude Code:sonnet-4:pm")
 ```
 
 If `code_path` or `agent_func` is omitted, the server fails fast with an actionable error. This protects you from writing into the wrong threads branch.
 
 ## 7. Verify the full loop
 
-1. `watercooler_v1_list_threads(code_path=".")` → confirm the thread index renders
-2. `watercooler_v1_say(...)` → wait a few seconds
+1. `watercooler_list_threads(code_path=".")` → confirm the thread index renders
+2. `watercooler_say(...)` → wait a few seconds
 3. Inspect the sibling `<repo>-threads` directory (e.g., `../<repo>-threads`) and run `git log -1 --pretty=raw` — you should see the footers (`Code-Repo`, `Code-Branch`, `Spec`, etc.)
-4. Optional: `watercooler_v1_reindex(code_path=".")` to regenerate the index and ensure the threads repo merges cleanly
+4. Optional: `watercooler_reindex(code_path=".")` to regenerate the index and ensure the threads repo merges cleanly
 
 ## 8. Next steps
 
@@ -132,6 +132,6 @@ We plan to ship helper wrappers so clients can infer `code_path` automatically a
 
 ## Support & troubleshooting
 
-Encounter friction? Jump to [TROUBLESHOOTING.md](TROUBLESHOOTING.md). When filing issues, include the output of `watercooler_v1_health(code_path=".")` and your MCP client version.
+Encounter friction? Jump to [TROUBLESHOOTING.md](TROUBLESHOOTING.md). When filing issues, include the output of `watercooler_health(code_path=".")` and your MCP client version.
 
 Welcome to the shadow repo era—run the quickstart once and Watercooler becomes indispensable in every branch you touch.

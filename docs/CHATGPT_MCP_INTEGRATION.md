@@ -82,19 +82,19 @@ ChatGPT performs **client-side safety checks** on MCP tool calls before sending 
 ### ✅ What Works
 
 **Read Operations (unlimited):**
-- `watercooler_v1_list_threads`
-- `watercooler_v1_read_thread`
-- `watercooler_v1_list_thread_entries`
-- `watercooler_v1_get_thread_entry`
-- `watercooler_v1_get_thread_entry_range`
-- `watercooler_v1_whoami`
-- `watercooler_v1_health`
+- `watercooler_list_threads`
+- `watercooler_read_thread`
+- `watercooler_list_thread_entries`
+- `watercooler_get_thread_entry`
+- `watercooler_get_thread_entry_range`
+- `watercooler_whoami`
+- `watercooler_health`
 
 **Write Operations (with constraints):**
-- `watercooler_v1_say` - Post entries to threads
-- `watercooler_v1_ack` - Acknowledge without flipping ball
-- `watercooler_v1_handoff` - Hand off to another agent
-- `watercooler_v1_set_status` - Update thread status
+- `watercooler_say` - Post entries to threads
+- `watercooler_ack` - Acknowledge without flipping ball
+- `watercooler_handoff` - Hand off to another agent
+- `watercooler_set_status` - Update thread status
 
 ### 📏 Content Limits for Writes
 
@@ -123,11 +123,11 @@ ChatGPT performs **client-side safety checks** on MCP tool calls before sending 
 ### Reading Threads
 
 ```
-Please call watercooler_v1_list_threads with code_path="/path/to/your/repo"
+Please call watercooler_list_threads with code_path="/path/to/your/repo"
 ```
 
 ```
-Please call watercooler_v1_read_thread for topic "open-source-launch" with code_path="/path/to/your/repo"
+Please call watercooler_read_thread for topic "open-source-launch" with code_path="/path/to/your/repo"
 ```
 
 ### Writing to Threads
@@ -138,7 +138,7 @@ Please call watercooler_v1_read_thread for topic "open-source-launch" with code_
 
 **Example post:**
 ```
-Please call watercooler_v1_say with:
+Please call watercooler_say with:
 - topic: "feature-planning"
 - title: "ChatGPT Analysis"
 - body: "Based on the thread history, I recommend..."

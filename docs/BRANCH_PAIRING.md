@@ -163,11 +163,11 @@ git push origin main
 
 **MCP Tools for Branch Management**:
 
-- `watercooler_v1_validate_branch_pairing` - Explicitly check branch pairing status
-- `watercooler_v1_sync_branch_state` - Synchronize branch state (create, delete, merge, checkout)
-- `watercooler_v1_audit_branch_pairing` - Comprehensive audit of all branches across repo pair
-- `watercooler_v1_recover_branch_state` - Diagnose and recover from branch state inconsistencies
-- `watercooler_v1_reconcile_parity` - Reconcile parity state (pull threads if behind, retry push)
+- `watercooler_validate_branch_pairing` - Explicitly check branch pairing status
+- `watercooler_sync_branch_state` - Synchronize branch state (create, delete, merge, checkout)
+- `watercooler_audit_branch_pairing` - Comprehensive audit of all branches across repo pair
+- `watercooler_recover_branch_state` - Diagnose and recover from branch state inconsistencies
+- `watercooler_reconcile_parity` - Reconcile parity state (pull threads if behind, retry push)
 
 **Enforcement Rules**:
 
@@ -178,11 +178,11 @@ git push origin main
 
 **Common Scenarios**:
 
-- **Branch mismatch detected**: Use `watercooler_v1_sync_branch_state` with `operation="checkout"` to sync
-- **Orphaned threads branch**: Use `watercooler_v1_audit_branch_pairing` to identify, then `sync_branch_state` with `operation="delete"` to clean up
-- **Git state issues**: Use `watercooler_v1_recover_branch_state` to diagnose and fix rebase conflicts, detached HEAD, etc.
-- **Threads behind origin**: Use `watercooler_v1_reconcile_parity` to pull latest commits and sync state
-- **Push failed / pending push**: Use `watercooler_v1_reconcile_parity` to retry the push with rebase-on-reject
+- **Branch mismatch detected**: Use `watercooler_sync_branch_state` with `operation="checkout"` to sync
+- **Orphaned threads branch**: Use `watercooler_audit_branch_pairing` to identify, then `sync_branch_state` with `operation="delete"` to clean up
+- **Git state issues**: Use `watercooler_recover_branch_state` to diagnose and fix rebase conflicts, detached HEAD, etc.
+- **Threads behind origin**: Use `watercooler_reconcile_parity` to pull latest commits and sync state
+- **Push failed / pending push**: Use `watercooler_reconcile_parity` to retry the push with rebase-on-reject
 
 ## Auto-Remediation System
 
@@ -251,7 +251,7 @@ The following states block writes and require explicit action:
 2. **Threads Behind Origin → Block (use `reconcile_parity`)**
    - Detects when threads repo is behind origin (another agent pushed commits)
    - Blocks to prevent auto-pulling changes that may conflict
-   - Use `watercooler_v1_reconcile_parity` to pull and sync, then retry
+   - Use `watercooler_reconcile_parity` to pull and sync, then retry
 
 3. **Code Behind Origin → Block**
    - Detects when code repo is behind origin
@@ -287,7 +287,7 @@ To prevent concurrent writes from corrupting thread files, the system uses advis
 
 ### Health Reporting
 
-The `watercooler_v1_health` tool now includes branch parity status:
+The `watercooler_health` tool now includes branch parity status:
 
 ```
 Branch Parity:
@@ -330,7 +330,7 @@ When the git remote is unreachable (network issues, VPN disconnected, etc.):
 **Recovery**:
 1. Restore network connectivity
 2. Retry the write operation
-3. If commits were made locally before disconnect, use `watercooler_v1_reconcile_parity` to push pending commits
+3. If commits were made locally before disconnect, use `watercooler_reconcile_parity` to push pending commits
 
 **Future Enhancement** (not implemented): Opt-in local-only mode for offline work with explicit sync on reconnect.
 
@@ -348,13 +348,13 @@ Force-push scenarios are detected through **divergence detection**: when the loc
 **Error Message**:
 ```
 Threads branch is N commits behind origin.
-Use watercooler_v1_reconcile_parity or
-watercooler_v1_sync_branch_state with operation='recover' to sync.
+Use watercooler_reconcile_parity or
+watercooler_sync_branch_state with operation='recover' to sync.
 ```
 
 **Recovery Options**:
-1. `watercooler_v1_reconcile_parity` - Pulls threads with rebase and pushes pending commits
-2. `watercooler_v1_sync_branch_state(operation='recover')` - More comprehensive recovery for complex divergence
+1. `watercooler_reconcile_parity` - Pulls threads with rebase and pushes pending commits
+2. `watercooler_sync_branch_state(operation='recover')` - More comprehensive recovery for complex divergence
 
 **Note**: The system never force-pushes (neutral origin principle). If remote was force-pushed, the local agent must explicitly recover.
 
@@ -396,9 +396,9 @@ architectural limitation that affects how push failures are reported.
   is more important than immediate push confirmation
 
 **Workarounds for Async Limitations**:
-- Use `watercooler_v1_sync(action='status')` to check actual async queue state
-- Use `watercooler_v1_sync(action='now')` to flush the queue and push immediately
-- Use `watercooler_v1_reconcile_parity` to force sync and update parity state
+- Use `watercooler_sync(action='status')` to check actual async queue state
+- Use `watercooler_sync(action='now')` to flush the queue and push immediately
+- Use `watercooler_reconcile_parity` to force sync and update parity state
 - Set `priority_flush=True` on critical writes to flush queue after that entry
 
 **Future Enhancement**: Upgrade async path to use unified `push_after_commit()`

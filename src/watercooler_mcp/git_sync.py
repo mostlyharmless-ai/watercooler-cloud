@@ -2527,7 +2527,7 @@ def validate_branch_pairing(
             recovery_msg = (
                 f"Possible branch rename detected (similarity: {similarity:.0%}). "
                 f"Suggested branch: '{suggested_branch}'. "
-                f"Run: watercooler_v1_sync_branch_state with operation='checkout' and branch='{suggested_branch}'"
+                f"Run: watercooler_sync_branch_state with operation='checkout' and branch='{suggested_branch}'"
             )
             warnings.append(
                 f"Branch name mismatch may be due to rename: '{code_branch}' vs '{threads_branch}' "
@@ -2535,7 +2535,7 @@ def validate_branch_pairing(
             )
         else:
             recovery_msg = (
-                f"Run: watercooler_v1_sync_branch_state with operation='checkout' to sync branches"
+                f"Run: watercooler_sync_branch_state with operation='checkout' to sync branches"
             )
         
         mismatches.append(BranchMismatch(
@@ -2561,7 +2561,7 @@ def validate_branch_pairing(
                 recovery=(
                     f"Branch histories have diverged: {divergence.commits_ahead} ahead, "
                     f"{divergence.commits_behind} behind. "
-                    f"Run: watercooler_v1_sync_branch_state with operation='recover' to attempt auto-fix, "
+                    f"Run: watercooler_sync_branch_state with operation='recover' to attempt auto-fix, "
                     f"or manually rebase the threads branch."
                 )
             ))
@@ -2590,7 +2590,7 @@ def validate_branch_pairing(
                 recovery=(
                     f"Threads branch is {behind_main.commits_behind} commits behind main "
                     f"but code branch is up-to-date. "
-                    f"Run: watercooler_v1_sync_branch_state with operation='recover' to rebase "
+                    f"Run: watercooler_sync_branch_state with operation='recover' to rebase "
                     f"threads branch onto main."
                 )
             ))

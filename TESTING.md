@@ -267,7 +267,7 @@ python -m watercooler_mcp.http_facade
 
 # In another terminal, test endpoints
 curl http://localhost:8000/health
-curl -X POST http://localhost:8000/mcp/watercooler_v1_health \
+curl -X POST http://localhost:8000/mcp/watercooler_health \
   -H "X-User-Id: gh:testuser" \
   -H "X-Project-Id: test-project"
 ```

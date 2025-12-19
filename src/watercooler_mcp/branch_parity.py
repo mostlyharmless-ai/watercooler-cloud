@@ -763,7 +763,7 @@ def run_preflight(
                     state.status = ParityStatus.MAIN_PROTECTION.value
                     state.last_error = (
                         f"Threads repo is on '{main_branch}' but code is on '{code_branch}'. "
-                        f"Use watercooler_v1_sync_branch_state with operation='checkout' to fix."
+                        f"Use watercooler_sync_branch_state with operation='checkout' to fix."
                     )
                     return PreflightResult(
                         success=False,
@@ -824,7 +824,7 @@ def run_preflight(
                 state.status = ParityStatus.BRANCH_MISMATCH.value
                 state.last_error = (
                     f"Branch mismatch: code is on '{code_branch}', threads is on '{threads_branch}'. "
-                    f"Use watercooler_v1_sync_branch_state with operation='checkout' to fix."
+                    f"Use watercooler_sync_branch_state with operation='checkout' to fix."
                 )
                 return PreflightResult(
                     success=False,
@@ -875,13 +875,13 @@ def run_preflight(
 
         # Threads behind origin: BLOCK - require explicit recover
         # This is a safety measure to prevent auto-pulling changes that may conflict
-        # or that the user may not be aware of. Use watercooler_v1_reconcile_parity to fix.
+        # or that the user may not be aware of. Use watercooler_reconcile_parity to fix.
         if threads_behind > 0:
             state.status = ParityStatus.DIVERGED.value
             state.last_error = (
                 f"Threads branch is {threads_behind} commits behind origin. "
-                f"Use watercooler_v1_reconcile_parity or "
-                f"watercooler_v1_sync_branch_state with operation='recover' to sync."
+                f"Use watercooler_reconcile_parity or "
+                f"watercooler_sync_branch_state with operation='recover' to sync."
             )
             return PreflightResult(
                 success=False,

@@ -1,7 +1,7 @@
 # Fixing sync_branch_state Merge Operation Bug
 
 ## Context
-Working on watercooler-cloud MCP server. User tried to merge post-launch-polish branch to main in threads repo using `watercooler_v1_sync_branch_state` tool, but merge wasn't being pushed to remote.
+Working on watercooler-cloud MCP server. User tried to merge post-launch-polish branch to main in threads repo using `watercooler_sync_branch_state` tool, but merge wasn't being pushed to remote.
 
 ## Bug Found
 File: `src/watercooler_mcp/server.py`, line 1909-1914
