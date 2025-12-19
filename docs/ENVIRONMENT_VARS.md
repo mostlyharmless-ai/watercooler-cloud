@@ -758,7 +758,7 @@ export BASELINE_GRAPH_EXTRACTIVE_ONLY="true"
 
 ## Graphiti Memory Variables
 
-Variables for querying thread history via Graphiti temporal graph memory. These enable the `watercooler_v1_query_memory` MCP tool.
+Variables for querying thread history via Graphiti temporal graph memory. These enable the `watercooler_query_memory` MCP tool.
 
 ### WATERCOOLER_GRAPHITI_ENABLED
 
@@ -774,7 +774,7 @@ Variables for querying thread history via Graphiti temporal graph memory. These 
 
 **Details:**
 
-Enables the `watercooler_v1_query_memory` tool for asking questions about thread history using Graphiti's temporal graph memory. When disabled, the tool returns an error message directing users to enable it.
+Enables the `watercooler_query_memory` tool for asking questions about thread history using Graphiti's temporal graph memory. When disabled, the tool returns an error message directing users to enable it.
 
 **Prerequisites** (when enabled):
 - `OPENAI_API_KEY` environment variable set
@@ -835,7 +835,7 @@ export OPENAI_API_KEY="sk-..."
 **Related:**
 - See [GRAPHITI_SETUP.md](./GRAPHITI_SETUP.md) for complete setup guide
 - See [MEMORY.md](./MEMORY.md) for memory backend overview
-- See [mcp-server.md](./mcp-server.md#watercooler_v1_query_memory) for tool reference
+- See [mcp-server.md](./mcp-server.md#watercooler_query_memory) for tool reference
 
 ---
 
@@ -1037,7 +1037,7 @@ Switch by exporting `WATERCOOLER_THREADS_PATTERN` before launching the MCP serve
 
 **Check current identity:**
 ```bash
-# MCP: Ask agent to call watercooler_v1_whoami
+# MCP: Ask agent to call watercooler_whoami
 # CLI: Check environment
 echo $WATERCOOLER_AGENT
 ```
@@ -1056,13 +1056,13 @@ export WATERCOOLER_AGENT="CorrectName"
 
 **Check resolution:**
 ```bash
-# MCP: Ask agent to call watercooler_v1_health
+# MCP: Ask agent to call watercooler_health
 # Look for "Threads Dir: /path" in output
 ```
 
 **Fix options:**
 
-1. **Use universal defaults:** `watercooler_v1_health(code_path=".")` will report the expected sibling directory (for example `/workspace/<repo>-threads`). Ensure that path exists and is writable.
+1. **Use universal defaults:** `watercooler_health(code_path=".")` will report the expected sibling directory (for example `/workspace/<repo>-threads`). Ensure that path exists and is writable.
 
 2. **Override location (manual):**
    ```bash

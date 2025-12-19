@@ -15,9 +15,9 @@
 ### stdio Transport (Backward Compatibility)
 - [ ] `python3 -m watercooler_mcp` starts without error
 - [ ] Can connect from Claude Code/Cursor with stdio config
-- [ ] `watercooler_v1_health` tool works
-- [ ] `watercooler_v1_list_threads` works
-- [ ] `watercooler_v1_say` creates entries
+- [ ] `watercooler_health` tool works
+- [ ] `watercooler_list_threads` works
+- [ ] `watercooler_say` creates entries
 
 ### HTTP Transport (New Feature)
 - [ ] `./scripts/mcp-server-daemon.sh start` succeeds

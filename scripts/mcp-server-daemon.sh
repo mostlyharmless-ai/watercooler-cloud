@@ -104,7 +104,7 @@ status_server() {
     echo "  MCP Endpoint: http://$HOST:$PORT/mcp"
     echo "  Transport: Streamable-HTTP (SSE)"
     echo ""
-    echo "  Use watercooler_v1_health tool via MCP protocol for health checks"
+    echo "  Use watercooler_health tool via MCP protocol for health checks"
 
     return 0
 }

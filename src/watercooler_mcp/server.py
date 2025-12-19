@@ -1,7 +1,7 @@
 """Watercooler MCP Server - Phase 1A MVP
 
 FastMCP server exposing watercooler-cloud tools to AI agents.
-All tools are namespaced as watercooler_v1_* for provider compatibility.
+All tools are namespaced as watercooler_* for provider compatibility.
 
 Phase 1A features:
 - 7 core tools + 2 diagnostic tools
@@ -248,7 +248,7 @@ def _attempt_auto_fix_divergence(
             if sync_result.needs_manual_resolution:
                 error_parts.append("  Manual resolution required.")
             error_parts.append(
-                "\nManual recovery: watercooler_v1_sync_branch_state with operation='recover'"
+                "\nManual recovery: watercooler_sync_branch_state with operation='recover'"
             )
             raise BranchPairingError("\n".join(error_parts))
 
@@ -279,7 +279,7 @@ def _attempt_auto_fix_divergence(
             f"  Code branch: {validation_result.code_branch or '(detached/unknown)'}",
             f"  Threads branch: {validation_result.threads_branch or '(detached/unknown)'}",
             f"  Error: {fix_error}",
-            "\nManual recovery: watercooler_v1_sync_branch_state with operation='recover'"
+            "\nManual recovery: watercooler_sync_branch_state with operation='recover'"
         ]
         raise BranchPairingError("\n".join(error_parts))
 
@@ -379,7 +379,7 @@ def _validate_and_sync_branches(
                         for warning in validation_result.warnings:
                             error_parts.append(f"  - {warning}")
                     error_parts.append(
-                        "\nRun: watercooler_v1_sync_branch_state with operation='checkout' to sync branches"
+                        "\nRun: watercooler_sync_branch_state with operation='checkout' to sync branches"
                     )
                     raise BranchPairingError("\n".join(error_parts))
         except BranchPairingError:
@@ -764,15 +764,15 @@ The **ball** indicates whose turn it is:
 
 ## 🔧 Available Tools (MCP)
 
-- `watercooler_v1_list_threads` - See all threads, identify where you have the ball
-- `watercooler_v1_read_thread` - Read full thread content
-- `watercooler_v1_say` - Add entry and flip ball (most common)
-- `watercooler_v1_ack` - Acknowledge without flipping ball
-- `watercooler_v1_handoff` - Explicitly hand off to another agent
-- `watercooler_v1_set_status` - Update thread status
-- `watercooler_v1_reindex` - Generate summary of all threads
-- `watercooler_v1_health` - Check server status
-- `watercooler_v1_whoami` - Check your agent identity
+- `watercooler_list_threads` - See all threads, identify where you have the ball
+- `watercooler_read_thread` - Read full thread content
+- `watercooler_say` - Add entry and flip ball (most common)
+- `watercooler_ack` - Acknowledge without flipping ball
+- `watercooler_handoff` - Explicitly hand off to another agent
+- `watercooler_set_status` - Update thread status
+- `watercooler_reindex` - Generate summary of all threads
+- `watercooler_health` - Check server status
+- `watercooler_whoami` - Check your agent identity
 
 ## 🚀 Pro Tips
 
@@ -791,7 +791,7 @@ The **ball** indicates whose turn it is:
 # Diagnostic Tools (Phase 1A)
 # ============================================================================
 
-@mcp.tool(name="watercooler_v1_health")
+@mcp.tool(name="watercooler_health")
 def health(ctx: Context, code_path: str = "") -> str:
     """Check server health and configuration including branch parity status.
 
@@ -868,7 +868,7 @@ def health(ctx: Context, code_path: str = "") -> str:
         return f"Watercooler MCP Server\nStatus: Error\nError: {str(e)}"
 
 
-@mcp.tool(name="watercooler_v1_whoami")
+@mcp.tool(name="watercooler_whoami")
 def whoami(ctx: Context) -> str:
     """Get your resolved agent identity.
 
@@ -886,7 +886,7 @@ def whoami(ctx: Context) -> str:
         return f"Error determining identity: {str(e)}"
 
 
-@mcp.tool(name="watercooler_v1_reconcile_parity")
+@mcp.tool(name="watercooler_reconcile_parity")
 def reconcile_parity(
     ctx: Context,
     code_path: str = "",
@@ -1029,7 +1029,7 @@ def reconcile_parity(
 # Core Tools (Phase 1A)
 # ============================================================================
 
-@mcp.tool(name="watercooler_v1_list_threads")
+@mcp.tool(name="watercooler_list_threads")
 def list_threads(
     ctx: Context,
     open_only: bool | None = None,
@@ -1094,7 +1094,7 @@ def list_threads(
         if not threads_dir.exists():
             threads_dir.mkdir(parents=True, exist_ok=True)
             log_debug("list_threads created empty threads directory")
-            return ToolResult(content=[TextContent(type="text", text=f"No threads found. Threads directory created at: {threads_dir}\n\nCreate your first thread with watercooler_v1_say.")])
+            return ToolResult(content=[TextContent(type="text", text=f"No threads found. Threads directory created at: {threads_dir}\n\nCreate your first thread with watercooler_say.")])
 
         # Get thread list from commands module
         scan_start = time.time()
@@ -1208,7 +1208,7 @@ def list_threads(
         return ToolResult(content=[TextContent(type="text", text=f"Error listing threads: {str(e)}")])
 
 
-@mcp.tool(name="watercooler_v1_read_thread")
+@mcp.tool(name="watercooler_read_thread")
 def read_thread(
     topic: str,
     from_entry: int = 0,
@@ -1295,7 +1295,7 @@ def read_thread(
         return f"Error reading thread '{topic}': {str(e)}"
 
 
-@mcp.tool(name="watercooler_v1_list_thread_entries")
+@mcp.tool(name="watercooler_list_thread_entries")
 def list_thread_entries(
     topic: str,
     offset: int = 0,
@@ -1358,7 +1358,7 @@ def list_thread_entries(
     return ToolResult(content=[TextContent(type="text", text=json.dumps(payload, indent=2))])
 
 
-@mcp.tool(name="watercooler_v1_get_thread_entry")
+@mcp.tool(name="watercooler_get_thread_entry")
 def get_thread_entry(
     topic: str,
     index: int | None = None,
@@ -1416,7 +1416,7 @@ def get_thread_entry(
     return ToolResult(content=[TextContent(type="text", text=json.dumps(payload, indent=2))])
 
 
-@mcp.tool(name="watercooler_v1_get_thread_entry_range")
+@mcp.tool(name="watercooler_get_thread_entry_range")
 def get_thread_entry_range(
     topic: str,
     start_index: int = 0,
@@ -1482,7 +1482,7 @@ def get_thread_entry_range(
     return ToolResult(content=[TextContent(type="text", text=json.dumps(payload, indent=2))])
 
 
-@mcp.tool(name="watercooler_v1_say")
+@mcp.tool(name="watercooler_say")
 def say(
     topic: str,
     title: str,
@@ -1591,7 +1591,7 @@ def say(
         return f"Error adding entry to '{topic}': {str(e)}"
 
 
-@mcp.tool(name="watercooler_v1_ack")
+@mcp.tool(name="watercooler_ack")
 def ack(
     topic: str,
     ctx: Context,
@@ -1680,7 +1680,7 @@ def ack(
         return f"Error acknowledging '{topic}': {str(e)}"
 
 
-@mcp.tool(name="watercooler_v1_handoff")
+@mcp.tool(name="watercooler_handoff")
 def handoff(
     topic: str,
     ctx: Context,
@@ -1798,7 +1798,7 @@ def handoff(
         return f"Error handing off '{topic}': {str(e)}"
 
 
-@mcp.tool(name="watercooler_v1_set_status")
+@mcp.tool(name="watercooler_set_status")
 def set_status(
     topic: str,
     status: str,
@@ -1871,7 +1871,7 @@ def set_status(
         return f"Error setting status for '{topic}': {str(e)}"
 
 
-@mcp.tool(name="watercooler_v1_sync")
+@mcp.tool(name="watercooler_sync")
 def force_sync(
     ctx: Context,
     code_path: str = "",
@@ -1887,7 +1887,7 @@ def force_sync(
     Returns:
         Status information or confirmation of sync operation
     """
-    log_debug(f"TOOL_ENTRY: watercooler_v1_sync(code_path={code_path!r}, action={action!r})")
+    log_debug(f"TOOL_ENTRY: watercooler_sync(code_path={code_path!r}, action={action!r})")
     try:
         log_debug("TOOL_STEP: calling _require_context")
         error, context = _require_context(code_path)
@@ -1963,7 +1963,7 @@ def force_sync(
         return f"Error running sync: {exc}"
 
 
-@mcp.tool(name="watercooler_v1_reindex")
+@mcp.tool(name="watercooler_reindex")
 def reindex(ctx: Context) -> str:
     """Generate and return the index content summarizing all threads.
 
@@ -1983,7 +1983,7 @@ def reindex(ctx: Context) -> str:
         # Create threads directory if it doesn't exist
         if not threads_dir.exists():
             threads_dir.mkdir(parents=True, exist_ok=True)
-            return f"No threads found. Threads directory created at: {threads_dir}\n\nCreate your first thread with watercooler_v1_say."
+            return f"No threads found. Threads directory created at: {threads_dir}\n\nCreate your first thread with watercooler_say."
 
         # Get all threads
         all_threads = commands.list_threads(threads_dir=threads_dir, open_only=None)
@@ -2062,7 +2062,7 @@ def reindex(ctx: Context) -> str:
 # Baseline Graph Tools (Free-tier, local LLM)
 # ============================================================================
 
-@mcp.tool(name="watercooler_v1_baseline_graph_stats")
+@mcp.tool(name="watercooler_baseline_graph_stats")
 def baseline_graph_stats(
     ctx: Context,
     code_path: str = "",
@@ -2098,7 +2098,7 @@ def baseline_graph_stats(
         return f"Error getting baseline graph stats: {str(e)}"
 
 
-@mcp.tool(name="watercooler_v1_baseline_graph_build")
+@mcp.tool(name="watercooler_baseline_graph_build")
 def baseline_graph_build(
     ctx: Context,
     code_path: str = "",
@@ -2158,7 +2158,7 @@ def baseline_graph_build(
 # Branch Sync Enforcement Tools
 # ============================================================================
 
-@mcp.tool(name="watercooler_v1_validate_branch_pairing")
+@mcp.tool(name="watercooler_validate_branch_pairing")
 def validate_branch_pairing_tool(
     ctx: Context,
     code_path: str = "",
@@ -2224,7 +2224,7 @@ def validate_branch_pairing_tool(
         )])
 
 
-@mcp.tool(name="watercooler_v1_sync_branch_state")
+@mcp.tool(name="watercooler_sync_branch_state")
 def sync_branch_state(
     ctx: Context,
     code_path: str = "",
@@ -2243,8 +2243,8 @@ def sync_branch_state(
 
     Note:
         This operational tool does **not** require ``agent_func`` or other
-        provenance parameters. Unlike write operations (``watercooler_v1_say``,
-        ``watercooler_v1_ack``, etc.), it only performs git lifecycle
+        provenance parameters. Unlike write operations (``watercooler_say``,
+        ``watercooler_ack``, etc.), it only performs git lifecycle
         management, so pass just ``code_path``, ``branch``, ``operation``, and
         ``force``. FastMCP will automatically reject any unexpected parameters.
 
@@ -2550,7 +2550,7 @@ def sync_branch_state(
         )])
 
 
-@mcp.tool(name="watercooler_v1_audit_branch_pairing")
+@mcp.tool(name="watercooler_audit_branch_pairing")
 def audit_branch_pairing(
     ctx: Context,
     code_path: str = "",
@@ -2666,7 +2666,7 @@ def audit_branch_pairing(
         )])
 
 
-@mcp.tool(name="watercooler_v1_recover_branch_state")
+@mcp.tool(name="watercooler_recover_branch_state")
 def recover_branch_state(
     ctx: Context,
     code_path: str = "",
@@ -2812,7 +2812,7 @@ def recover_branch_state(
         )])
 
 
-@mcp.tool(name="watercooler_v1_query_memory")
+@mcp.tool(name="watercooler_query_memory")
 async def query_memory(
     query: str,
     ctx: Context,
@@ -3034,7 +3034,7 @@ async def query_memory(
 
 
 
-@mcp.tool(name="watercooler_v1_search_nodes")
+@mcp.tool(name="watercooler_search_nodes")
 async def search_nodes(
     query: str,
     ctx: Context,
@@ -3185,7 +3185,7 @@ async def search_nodes(
         )
 
 
-@mcp.tool(name="watercooler_v1_get_entity_edge")
+@mcp.tool(name="watercooler_get_entity_edge")
 async def get_entity_edge(
     uuid: str,
     ctx: Context,
@@ -3313,7 +3313,7 @@ async def get_entity_edge(
         )
 
 
-@mcp.tool(name="watercooler_v1_search_memory_facts")
+@mcp.tool(name="watercooler_search_memory_facts")
 async def search_memory_facts(
     query: str,
     ctx: Context,
@@ -3474,7 +3474,7 @@ async def search_memory_facts(
         )
 
 
-@mcp.tool(name="watercooler_v1_get_episodes")
+@mcp.tool(name="watercooler_get_episodes")
 async def get_episodes(
     query: str,
     ctx: Context,
@@ -3619,7 +3619,7 @@ async def get_episodes(
         )
 
 
-@mcp.tool(name="watercooler_v1_diagnose_memory")
+@mcp.tool(name="watercooler_diagnose_memory")
 def diagnose_memory(ctx: Context) -> ToolResult:
     """Diagnose Graphiti memory backend installation and configuration.
 

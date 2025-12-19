@@ -46,18 +46,18 @@ Watercooler-cloud has evolved from a simple CLI library extraction (acpmonkey) t
 
 **Delivered:**
 - 9 MCP tools (7 core + 2 diagnostic):
-  - `watercooler_v1_health` - Server health check
-  - `watercooler_v1_whoami` - Get agent identity
-  - `watercooler_v1_list_threads` - List threads with ball status
-  - `watercooler_v1_read_thread` - Read full thread content
-  - `watercooler_v1_say` - Add entry and flip ball (primary workflow)
-  - `watercooler_v1_ack` - Acknowledge without flipping ball
-  - `watercooler_v1_handoff` - Hand off to specific agent
-  - `watercooler_v1_set_status` - Update thread status
-  - `watercooler_v1_reindex` - Generate index summary
+  - `watercooler_health` - Server health check
+  - `watercooler_whoami` - Get agent identity
+  - `watercooler_list_threads` - List threads with ball status
+  - `watercooler_read_thread` - Read full thread content
+  - `watercooler_say` - Add entry and flip ball (primary workflow)
+  - `watercooler_ack` - Acknowledge without flipping ball
+  - `watercooler_handoff` - Hand off to specific agent
+  - `watercooler_set_status` - Update thread status
+  - `watercooler_reindex` - Generate index summary
 - 1 MCP resource: `watercooler://instructions` (comprehensive agent guide)
 - Multi-tenant architecture with automatic client detection
-- Tool namespacing (`watercooler_v1_*` for version compatibility)
+- Tool namespacing (`watercooler_*` for version compatibility)
 - Entry point: `python3 -m watercooler_mcp`
 - FastMCP 2.12.4 integration
 - STDIO transport
@@ -109,8 +109,8 @@ Watercooler-cloud has evolved from a simple CLI library extraction (acpmonkey) t
   - Commit footers: Watercooler-Entry-ID, Watercooler-Topic, Watercooler-Agent
   - Prevents duplicate entries during retry
 - **MCP Tool Integration:**
-  - watercooler_v1_say() with cloud sync wrapper
-  - watercooler_v1_read_thread() with pull-before-read
+  - watercooler_say() with cloud sync wrapper
+  - watercooler_read_thread() with pull-before-read
   - Cloud mode detection via WATERCOOLER_GIT_REPO env var
   - Backward compatible (local mode unchanged)
 - **Observability:**

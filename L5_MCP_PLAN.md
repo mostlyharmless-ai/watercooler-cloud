@@ -363,7 +363,7 @@ We'll implement in two phases to balance rapid validation against production rea
 **Phase 1A Scope Boundaries:**
 - ✅ Markdown output only (no JSON format parameter)
 - ✅ No pagination (return full results)
-- ✅ Tool namespacing implemented (`watercooler_v1_*`)
+- ✅ Tool namespacing implemented (`watercooler_*`)
 - ✅ Basic error handling (try/catch with messages)
 - ✅ Simple env var config only
 
@@ -421,8 +421,8 @@ We'll implement in two phases to balance rapid validation against production rea
    - ✅ Prevents duplicate entries during retry
 
 3. **MCP Tool Integration**
-   - ✅ watercooler_v1_say() with git sync wrapper
-   - ✅ watercooler_v1_read_thread() with pull-before-read
+   - ✅ watercooler_say() with git sync wrapper
+   - ✅ watercooler_read_thread() with pull-before-read
    - ✅ Cloud mode detection via WATERCOOLER_GIT_REPO env var
    - ✅ Backward compatible (local mode unchanged)
 
@@ -481,7 +481,7 @@ We'll implement in two phases to balance rapid validation against production rea
 
 To make tools robust and future‑proof for multiple clients:
 
-- Namespacing: expose tools as `watercooler_v1_*` (e.g., `watercooler_v1_list_threads`). Ship this in Phase 1A to avoid breaking changes.
+- Namespacing: expose tools as `watercooler_*` (e.g., `watercooler_list_threads`). Ship this in Phase 1A to avoid breaking changes.
 - Output format: every read/list tool accepts `format: Literal["markdown","json"] = "markdown"`. Phase 1A supports only "markdown"; `format="json"` is planned for Phase 1B.
 - Pagination:
   - `list_threads(open_only: bool | None = None, limit: int = 50, cursor: str | None = None)`
@@ -624,7 +624,7 @@ Can you confirm you can see this and respond?
 3. ✅ Align on phased implementation strategy
 4. ✅ Build Phase 1A MVP
    - Created `src/watercooler_mcp/` package structure
-   - Implemented 9 tools (7 core + 2 diagnostic), namespaced as `watercooler_v1_*`
+   - Implemented 9 tools (7 core + 2 diagnostic), namespaced as `watercooler_*`
    - Added `config.py` with WATERCOOLER_DIR and WATERCOOLER_AGENT support
    - Implemented health() and whoami() diagnostics
    - Added watercooler://instructions resource

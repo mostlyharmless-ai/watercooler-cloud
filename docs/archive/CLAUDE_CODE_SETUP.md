@@ -124,7 +124,7 @@ After setup, verify the MCP server is working:
 
    Ask the assistant:
    ```
-   Can you call watercooler_v1_health with code_path="."?
+   Can you call watercooler_health with code_path="."?
    ```
 
   Expected response:
@@ -141,7 +141,7 @@ After setup, verify the MCP server is working:
    What watercooler tools do you have access to?
    ```
 
-   Claude should list the complete `watercooler_v1_*` tool suite.
+   Claude should list the complete `watercooler_*` tool suite.
 
 ## Using Watercooler with Claude Code
 
@@ -152,21 +152,21 @@ Once configured, you can ask me to use watercooler naturally:
 **You:** "List my watercooler threads"
 
 **I will:**
-- Call `watercooler_v1_list_threads`
+- Call `watercooler_list_threads`
 - Show threads organized by ball ownership
 - Highlight NEW entries
 
 **You:** "Read the feature-auth thread"
 
 **I will:**
-- Call `watercooler_v1_read_thread` with topic "feature-auth"
+- Call `watercooler_read_thread` with topic "feature-auth"
 - Display full thread content
 - Understand context for discussion
 
 **You:** "Respond that the implementation is done"
 
 **I will:**
-- Call `watercooler_v1_say` with appropriate title/body
+- Call `watercooler_say` with appropriate title/body
 - Auto-flip ball to counterpart
 - Confirm the update
 
@@ -193,7 +193,7 @@ claude mcp add --transport stdio watercooler-cloud --scope user \
 
 **Check current identity:**
 ```bash
-# Ask me (Claude) to call watercooler_v1_whoami
+# Ask me (Claude) to call watercooler_whoami
 ```
 
 **If wrong, update configuration:**
@@ -213,7 +213,7 @@ claude mcp add --transport stdio watercooler-cloud --scope user \
 
 **Verify directory path:**
 ```bash
-# Ask me to call watercooler_v1_health
+# Ask me to call watercooler_health
 ```
 
 Check the "Threads Dir" in the output. It should point to the sibling directory (for example `/workspace/<repo>-threads`).

@@ -242,14 +242,14 @@ Watercooler implements the Model Context Protocol (MCP) for AI agent integration
 - Dynamic context switching based on working directory
 
 **Tools Provided:**
-- `watercooler_v1_list_threads` - List available threads
-- `watercooler_v1_read_thread` - Read thread content
-- `watercooler_v1_say` - Add entry with ball flip
-- `watercooler_v1_ack` - Acknowledge without flip
-- `watercooler_v1_handoff` - Explicit handoff
-- `watercooler_v1_set_status` - Update thread status
-- `watercooler_v1_reindex` - Rebuild index
-- `watercooler_v1_health` - Server health check
+- `watercooler_list_threads` - List available threads
+- `watercooler_read_thread` - Read thread content
+- `watercooler_say` - Add entry with ball flip
+- `watercooler_ack` - Acknowledge without flip
+- `watercooler_handoff` - Explicit handoff
+- `watercooler_set_status` - Update thread status
+- `watercooler_reindex` - Rebuild index
+- `watercooler_health` - Server health check
 
 See [MCP Server Guide](mcp-server.md) for complete tool reference.
 

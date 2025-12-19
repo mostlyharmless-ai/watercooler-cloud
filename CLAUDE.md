@@ -252,7 +252,7 @@ Standardize how Claude (this assistant) uses Watercooler tools so entries remain
 
 ### Setting Identity
 
-- **Preferred (cloud context)**: Call `watercooler_v1_set_agent` with `base="Claude Code"` and an appropriate `spec` (e.g., `pm`, `planner-architecture`, `implementer-code`, `tester`, `security-audit`, `docs`, `ops`, or `general-purpose`).
+- **Preferred (cloud context)**: Call `watercooler_set_agent` with `base="Claude Code"` and an appropriate `spec` (e.g., `pm`, `planner-architecture`, `implementer-code`, `tester`, `security-audit`, `docs`, `ops`, or `general-purpose`).
 - **Alternative (per-call)**: Supply `agent_func` parameter in format `<platform>:<model>:<role>` (e.g., `"Claude Code:sonnet-4:implementer"`) where platform is the actual IDE/platform name, model is the exact model identifier, and role is the agent role.
 - **Local context (no explicit setter)**: Still enforce the rule by selecting the matching entry Role and adding a visible `Spec: <value>` line at the top of the entry body.
 
@@ -264,9 +264,9 @@ Standardize how Claude (this assistant) uses Watercooler tools so entries remain
 
 ### Thread Reading & Entry Access
 
-- Default to `watercooler_v1_list_thread_entries` with `format="json"` and explicit `offset`/`limit` whenever you need to inspect or reason about entries programmatically. Follow up with `watercooler_v1_get_thread_entry` / `get_thread_entry_range` using the returned `entry_id` or index.
+- Default to `watercooler_list_thread_entries` with `format="json"` and explicit `offset`/`limit` whenever you need to inspect or reason about entries programmatically. Follow up with `watercooler_get_thread_entry` / `get_thread_entry_range` using the returned `entry_id` or index.
 - Switch to `format="markdown"` when you intend to quote entries back to a human (e.g., preparing a response or summary). The markdown payload mirrors the thread file and avoids accidental reformatting.
-- Use `watercooler_v1_read_thread(format="json")` only when you have a clear need for the entire thread structure (e.g., exporting or analytics). For routine reading, prefer paginated entry tools to stay under stdio size caps.
+- Use `watercooler_read_thread(format="json")` only when you have a clear need for the entire thread structure (e.g., exporting or analytics). For routine reading, prefer paginated entry tools to stay under stdio size caps.
 - Large threads can exceed the MCP stdio ceiling; always chunk requests (batch size of ~5–10 entries works well) before relaying content.
 - Preserve provenance by capturing the `entry_id` from JSON responses when referencing a specific entry in follow-up messages or commits.
 
@@ -499,7 +499,7 @@ Do not silently fail or attempt workarounds that bypass the watercooler tools.
 
 When Claude uses Watercooler MCP tools:
 
-1. **Set identity first**: Call `watercooler_v1_set_agent` with `base="Claude Code"` and appropriate `spec`, or supply `agent_func="<platform>:<model>:<role>"` (e.g., `"Claude Code:sonnet-4:implementer"`) on each write call
+1. **Set identity first**: Call `watercooler_set_agent` with `base="Claude Code"` and appropriate `spec`, or supply `agent_func="<platform>:<model>:<role>"` (e.g., `"Claude Code:sonnet-4:implementer"`) on each write call
 2. **Use appropriate roles**: Match the role to the activity (planner, critic, implementer, tester, pm, scribe)
 3. **Include Spec marker**: Always include `Spec: <spec>` as the first line of entry body
 4. **Meaningful titles**: Use descriptive titles, not generic ones like "Update" or "Done"

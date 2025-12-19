@@ -1,4 +1,4 @@
-"""Test script to invoke watercooler_v1_sync directly on Windows."""
+"""Test script to invoke watercooler_sync directly on Windows."""
 import asyncio
 import sys
 from pathlib import Path
@@ -11,7 +11,7 @@ from watercooler_mcp.server import _require_context, get_git_sync_manager_from_c
 
 async def main():
     """Test the sync tool directly."""
-    print("Testing watercooler_v1_sync logic...")
+    print("Testing watercooler_sync logic...")
     print(f"CWD: {Path.cwd()}")
 
     code_path = "."

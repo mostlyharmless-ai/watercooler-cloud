@@ -313,14 +313,14 @@ if [[ $REPLY =~ ^[Yy]$ ]]; then
     fi
     echo ""; success "Watercooler MCP server registered!"
     echo ""; echo "Next steps:"; echo "  1. Verify installation:"; echo "     claude mcp list"; echo ""
-    echo "  2. In Claude Code, test with:"; echo "     'Can you use the watercooler_v1_health tool?'"
+    echo "  2. In Claude Code, test with:"; echo "     'Can you use the watercooler_health tool?'"
   elif [[ "${CLIENT}" == "codex" ]]; then
     # Update Codex configuration
     update_codex_config "${AGENT_NAME:-Codex}" "${WATERCOOLER_DIR}" "${PY_PATH}"
     
     echo ""; echo "Next steps:"
     echo "  1. Restart Codex to load the new configuration"
-    echo "  2. Test with: watercooler_v1_health"
+    echo "  2. Test with: watercooler_health"
   else
     # Both Claude and Codex
     eval "${CMD_CLAUDE}"; echo ""; success "Claude MCP registration completed."

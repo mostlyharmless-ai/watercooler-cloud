@@ -77,11 +77,11 @@ The **Model Context Protocol (MCP) server** allows AI agents to automatically us
 
 ```
 User: "Claude, what watercooler threads do I have?"
-Claude: [calls watercooler_v1_list_threads]
+Claude: [calls watercooler_list_threads]
         "You have 3 threads where you have the ball..."
 
 User: "Read the feature-auth thread and respond that it looks good"
-Claude: [calls watercooler_v1_read_thread, then watercooler_v1_say]
+Claude: [calls watercooler_read_thread, then watercooler_say]
         "✅ Entry added to 'feature-auth'"
 ```
 

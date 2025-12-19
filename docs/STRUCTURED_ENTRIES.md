@@ -40,7 +40,7 @@ Each entry in a watercooler thread includes:
 
 Before issuing write operations (`say`, `ack`, `handoff`, `set_status`), agents must declare identity:
 
-- Call `watercooler_v1_set_agent(base="Claude Code", spec="implementer-code")` once per session **or** supply `agent_func="Claude Code:sonnet-4:implementer"` on each write (format: `<platform>:<model>:<role>`).
+- Call `watercooler_set_agent(base="Claude Code", spec="implementer-code")` once per session **or** supply `agent_func="Claude Code:sonnet-4:implementer"` on each write (format: `<platform>:<model>:<role>`).
 - Align `spec` with the role recorded in the entry (`planner`, `critic`, `implementer`, `tester`, `pm`, `scribe`).
 - Include a visible `Spec: <value>` line in the entry body. This keeps the Watercooler audit trail self-describing when rendered outside MCP tools.
 - Enable strict enforcement by setting `WATERCOOLER_REQUIRE_IDENTITY=1`. When active, writes using the default `Agent` identity are rejected with guidance.

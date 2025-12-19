@@ -271,7 +271,7 @@ for result in results:
 
 ## MCP Integration
 
-The Watercooler MCP server includes a `watercooler_v1_query_memory` tool for querying Graphiti-indexed thread history. This enables agents to ask natural language questions about project context.
+The Watercooler MCP server includes a `watercooler_query_memory` tool for querying Graphiti-indexed thread history. This enables agents to ask natural language questions about project context.
 
 ### Quick Setup
 
@@ -308,7 +308,7 @@ python -m watercooler_memory.pipeline run \
 
 **3. Query via MCP:**
 ```python
-watercooler_v1_query_memory(
+watercooler_query_memory(
     query="How was authentication implemented?",
     code_path=".",
     limit=10
@@ -318,7 +318,7 @@ watercooler_v1_query_memory(
 **Database structure:** All threads are stored in a single FalkorDB database with logical partitioning via `group_id`. Queries can search across all threads (omit `topic`) or filter to a single thread (specify `topic`).
 
 **Complete documentation:**
-- **MCP Tool Reference**: [mcp-server.md#watercooler_v1_query_memory](./mcp-server.md#watercooler_v1_query_memory)
+- **MCP Tool Reference**: [mcp-server.md#watercooler_query_memory](./mcp-server.md#watercooler_query_memory)
 - **Environment Variables**: [ENVIRONMENT_VARS.md#graphiti-memory-variables](./ENVIRONMENT_VARS.md#graphiti-memory-variables)
 - **MCP Querying Guide**: [MEMORY.md#querying-memory-via-mcp](./MEMORY.md#querying-memory-via-mcp)
 

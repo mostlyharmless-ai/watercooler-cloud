@@ -50,10 +50,10 @@ assignees: []
 - [ ] Remove/disable local-only config for this test (keep as fallback)
 
 ## End-to-End Validation
-- [ ] `watercooler_v1_health` OK
-- [ ] `watercooler_v1_list_threads` shows threads
-- [ ] `watercooler_v1_read_thread` works
-- [ ] `watercooler_v1_say` appends entry; git commit appears in threads repo
+- [ ] `watercooler_health` OK
+- [ ] `watercooler_list_threads` shows threads
+- [ ] `watercooler_read_thread` works
+- [ ] `watercooler_say` appends entry; git commit appears in threads repo
 
 ## Observability & Security
 - [ ] Review Worker tail logs for auth flow and denials

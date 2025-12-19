@@ -154,7 +154,7 @@ if context.code_branch and context.code_branch != "main":
     if threads_repo.active_branch.name == "main":
         raise BranchPairingError(
             f"Cannot write: threads repo is on 'main' but code is on '{context.code_branch}'. "
-            f"Run: watercooler_v1_sync_branch_state with operation='checkout' to fix."
+            f"Run: watercooler_sync_branch_state with operation='checkout' to fix."
         )
 ```
 
@@ -400,7 +400,7 @@ For every MCP write/read that touches threads, run **Preflight** → **Decision*
 
 ### Decision / Allowed auto-fixes
 - Auto-push threads when **only** threads_needs_push (safe). If push fails, mark state `pending_push` and block writes.
-- Do **not** auto-pull/rebase; require explicit `watercooler_v1_sync_branch_state(operation="recover")` to resolve divergence.
+- Do **not** auto-pull/rebase; require explicit `watercooler_sync_branch_state(operation="recover")` to resolve divergence.
 - Never auto-merge to main; require explicit `merge-threads <branch>` command after human confirmation.
 
 ### Write pipeline (per MCP write)
@@ -767,16 +767,16 @@ PUSH_RETRY_BACKOFF_SECONDS = [1, 2, 5]  # Exponential backoff
 **Recommendation**: Add to Step 4:
 ```python
 # MCP tools requiring preflight integration:
-# - watercooler_v1_say
-# - watercooler_v1_ack
-# - watercooler_v1_handoff
-# - watercooler_v1_set_status
-# - watercooler_v1_sync_branch_state (for recover operation)
+# - watercooler_say
+# - watercooler_ack
+# - watercooler_handoff
+# - watercooler_set_status
+# - watercooler_sync_branch_state (for recover operation)
 
 # Read operations (optional preflight, for consistency):
-# - watercooler_v1_list_threads
-# - watercooler_v1_read_thread
-# - watercooler_v1_get_thread_entry
+# - watercooler_list_threads
+# - watercooler_read_thread
+# - watercooler_get_thread_entry
 ```
 
 #### 7. **Migration Path** (Missing)
@@ -959,7 +959,7 @@ After reviewing the codebase, I found that **most of the implementation plan (en
 
 **Actual Implementation**:
 - ✅ `get_branch_health()` function exists (lines 672-714 in `branch_parity.py`)
-- ✅ Used in `watercooler_v1_health` tool (lines 825-841 in `server.py`)
+- ✅ Used in `watercooler_health` tool (lines 825-841 in `server.py`)
 - ❌ `reconcile_parity` tool **NOT FOUND** - No MCP tool with this name
 
 **Status**: ⚠️ **Mostly Complete** - Health tool exists, reconcile tool missing.
@@ -1369,9 +1369,9 @@ After thorough code review, the implementation is **~70% complete** with **criti
 
 **Evidence**:
 - ✅ `get_branch_health()` function: `branch_parity.py:672-714`
-- ✅ Used in `watercooler_v1_health` tool: `server.py:825-841`
+- ✅ Used in `watercooler_health` tool: `server.py:825-841`
 - ❌ **`reconcile_parity` tool NOT FOUND**: No MCP tool with this name
-- ❌ **No `watercooler_v1_reconcile_parity` tool**: Searched entire codebase, not found
+- ❌ **No `watercooler_reconcile_parity` tool**: Searched entire codebase, not found
 
 **Matches plan**: ⚠️ **Partially** - Health tool exists, reconcile tool missing
 
@@ -1550,7 +1550,7 @@ if code_synced and len(threads_ahead_main) > 0 and len(threads_behind_main) == 0
    - Use `get_branch_health()` for status
    - Show remote parity, pending_push, actions_taken
 
-4. **Implement reconcile tool**: Add `watercooler_v1_reconcile_parity` MCP tool
+4. **Implement reconcile tool**: Add `watercooler_reconcile_parity` MCP tool
    - Rerun preflight with auto-remediation
    - Retry push if pending_push
    - Return updated state
@@ -1579,7 +1579,7 @@ if code_synced and len(threads_ahead_main) > 0 and len(threads_behind_main) == 0
    - Show remote parity, pending_push, actions_taken
 
 4. **`src/watercooler_mcp/server.py`** (new tool)
-   - Add `watercooler_v1_reconcile_parity` MCP tool
+   - Add `watercooler_reconcile_parity` MCP tool
 
 5. **`docs/mcp-server.md`** (if not updated)
    - Document auto-remediation behavior

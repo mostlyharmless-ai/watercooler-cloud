@@ -4,7 +4,7 @@ FastMCP server that exposes watercooler-cloud tools to AI agents through the Mod
 
 ## Overview
 
-The Watercooler Cloud MCP server allows AI agents (like Claude, Codex, etc.) to naturally discover and use Watercooler Cloud tools without manual CLI commands. All tools are namespaced as `watercooler_v1_*` for provider compatibility.
+The Watercooler Cloud MCP server allows AI agents (like Claude, Codex, etc.) to naturally discover and use Watercooler Cloud tools without manual CLI commands. All tools are namespaced as `watercooler_*` for provider compatibility.
 
 **Current Status:** Production Ready (Phase 1A/1B/2A complete)  
 **Version:** v0.0.1 + Phase 2A git sync
@@ -165,11 +165,11 @@ If you set `WATERCOOLER_DIR`, that path takes priority and the sibling repo rule
 
 ## Available Tools
 
-All tools are namespaced as `watercooler_v1_*`:
+All tools are namespaced as `watercooler_*`:
 
 ### Diagnostic Tools
 
-#### `watercooler_v1_health`
+#### `watercooler_health`
 Check server health and configuration.
 
 **Returns:** Server version, agent identity, threads directory status
@@ -184,7 +184,7 @@ Threads Dir Exists: True
 Resolution Source: pattern
 ```
 
-#### `watercooler_v1_whoami`
+#### `watercooler_whoami`
 Get your resolved agent identity.
 
 **Returns:** Current agent name
@@ -196,7 +196,7 @@ You are: Codex
 
 ### Thread Management Tools
 
-#### `watercooler_v1_list_threads`
+#### `watercooler_list_threads`
 List all threads with ball ownership and NEW markers.
 
 **Parameters:**
@@ -210,7 +210,7 @@ List all threads with ball ownership and NEW markers.
 - 🆕 NEW Entries - Threads with unread updates
 - ⏳ Waiting on Others - Threads where others have the ball
 
-#### `watercooler_v1_read_thread`
+#### `watercooler_read_thread`
 Read complete thread content.
 
 **Parameters:**
@@ -228,7 +228,7 @@ Read complete thread content.
 - Remember that large JSON payloads can still exceed stdio limits; paginate with the entry tools when you only need a subset.
 - When preparing a human-facing summary, stick with the default markdown output so you can reuse the canonical thread text verbatim.
 
-#### `watercooler_v1_list_thread_entries`
+#### `watercooler_list_thread_entries`
 List entry headers (metadata only) for a thread so clients can select specific entries without downloading the entire file.
 
 **Parameters:**
@@ -264,7 +264,7 @@ entries = payload["entries"]
 - `header` (markdown header block)
 - `start_line`/`end_line` and `start_offset`/`end_offset` for editor integrations
 
-#### `watercooler_v1_get_thread_entry`
+#### `watercooler_get_thread_entry`
 Retrieve a single entry (header + body) either by index or by `entry_id`.
 
 **Parameters:**
@@ -295,7 +295,7 @@ entry_text = markdown_entry.content[0].text
 
 Provide either `index` or `entry_id` (or both, if you want validation that they refer to the same entry).
 
-#### `watercooler_v1_get_thread_entry_range`
+#### `watercooler_get_thread_entry_range`
 Return a contiguous, inclusive range of entries for streaming scenarios.
 
 **Parameters:**
@@ -327,7 +327,7 @@ window_payload = json.loads(window_result.content[0].text)
 entries = window_payload["entries"]
 ```
 
-#### `watercooler_v1_say`
+#### `watercooler_say`
 Add your response to a thread and flip the ball to your counterpart.
 
 **Parameters:**
@@ -349,7 +349,7 @@ Add your response to a thread and flip the ball to your counterpart.
 say("feature-auth", "Implementation complete", "All tests passing. Ready for review.", role="implementer")
 ```
 
-#### `watercooler_v1_ack`
+#### `watercooler_ack`
 Acknowledge a thread without flipping the ball.
 
 **Parameters:**
@@ -359,7 +359,7 @@ Acknowledge a thread without flipping the ball.
 
 **Returns:** Confirmation (ball remains with current owner)
 
-#### `watercooler_v1_handoff`
+#### `watercooler_handoff`
 Hand off the ball to another agent.
 
 **Parameters:**
@@ -374,7 +374,7 @@ Hand off the ball to another agent.
 handoff("feature-auth", "Ready for your review", target_agent="Claude")
 ```
 
-#### `watercooler_v1_set_status`
+#### `watercooler_set_status`
 Update thread status.
 
 **Parameters:**
@@ -384,7 +384,7 @@ Update thread status.
 **Returns:** Confirmation message
 
 
-#### `watercooler_v1_sync`
+#### `watercooler_sync`
 Synchronize the local threads repository with its remote using the same flow as the MCP server (pull → commit → push). Useful when CLI or other tools mutate threads outside the MCP session and you want parity.
 
 **Parameters:**
@@ -395,7 +395,7 @@ Synchronize the local threads repository with its remote using the same flow as 
 
 **Returns:** Confirmation once sync completes (errors if remote unreachable).
 
-#### `watercooler_v1_reindex`
+#### `watercooler_reindex`
 Generate index summary of all threads.
 
 **Returns:** Markdown index organized by:
@@ -408,7 +408,7 @@ Generate index summary of all threads.
 
 Tools for querying thread history using Graphiti temporal graph memory. These tools enable semantic search across project context to answer questions about implementation details, decisions, and temporal evolution.
 
-#### `watercooler_v1_query_memory`
+#### `watercooler_query_memory`
 Query thread history using Graphiti temporal graph memory.
 
 **Purpose:** Ask natural language questions about thread history, implementation details, architectural decisions, and temporal evolution of the project.
@@ -461,7 +461,7 @@ Query thread history using Graphiti temporal graph memory.
 
 **Cross-thread implementation search:**
 ```python
-watercooler_v1_query_memory(
+watercooler_query_memory(
     query="How was authentication implemented?",
     code_path=".",
     limit=10
@@ -470,7 +470,7 @@ watercooler_v1_query_memory(
 
 **Single-thread decision search:**
 ```python
-watercooler_v1_query_memory(
+watercooler_query_memory(
     query="Why was PostgreSQL chosen over MySQL?",
     topic="database-selection",
     code_path=".",
@@ -480,7 +480,7 @@ watercooler_v1_query_memory(
 
 **Temporal evolution query:**
 ```python
-watercooler_v1_query_memory(
+watercooler_query_memory(
     query="What changes were made to the API between v1 and v2?",
     code_path=".",
     limit=20
@@ -581,13 +581,13 @@ services:
       - "6379:6379"
 ```
 
-#### `watercooler_v1_search_nodes`
+#### `watercooler_search_nodes`
 
 Search for entity nodes in the Graphiti knowledge graph using hybrid semantic search.
 
 **Purpose:** Discover entities (people, concepts, technologies, components) mentioned in threads and explore their relationships.
 
-**Prerequisites:** Same as `watercooler_v1_query_memory` (Graphiti enabled, index built, FalkorDB running)
+**Prerequisites:** Same as `watercooler_query_memory` (Graphiti enabled, index built, FalkorDB running)
 
 **Parameters:**
 - `query` (required): Search query string (e.g., "authentication")
@@ -618,7 +618,7 @@ Search for entity nodes in the Graphiti knowledge graph using hybrid semantic se
 
 **Example:**
 ```python
-watercooler_v1_search_nodes(
+watercooler_search_nodes(
     query="database",
     code_path=".",
     group_ids=["backend-refactor"],
@@ -626,13 +626,13 @@ watercooler_v1_search_nodes(
 )
 ```
 
-#### `watercooler_v1_get_entity_edge`
+#### `watercooler_get_entity_edge`
 
 Retrieve a specific relationship (edge) between entities by UUID.
 
 **Purpose:** Inspect detailed information about a specific relationship discovered through searches.
 
-**Prerequisites:** Same as `watercooler_v1_query_memory`
+**Prerequisites:** Same as `watercooler_query_memory`
 
 **Parameters:**
 - `uuid` (required): Edge UUID to retrieve
@@ -654,7 +654,7 @@ Retrieve a specific relationship (edge) between entities by UUID.
 
 **Example:**
 ```python
-watercooler_v1_get_entity_edge(
+watercooler_get_entity_edge(
     uuid="01ABC123...",
     code_path="."
 )
@@ -670,13 +670,13 @@ watercooler_v1_get_entity_edge(
 }
 ```
 
-#### `watercooler_v1_search_memory_facts`
+#### `watercooler_search_memory_facts`
 
 Search for facts (relationships) with optional center-node traversal.
 
 **Purpose:** Discover specific relationships and facts about entities, optionally centered around a specific entity node.
 
-**Prerequisites:** Same as `watercooler_v1_query_memory`
+**Prerequisites:** Same as `watercooler_query_memory`
 
 **Parameters:**
 - `query` (required): Search query string
@@ -708,7 +708,7 @@ Search for facts (relationships) with optional center-node traversal.
 
 **Example (basic search):**
 ```python
-watercooler_v1_search_memory_facts(
+watercooler_search_memory_facts(
     query="API design decisions",
     code_path=".",
     group_ids=["api-v2"],
@@ -719,18 +719,18 @@ watercooler_v1_search_memory_facts(
 **Example (center-node traversal):**
 ```python
 # First find a node
-nodes = watercooler_v1_search_nodes(query="AuthService", ...)
+nodes = watercooler_search_nodes(query="AuthService", ...)
 node_uuid = nodes["results"][0]["uuid"]
 
 # Then search facts connected to that node
-watercooler_v1_search_memory_facts(
+watercooler_search_memory_facts(
     query="security considerations",
     center_node_uuid=node_uuid,
     max_facts=20
 )
 ```
 
-#### `watercooler_v1_get_episodes`
+#### `watercooler_get_episodes`
 
 Search for episodic content using semantic search.
 
@@ -738,7 +738,7 @@ Search for episodic content using semantic search.
 
 **Note:** Graphiti doesn't support enumerating all episodes. This tool performs semantic search, so a query string is required.
 
-**Prerequisites:** Same as `watercooler_v1_query_memory`
+**Prerequisites:** Same as `watercooler_query_memory`
 
 **Parameters:**
 - `query` (required): Search query string (must be non-empty)
@@ -770,7 +770,7 @@ Search for episodic content using semantic search.
 
 **Example:**
 ```python
-watercooler_v1_get_episodes(
+watercooler_get_episodes(
     query="authentication implementation",
     code_path=".",
     group_ids=["auth-feature", "api-design"],
@@ -784,7 +784,7 @@ watercooler_v1_get_episodes(
 
 1. **Discovery** - Use `search_nodes` to find relevant entities:
    ```python
-   nodes = watercooler_v1_search_nodes(
+   nodes = watercooler_search_nodes(
        query="database schema",
        max_nodes=10
    )
@@ -792,7 +792,7 @@ watercooler_v1_get_episodes(
 
 2. **Exploration** - Use `search_memory_facts` to explore relationships:
    ```python
-   facts = watercooler_v1_search_memory_facts(
+   facts = watercooler_search_memory_facts(
        query="migration strategy",
        center_node_uuid=nodes["results"][0]["uuid"],
        max_facts=20
@@ -801,14 +801,14 @@ watercooler_v1_get_episodes(
 
 3. **Deep Dive** - Use `get_entity_edge` to inspect specific relationships:
    ```python
-   edge = watercooler_v1_get_entity_edge(
+   edge = watercooler_get_entity_edge(
        uuid=facts["results"][0]["uuid"]
    )
    ```
 
 4. **Context** - Use `get_episodes` to see source content:
    ```python
-   episodes = watercooler_v1_get_episodes(
+   episodes = watercooler_get_episodes(
        group_ids=[edge["group_id"]],
        max_episodes=10
    )
@@ -816,7 +816,7 @@ watercooler_v1_get_episodes(
 
 5. **Analysis** - Use `query_memory` for natural language questions:
    ```python
-   watercooler_v1_query_memory(
+   watercooler_query_memory(
        query="Why was this migration approach chosen?",
        topic=edge["group_id"]
    )
@@ -826,7 +826,7 @@ watercooler_v1_get_episodes(
 
 These tools ensure that code and threads repos maintain 1:1 branch correspondence, preventing drift and enforcing the branch pairing protocol.
 
-#### `watercooler_v1_validate_branch_pairing`
+#### `watercooler_validate_branch_pairing`
 Validate branch pairing between code and threads repos.
 
 **Parameters:**
@@ -842,7 +842,7 @@ Validate branch pairing between code and threads repos.
 
 **Note:** This validation is automatically performed before all write operations (`say`, `ack`, `handoff`, `set_status`). Use this tool for explicit checking.
 
-#### `watercooler_v1_sync_branch_state`
+#### `watercooler_sync_branch_state`
 Synchronize branch state between code and threads repos.
 
 **Parameters:**
@@ -863,7 +863,7 @@ Synchronize branch state between code and threads repos.
 
 **Returns:** JSON result with operation status and any warnings
 
-#### `watercooler_v1_audit_branch_pairing`
+#### `watercooler_audit_branch_pairing`
 Comprehensive audit of branch pairing across entire repo pair.
 
 **Parameters:**
@@ -882,7 +882,7 @@ Comprehensive audit of branch pairing across entire repo pair.
 - Find branches that need threads counterparts
 - Get recommendations for cleanup
 
-#### `watercooler_v1_recover_branch_state`
+#### `watercooler_recover_branch_state`
 Recover from branch state inconsistencies.
 
 **Parameters:**
@@ -903,12 +903,12 @@ Recover from branch state inconsistencies.
 - `warnings`: Non-critical warnings
 
 **Example Workflow:**
-1. Run `watercooler_v1_recover_branch_state` with `diagnose_only=True` to see issues
+1. Run `watercooler_recover_branch_state` with `diagnose_only=True` to see issues
 2. Review the diagnostic report
 3. Run again with `auto_fix=True` to apply safe fixes automatically
-4. Use `watercooler_v1_sync_branch_state` for manual fixes if needed
+4. Use `watercooler_sync_branch_state` for manual fixes if needed
 
-#### `watercooler_v1_reconcile_parity`
+#### `watercooler_reconcile_parity`
 Reconcile branch parity state when preflight blocks.
 
 When a write operation (say, ack, handoff, set_status) fails due to branch parity issues (threads behind origin, pending push failed, etc.), use this tool to attempt automatic recovery.
@@ -932,10 +932,10 @@ When a write operation (say, ack, handoff, set_status) fails due to branch parit
 **Example Usage:**
 ```python
 # When say() fails with "Threads branch is 2 commits behind origin"
-result = watercooler_v1_reconcile_parity(code_path=".")
+result = watercooler_reconcile_parity(code_path=".")
 if result["success"]:
     # Retry the original write operation
-    watercooler_v1_say(topic="my-topic", title="Entry", body="...", code_path=".")
+    watercooler_say(topic="my-topic", title="Entry", body="...", code_path=".")
 ```
 
 **Common Scenarios:**
@@ -978,7 +978,7 @@ These features will be implemented if real-world usage demonstrates the need.
 ### Example 1: Check Server Health
 
 ```python
-watercooler_v1_health(code_path=".")
+watercooler_health(code_path=".")
 
 # Sample response:
 # Watercooler MCP Server v0.2.0
@@ -991,13 +991,13 @@ watercooler_v1_health(code_path=".")
 ### Example 2: List threads where you have the ball
 
 ```python
-watercooler_v1_list_threads(code_path=".")
+watercooler_list_threads(code_path=".")
 ```
 
 ### Example 3: Respond to a thread
 
 ```python
-watercooler_v1_say(
+watercooler_say(
     topic="feature-auth",
     title="Implementation complete",
     body="Spec: implementer-code — unit tests passing, integration tests added.",
@@ -1011,7 +1011,7 @@ watercooler_v1_say(
 ### Example 4: Hand off to a specific teammate
 
 ```python
-watercooler_v1_handoff(
+watercooler_handoff(
     topic="feature-auth",
     note="Security review needed for OAuth implementation",
     target_agent="SecurityBot",
@@ -1067,7 +1067,7 @@ python -c "from pathlib import Path; from watercooler_mcp.config import resolve_
 ```
 
 - Ensure `code_path` points inside a git repository with a configured remote.
-- Run `watercooler_v1_health(code_path=".")` to confirm the expected sibling directory (for example `/workspace/my-app-threads`).
+- Run `watercooler_health(code_path=".")` to confirm the expected sibling directory (for example `/workspace/my-app-threads`).
 - If health reports any location inside the code repository (for example `./threads-local`), remove stale overrides, copy the data into the sibling `<repo>-threads` directory, and delete the stray directory.
 - As a last resort, set `WATERCOOLER_DIR` to a specific path (see Environment Variables) while you move data into the sibling `<repo>-threads` repository.
 

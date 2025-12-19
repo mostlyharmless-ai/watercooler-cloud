@@ -190,7 +190,7 @@ def main():
 
     print(f"\n✅ Indexing complete! Work directory: {work_dir}")
     print("\nYou can now query via MCP:")
-    print('  watercooler_v1_query_memory(query="your question", code_path=".", limit=10)')
+    print('  watercooler_query_memory(query="your question", code_path=".", limit=10)')
 
     return 0
 

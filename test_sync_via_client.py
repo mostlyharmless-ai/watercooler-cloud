@@ -24,7 +24,7 @@ async def main():
     # Note: This is a simplified test - real usage would involve stdio transport
     # For now, just test if we can call the tool directly on the server object
 
-    print("\nCalling watercooler_v1_sync via tool call...")
+    print("\nCalling watercooler_sync via tool call...")
     print("Action: status")
     print("Code path: .")
     print("\n--- If this hangs, we've found Bug 2 ---\n")
@@ -35,18 +35,18 @@ async def main():
         print(f"Server has {len(tools)} tools")
 
         # Tools are returned as strings (tool names)
-        if "watercooler_v1_sync" not in tools:
-            print("✗ watercooler_v1_sync not found!")
+        if "watercooler_sync" not in tools:
+            print("✗ watercooler_sync not found!")
             print(f"Available tools: {tools}")
             return
 
-        print(f"✓ Found tool: watercooler_v1_sync")
+        print(f"✓ Found tool: watercooler_sync")
 
         # Call it through FastMCP's internal _call_tool method
         # This is how the MCP protocol actually invokes tools
         print("\nCalling via _call_tool...")
         result = await mcp._call_tool(
-            name="watercooler_v1_sync",
+            name="watercooler_sync",
             arguments={
                 "code_path": ".",
                 "action": "status"
