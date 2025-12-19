@@ -2973,7 +2973,7 @@ async def query_memory(
         log_action("memory.query", query=query, limit=limit, topic=topic)
 
         try:
-            results = await mem.query_memory(backend, query, limit, topic=topic)
+            results, communities = await mem.query_memory(backend, query, limit, topic=topic)
 
             # Format response
             response = {
@@ -2987,7 +2987,8 @@ async def query_memory(
                     }
                     for r in results
                 ],
-                "message": f"Found {len(results)} results",
+                "communities": communities,
+                "message": f"Found {len(results)} results and {len(communities)} communities",
             }
 
             if topic:
@@ -3023,6 +3024,835 @@ async def query_memory(
                     "error": "Internal error",
                     "message": str(e),
                     "query": query,
+                    "result_count": 0,
+                    "results": [],
+                },
+                indent=2,
+            )
+        )])
+
+
+
+
+@mcp.tool(name="watercooler_v1_search_nodes")
+async def search_nodes(
+    query: str,
+    ctx: Context,
+    code_path: str = "",
+    group_ids: Optional[List[str]] = None,
+    max_nodes: int = 10,
+    entity_types: Optional[List[str]] = None,
+) -> ToolResult:
+    """Search for entity nodes using hybrid semantic search.
+
+    Searches indexed watercooler threads for entity nodes (people, concepts, etc.)
+    using Graphiti's hybrid search combining semantic embeddings, keyword search,
+    and graph traversal.
+
+    Prerequisites:
+        1. Graphiti backend enabled: WATERCOOLER_GRAPHITI_ENABLED=1
+        2. Index built: Use watercooler memory CLI to index threads first
+        3. FalkorDB running: localhost:6379 (or configured host/port)
+
+    Args:
+        query: Search query (e.g., "authentication implementation")
+        ctx: MCP context
+        code_path: Path to code repository (for resolving threads directory)
+        group_ids: Optional list of thread topics to filter by
+        max_nodes: Maximum nodes to return (default: 10, max: 50)
+        entity_types: Optional list of entity type names to filter
+
+    Returns:
+        JSON response with search results containing:
+        - query: Original query text
+        - result_count: Number of nodes returned
+        - results: List of nodes with uuid, name, labels, summary, etc.
+        - message: Status message
+
+    Example:
+        search_nodes(
+            query="OAuth2 implementation",
+            code_path=".",
+            max_nodes=5
+        )
+
+    Response Format:
+        {
+          "query": "OAuth2 implementation",
+          "result_count": 3,
+          "results": [
+            {
+              "uuid": "01ABC...",
+              "name": "OAuth2Provider",
+              "labels": ["Class", "Authentication"],
+              "summary": "OAuth2 provider implementation...",
+              "created_at": "2025-10-01T10:00:00Z",
+              "group_id": "auth-feature"
+            }
+          ],
+          "message": "Found 3 nodes"
+        }
+    """
+    try:
+        # Import memory module (lazy-load)
+        try:
+            from . import memory as mem
+        except ImportError as e:
+            return ToolResult(content=[TextContent(
+                type="text",
+                text=json.dumps(
+                    {
+                        "error": "Memory module unavailable",
+                        "message": f"Install with: pip install watercooler-cloud[memory]. Details: {e}",
+                        "operation": "search_nodes",
+                        "query": query,
+                        "result_count": 0,
+                        "results": [],
+                    },
+                    indent=2,
+                )
+            )])
+
+        # Load configuration
+        config = mem.load_graphiti_config()
+        if config is None:
+            return ToolResult(content=[TextContent(
+                type="text",
+                text=json.dumps(
+                    {
+                        "error": "Graphiti not enabled",
+                        "message": (
+                            "Set WATERCOOLER_GRAPHITI_ENABLED=1 and configure "
+                            "OPENAI_API_KEY to enable memory queries."
+                        ),
+                        "operation": "search_nodes",
+                        "query": query,
+                        "result_count": 0,
+                        "results": [],
+                    },
+                    indent=2,
+                )
+            )])
+
+        # Validate max_nodes parameter
+        if max_nodes < 1:
+            max_nodes = 10
+        if max_nodes > 50:
+            max_nodes = 50
+
+        # Get backend instance
+        backend = mem.get_graphiti_backend(config)
+        if backend is None or isinstance(backend, dict):
+            if isinstance(backend, dict):
+                error_type = backend.get("error", "unknown")
+                details = backend.get("details", "No details available")
+                return ToolResult(content=[TextContent(
+                    type="text",
+                    text=json.dumps({
+                        "error": f"Backend {error_type}",
+                        "message": details,
+                        "operation": "search_nodes",
+                        "query": query,
+                        "result_count": 0,
+                        "results": [],
+                    }, indent=2)
+                )])
+            else:
+                return ToolResult(content=[TextContent(
+                    type="text",
+                    text=json.dumps(
+                        {
+                            "error": "Backend initialization failed",
+                            "message": "Check logs for Graphiti backend errors",
+                            "operation": "search_nodes",
+                            "query": query,
+                            "result_count": 0,
+                            "results": [],
+                        },
+                        indent=2,
+                    )
+                )])
+
+        # Execute search
+        import asyncio
+        from .observability import log_action, log_error
+
+        log_action("memory.search_nodes", query=query, max_nodes=max_nodes, group_ids=group_ids)
+
+        try:
+            results = await asyncio.to_thread(
+                backend.search_nodes,
+                query=query,
+                group_ids=group_ids,
+                max_nodes=max_nodes,
+                entity_types=entity_types,
+            )
+
+            # Format response
+            response = {
+                "query": query,
+                "result_count": len(results),
+                "results": results,
+                "message": f"Found {len(results)} node(s)",
+            }
+
+            if group_ids:
+                response["filtered_by_topics"] = group_ids
+
+            return ToolResult(content=[TextContent(
+                type="text",
+                text=json.dumps(response, indent=2)
+            )])
+
+        except Exception as e:
+            log_error(f"MEMORY: Node search failed: {e}")
+            return ToolResult(content=[TextContent(
+                type="text",
+                text=json.dumps(
+                    {
+                        "error": "Search execution failed",
+                        "message": str(e),
+                        "operation": "search_nodes",
+                        "query": query,
+                        "result_count": 0,
+                        "results": [],
+                    },
+                    indent=2,
+                )
+            )])
+
+    except Exception as e:
+        from .observability import log_error
+        log_error(f"MEMORY: Unexpected error in search_nodes: {e}")
+        return ToolResult(content=[TextContent(
+            type="text",
+            text=json.dumps(
+                {
+                    "error": "Internal error",
+                    "message": str(e),
+                    "operation": "search_nodes",
+                    "query": query,
+                    "result_count": 0,
+                    "results": [],
+                },
+                indent=2,
+            )
+        )])
+
+
+@mcp.tool(name="watercooler_v1_get_entity_edge")
+async def get_entity_edge(
+    uuid: str,
+    ctx: Context,
+    code_path: str = "",
+) -> ToolResult:
+    """Get a specific entity edge (relationship) by UUID.
+
+    Retrieves detailed information about a specific relationship between entities
+    in the Graphiti knowledge graph.
+
+    Prerequisites:
+        1. Graphiti backend enabled: WATERCOOLER_GRAPHITI_ENABLED=1
+        2. Index built: Use watercooler memory CLI to index threads first
+        3. FalkorDB running: localhost:6379 (or configured host/port)
+
+    Args:
+        uuid: Edge UUID to retrieve
+        ctx: MCP context
+        code_path: Path to code repository (for resolving threads directory)
+
+    Returns:
+        JSON response with edge details containing:
+        - uuid: Edge UUID
+        - fact: Description of the relationship
+        - source_node_uuid: UUID of source entity
+        - target_node_uuid: UUID of target entity
+        - valid_at: When relationship became valid
+        - invalid_at: When relationship became invalid (if applicable)
+        - created_at: When edge was created
+        - group_id: Thread topic this edge belongs to
+        - message: Status message
+
+    Example:
+        get_entity_edge(
+            uuid="01ABC123...",
+            code_path="."
+        )
+
+    Response Format:
+        {
+          "uuid": "01ABC123...",
+          "fact": "Claude implemented OAuth2 authentication",
+          "source_node_uuid": "01DEF456...",
+          "target_node_uuid": "01GHI789...",
+          "valid_at": "2025-10-01T10:00:00Z",
+          "created_at": "2025-10-01T10:00:00Z",
+          "group_id": "auth-feature",
+          "message": "Retrieved edge 01ABC123..."
+        }
+    """
+    try:
+        # Validate UUID parameter
+        if not uuid or not uuid.strip():
+            return ToolResult(content=[TextContent(
+                type="text",
+                text=json.dumps(
+                    {
+                        "error": "Invalid UUID",
+                        "message": "UUID parameter is required and must be non-empty",
+                        "operation": "get_entity_edge",
+                    },
+                    indent=2,
+                )
+            )])
+        
+        # Sanitize UUID (limit length and characters)
+        if len(uuid) > 100:
+            return ToolResult(content=[TextContent(
+                type="text",
+                text=json.dumps(
+                    {
+                        "error": "Invalid UUID",
+                        "message": "UUID too long (max 100 characters)",
+                        "operation": "get_entity_edge",
+                        "uuid": uuid[:50] + "...",
+                    },
+                    indent=2,
+                )
+            )])
+        
+        # Check for valid characters (alphanumeric, hyphen, underscore)
+        if not all(c.isalnum() or c in '-_' for c in uuid):
+            return ToolResult(content=[TextContent(
+                type="text",
+                text=json.dumps(
+                    {
+                        "error": "Invalid UUID",
+                        "message": "UUID contains invalid characters (only alphanumeric, hyphen, underscore allowed)",
+                        "operation": "get_entity_edge",
+                    },
+                    indent=2,
+                )
+            )])
+        
+        # Import memory module (lazy-load)
+        try:
+            from . import memory as mem
+        except ImportError as e:
+            return ToolResult(content=[TextContent(
+                type="text",
+                text=json.dumps(
+                    {
+                        "error": "Memory module unavailable",
+                        "message": f"Install with: pip install watercooler-cloud[memory]. Details: {e}",
+                        "operation": "get_entity_edge",
+                    },
+                    indent=2,
+                )
+            )])
+
+        # Load configuration
+        config = mem.load_graphiti_config()
+        if config is None:
+            return ToolResult(content=[TextContent(
+                type="text",
+                text=json.dumps(
+                    {
+                        "error": "Graphiti not enabled",
+                        "message": (
+                            "Set WATERCOOLER_GRAPHITI_ENABLED=1 and configure "
+                            "OPENAI_API_KEY to enable memory queries."
+                        ),
+                        "operation": "get_entity_edge",
+                    },
+                    indent=2,
+                )
+            )])
+
+        # Get backend instance
+        backend = mem.get_graphiti_backend(config)
+        if backend is None or isinstance(backend, dict):
+            if isinstance(backend, dict):
+                error_type = backend.get("error", "unknown")
+                details = backend.get("details", "No details available")
+                return ToolResult(content=[TextContent(
+                    type="text",
+                    text=json.dumps({
+                        "error": f"Backend {error_type}",
+                        "message": details,
+                        "operation": "get_entity_edge",
+                    }, indent=2)
+                )])
+            else:
+                return ToolResult(content=[TextContent(
+                    type="text",
+                    text=json.dumps(
+                        {
+                            "error": "Backend initialization failed",
+                            "message": "Check logs for Graphiti backend errors",
+                            "operation": "get_entity_edge",
+                        },
+                        indent=2,
+                    )
+                )])
+
+        # Execute query
+        import asyncio
+        from .observability import log_action, log_error
+
+        log_action("memory.get_entity_edge", uuid=uuid)
+
+        try:
+            edge = await asyncio.to_thread(backend.get_entity_edge, uuid)
+
+            # Format response
+            response = {
+                **edge,
+                "message": f"Retrieved edge {uuid}",
+            }
+
+            return ToolResult(content=[TextContent(
+                type="text",
+                text=json.dumps(response, indent=2)
+            )])
+
+        except Exception as e:
+            log_error(f"MEMORY: Get entity edge failed: {e}")
+            return ToolResult(content=[TextContent(
+                type="text",
+                text=json.dumps(
+                    {
+                        "error": "Edge retrieval failed",
+                        "message": str(e),
+                        "operation": "get_entity_edge",
+                        "uuid": uuid,
+                    },
+                    indent=2,
+                )
+            )])
+
+    except Exception as e:
+        from .observability import log_error
+        log_error(f"MEMORY: Unexpected error in get_entity_edge: {e}")
+        return ToolResult(content=[TextContent(
+            type="text",
+            text=json.dumps(
+                {
+                    "error": "Internal error",
+                    "message": str(e),
+                    "operation": "get_entity_edge",
+                },
+                indent=2,
+            )
+        )])
+
+
+@mcp.tool(name="watercooler_v1_search_memory_facts")
+async def search_memory_facts(
+    query: str,
+    ctx: Context,
+    code_path: str = "",
+    group_ids: Optional[List[str]] = None,
+    max_facts: int = 10,
+    center_node_uuid: Optional[str] = None,
+) -> ToolResult:
+    """Search for facts (edges/relationships) with optional center-node traversal.
+
+    Searches indexed watercooler threads for facts (relationships between entities)
+    using Graphiti's hybrid search. Optionally centers the search around a specific
+    entity node.
+
+    Prerequisites:
+        1. Graphiti backend enabled: WATERCOOLER_GRAPHITI_ENABLED=1
+        2. Index built: Use watercooler memory CLI to index threads first
+        3. FalkorDB running: localhost:6379 (or configured host/port)
+
+    Args:
+        query: Search query (e.g., "authentication decisions")
+        ctx: MCP context
+        code_path: Path to code repository (for resolving threads directory)
+        group_ids: Optional list of thread topics to filter by
+        max_facts: Maximum facts to return (default: 10, max: 50)
+        center_node_uuid: Optional node UUID to center search around
+
+    Returns:
+        JSON response with search results containing:
+        - query: Original query text
+        - result_count: Number of facts returned
+        - results: List of facts with uuid, fact text, source/target nodes, scores
+        - message: Status message
+
+    Example:
+        search_memory_facts(
+            query="OAuth2 implementation decisions",
+            code_path=".",
+            max_facts=5,
+            center_node_uuid="01ABC..."
+        )
+
+    Response Format:
+        {
+          "query": "OAuth2 implementation decisions",
+          "result_count": 2,
+          "results": [
+            {
+              "uuid": "01ABC...",
+              "fact": "Claude implemented OAuth2 with JWT tokens",
+              "source_node_uuid": "01DEF...",
+              "target_node_uuid": "01GHI...",
+              "score": 0.89,
+              "valid_at": "2025-10-01T10:00:00Z",
+              "group_id": "auth-feature"
+            }
+          ],
+          "message": "Found 2 fact(s)"
+        }
+    """
+    try:
+        # Import memory module (lazy-load)
+        try:
+            from . import memory as mem
+        except ImportError as e:
+            return ToolResult(content=[TextContent(
+                type="text",
+                text=json.dumps(
+                    {
+                        "error": "Memory module unavailable",
+                        "message": f"Install with: pip install watercooler-cloud[memory]. Details: {e}",
+                        "operation": "search_memory_facts",
+                        "query": query,
+                        "result_count": 0,
+                        "results": [],
+                    },
+                    indent=2,
+                )
+            )])
+
+        # Load configuration
+        config = mem.load_graphiti_config()
+        if config is None:
+            return ToolResult(content=[TextContent(
+                type="text",
+                text=json.dumps(
+                    {
+                        "error": "Graphiti not enabled",
+                        "message": (
+                            "Set WATERCOOLER_GRAPHITI_ENABLED=1 and configure "
+                            "OPENAI_API_KEY to enable memory queries."
+                        ),
+                        "operation": "search_memory_facts",
+                        "query": query,
+                        "result_count": 0,
+                        "results": [],
+                    },
+                    indent=2,
+                )
+            )])
+
+        # Validate max_facts parameter
+        if max_facts < 1:
+            max_facts = 10
+        if max_facts > 50:
+            max_facts = 50
+
+        # Get backend instance
+        backend = mem.get_graphiti_backend(config)
+        if backend is None or isinstance(backend, dict):
+            if isinstance(backend, dict):
+                error_type = backend.get("error", "unknown")
+                details = backend.get("details", "No details available")
+                return ToolResult(content=[TextContent(
+                    type="text",
+                    text=json.dumps({
+                        "error": f"Backend {error_type}",
+                        "message": details,
+                        "operation": "search_memory_facts",
+                        "query": query,
+                        "result_count": 0,
+                        "results": [],
+                    }, indent=2)
+                )])
+            else:
+                return ToolResult(content=[TextContent(
+                    type="text",
+                    text=json.dumps(
+                        {
+                            "error": "Backend initialization failed",
+                            "message": "Check logs for Graphiti backend errors",
+                            "operation": "search_memory_facts",
+                            "query": query,
+                            "result_count": 0,
+                            "results": [],
+                        },
+                        indent=2,
+                    )
+                )])
+
+        # Execute search
+        import asyncio
+        from .observability import log_action, log_error
+
+        log_action(
+            "memory.search_memory_facts",
+            query=query,
+            max_facts=max_facts,
+            group_ids=group_ids,
+            center_node_uuid=center_node_uuid,
+        )
+
+        try:
+            results = await asyncio.to_thread(
+                backend.search_memory_facts,
+                query=query,
+                group_ids=group_ids,
+                max_facts=max_facts,
+                center_node_uuid=center_node_uuid,
+            )
+
+            # Format response
+            response = {
+                "query": query,
+                "result_count": len(results),
+                "results": results,
+                "message": f"Found {len(results)} fact(s)",
+            }
+
+            if group_ids:
+                response["filtered_by_topics"] = group_ids
+            if center_node_uuid:
+                response["centered_on_node"] = center_node_uuid
+
+            return ToolResult(content=[TextContent(
+                type="text",
+                text=json.dumps(response, indent=2)
+            )])
+
+        except Exception as e:
+            log_error(f"MEMORY: Fact search failed: {e}")
+            return ToolResult(content=[TextContent(
+                type="text",
+                text=json.dumps(
+                    {
+                        "error": "Search execution failed",
+                        "message": str(e),
+                        "operation": "search_memory_facts",
+                        "query": query,
+                        "result_count": 0,
+                        "results": [],
+                    },
+                    indent=2,
+                )
+            )])
+
+    except Exception as e:
+        from .observability import log_error
+        log_error(f"MEMORY: Unexpected error in search_memory_facts: {e}")
+        return ToolResult(content=[TextContent(
+            type="text",
+            text=json.dumps(
+                {
+                    "error": "Internal error",
+                    "message": str(e),
+                    "operation": "search_memory_facts",
+                    "query": query,
+                    "result_count": 0,
+                    "results": [],
+                },
+                indent=2,
+            )
+        )])
+
+
+@mcp.tool(name="watercooler_v1_get_episodes")
+async def get_episodes(
+    query: str,
+    ctx: Context,
+    code_path: str = "",
+    group_ids: Optional[List[str]] = None,
+    max_episodes: int = 10,
+) -> ToolResult:
+    """Search for episodes from Graphiti memory using semantic search.
+
+    Performs semantic search on episodic content from indexed watercooler threads.
+    Note: Graphiti doesn't support listing all episodes; this tool requires a query
+    string to perform semantic search.
+
+    Prerequisites:
+        1. Graphiti backend enabled: WATERCOOLER_GRAPHITI_ENABLED=1
+        2. Index built: Use watercooler memory CLI to index threads first
+        3. FalkorDB running: localhost:6379 (or configured host/port)
+
+    Args:
+        query: Search query string (required, must be non-empty)
+        ctx: MCP context
+        code_path: Path to code repository (for resolving threads directory)
+        group_ids: Optional list of thread topics to filter by
+        max_episodes: Maximum episodes to return (default: 10, max: 50)
+
+    Returns:
+        JSON response with episodes containing:
+        - result_count: Number of episodes returned
+        - results: List of episodes with uuid, name, content, timestamps
+        - message: Status message
+
+    Example:
+        get_episodes(
+            query="authentication implementation",
+            code_path=".",
+            group_ids=["auth-feature", "api-design"],
+            max_episodes=5
+        )
+
+    Response Format:
+        {
+          "result_count": 2,
+          "results": [
+            {
+              "uuid": "01ABC...",
+              "name": "Entry 01ABC...",
+              "content": "Implemented OAuth2 authentication...",
+              "created_at": "2025-10-01T10:00:00Z",
+              "source": "thread_entry",
+              "source_description": "Watercooler thread entry",
+              "group_id": "auth-feature",
+              "valid_at": "2025-10-01T10:00:00Z"
+            }
+          ],
+          "message": "Found 2 episode(s)",
+          "filtered_by_topics": ["auth-feature", "api-design"]
+        }
+    """
+    try:
+        # Import memory module (lazy-load)
+        try:
+            from . import memory as mem
+        except ImportError as e:
+            return ToolResult(content=[TextContent(
+                type="text",
+                text=json.dumps(
+                    {
+                        "error": "Memory module unavailable",
+                        "message": f"Install with: pip install watercooler-cloud[memory]. Details: {e}",
+                        "operation": "get_episodes",
+                        "result_count": 0,
+                        "results": [],
+                    },
+                    indent=2,
+                )
+            )])
+
+        # Load configuration
+        config = mem.load_graphiti_config()
+        if config is None:
+            return ToolResult(content=[TextContent(
+                type="text",
+                text=json.dumps(
+                    {
+                        "error": "Graphiti not enabled",
+                        "message": (
+                            "Set WATERCOOLER_GRAPHITI_ENABLED=1 and configure "
+                            "OPENAI_API_KEY to enable memory queries."
+                        ),
+                        "operation": "get_episodes",
+                        "result_count": 0,
+                        "results": [],
+                    },
+                    indent=2,
+                )
+            )])
+
+        # Validate max_episodes parameter
+        if max_episodes < 1:
+            max_episodes = 10
+        if max_episodes > 50:
+            max_episodes = 50
+
+        # Get backend instance
+        backend = mem.get_graphiti_backend(config)
+        if backend is None or isinstance(backend, dict):
+            if isinstance(backend, dict):
+                error_type = backend.get("error", "unknown")
+                details = backend.get("details", "No details available")
+                return ToolResult(content=[TextContent(
+                    type="text",
+                    text=json.dumps({
+                        "error": f"Backend {error_type}",
+                        "message": details,
+                        "operation": "get_episodes",
+                        "result_count": 0,
+                        "results": [],
+                    }, indent=2)
+                )])
+            else:
+                return ToolResult(content=[TextContent(
+                    type="text",
+                    text=json.dumps(
+                        {
+                            "error": "Backend initialization failed",
+                            "message": "Check logs for Graphiti backend errors",
+                            "operation": "get_episodes",
+                            "result_count": 0,
+                            "results": [],
+                        },
+                        indent=2,
+                    )
+                )])
+
+        # Execute query
+        import asyncio
+        from .observability import log_action, log_error
+
+        log_action("memory.get_episodes", query=query, max_episodes=max_episodes, group_ids=group_ids)
+
+        try:
+            results = await asyncio.to_thread(
+                backend.get_episodes,
+                query=query,
+                group_ids=group_ids,
+                max_episodes=max_episodes,
+            )
+
+            # Format response
+            response = {
+                "result_count": len(results),
+                "results": results,
+                "message": f"Found {len(results)} episode(s)",
+            }
+
+            if group_ids:
+                response["filtered_by_topics"] = group_ids
+
+            return ToolResult(content=[TextContent(
+                type="text",
+                text=json.dumps(response, indent=2)
+            )])
+
+        except Exception as e:
+            log_error(f"MEMORY: Get episodes failed: {e}")
+            return ToolResult(content=[TextContent(
+                type="text",
+                text=json.dumps(
+                    {
+                        "error": "Episodes retrieval failed",
+                        "message": str(e),
+                        "operation": "get_episodes",
+                        "result_count": 0,
+                        "results": [],
+                    },
+                    indent=2,
+                )
+            )])
+
+    except Exception as e:
+        from .observability import log_error
+        log_error(f"MEMORY: Unexpected error in get_episodes: {e}")
+        return ToolResult(content=[TextContent(
+            type="text",
+            text=json.dumps(
+                {
+                    "error": "Internal error",
+                    "message": str(e),
+                    "operation": "get_episodes",
                     "result_count": 0,
                     "results": [],
                 },

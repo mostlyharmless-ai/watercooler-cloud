@@ -625,6 +625,47 @@ class TestGraphitiSmoke:
                 assert "valid_at" in ep, "Episode should have valid_at (t_ref)"
                 assert "source" in ep, "Episode should have source type"
 
+        # Verify nodes are present (Codex: add size sanity checks)
+        for result in query_result.results:
+            nodes = result.get("metadata", {}).get("nodes", [])
+            if nodes:  # Not all edges may have node metadata
+                for node in nodes:
+                    assert "uuid" in node, "Node should have uuid"
+                    assert "name" in node, "Node should have name"
+                    assert "labels" in node, "Node should have labels"
+                    assert "role" in node, "Node should have role (source/target)"
+                    assert "edge_uuid" in node, "Node should link back to edge"
+
+                    # Size sanity check (Codex: prevent payload bloat)
+                    if node.get("summary"):
+                        summary_len = len(node["summary"])
+                        assert summary_len <= 2048 + 20, \
+                            f"Node summary should be truncated to ~2KB, got {summary_len} chars"
+
+        # Verify episode scores are present
+        for result in query_result.results:
+            episodes = result.get("metadata", {}).get("episodes", [])
+            for ep in episodes:
+                assert "score" in ep, "Episode should have score"
+                assert isinstance(ep["score"], (int, float)), "Episode score should be numeric"
+
+        # Verify communities in QueryResult (Codex: add size sanity checks)
+        if hasattr(query_result, 'communities'):
+            communities = query_result.communities
+            # Codex: limit to small top-k
+            assert len(communities) <= 5, f"Should limit to top-5 communities, got {len(communities)}"
+
+            for comm in communities:
+                assert "name" in comm or "uuid" in comm, "Community should have identifier"
+                if "score" in comm:
+                    assert isinstance(comm["score"], (int, float)), "Community score should be numeric"
+
+                # Size sanity check if summaries present
+                if comm.get("summary"):
+                    summary_len = len(comm["summary"])
+                    assert summary_len <= 4096, \
+                        f"Community summary should be reasonable size, got {summary_len} chars"
+
         print(f"✓ Query returned {len(query_result.results)} results with max score={max_score:.2f}")
         print(f"  Reranker: {query_result.results[0]['metadata']['reranker']}")
 
@@ -719,6 +760,101 @@ class TestGraphitiSmoke:
         query_result = graphiti_backend.query(sample_queries)
         print(f"Query returned {len(query_result.results)} results")
         assert query_result.manifest_version == "1.0.0"
+
+    def test_search_nodes(self, graphiti_backend):
+        """Test searching nodes with reranker scores."""
+        # Search for nodes (may return empty if no index exists)
+        nodes = graphiti_backend.search_nodes(
+            query="test",
+            group_ids=["test-group"],
+            max_nodes=10,
+        )
+        assert isinstance(nodes, list)
+        
+        # If results exist, verify score field is present
+        if nodes:
+            assert "score" in nodes[0]
+            assert isinstance(nodes[0]["score"], (int, float))
+        # Note: Results may be empty if database not populated
+
+    def test_search_nodes_not_found(self, graphiti_backend):
+        """Test search_nodes with query that returns no results."""
+        nodes = graphiti_backend.search_nodes(
+            query="nonexistent-xyz-123-unique",
+            group_ids=["test-group"],
+            max_nodes=10,
+        )
+        assert isinstance(nodes, list)
+        assert len(nodes) == 0
+
+    def test_get_entity_edge(self, graphiti_backend):
+        """Test getting entity edge with nonexistent UUID."""
+        from watercooler_memory.backends import BackendError
+        
+        with pytest.raises(BackendError, match="not found"):
+            graphiti_backend.get_entity_edge("nonexistent-uuid-12345")
+
+    def test_search_memory_facts(self, graphiti_backend):
+        """Test searching facts with reranker scores."""
+        facts = graphiti_backend.search_memory_facts(
+            query="test",
+            group_ids=["test-group"],
+            max_facts=10,
+        )
+        assert isinstance(facts, list)
+        
+        # If results exist, verify score field is present
+        if facts:
+            assert "score" in facts[0]
+            assert isinstance(facts[0]["score"], (int, float))
+        # Note: Results may be empty if database not populated
+
+    def test_search_memory_facts_with_center_node(self, graphiti_backend):
+        """Test fact search with center node UUID."""
+        facts = graphiti_backend.search_memory_facts(
+            query="test",
+            group_ids=["test-group"],
+            max_facts=10,
+            center_node_uuid="some-uuid-12345",
+        )
+        assert isinstance(facts, list)
+        # Note: Results may be empty if center node doesn't exist
+
+    def test_get_episodes(self, graphiti_backend):
+        """Test episode search with query string and reranker scores."""
+        episodes = graphiti_backend.get_episodes(
+            query="test episode content",
+            group_ids=["test-group"],
+            max_episodes=10,
+        )
+        assert isinstance(episodes, list)
+        
+        # If results exist, verify score field is present
+        if episodes:
+            assert "score" in episodes[0]
+            assert isinstance(episodes[0]["score"], (int, float))
+        # Note: Results may be empty if database not populated
+
+    def test_get_episodes_empty_query(self, graphiti_backend):
+        """Test get_episodes rejects empty query."""
+        from watercooler_memory.backends import ConfigError
+        
+        with pytest.raises(ConfigError, match="query parameter is required"):
+            graphiti_backend.get_episodes(
+                query="",
+                max_episodes=10
+            )
+
+    def test_get_episodes_limit_clamping(self, graphiti_backend):
+        """Test that max_episodes is clamped to 50."""
+        # Should not raise, just clamp to 50
+        episodes = graphiti_backend.get_episodes(
+            query="test",
+            group_ids=["test-group"],
+            max_episodes=100,  # Should be clamped to 50
+        )
+        assert isinstance(episodes, list)
+        # Backend will clamp to 50 internally
 
 
 @pytest.mark.integration_falkor

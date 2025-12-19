@@ -65,6 +65,7 @@ class QueryResult:
 
     manifest_version: str
     results: Sequence[Mapping[str, Any]] = field(default_factory=list)
+    communities: Sequence[Mapping[str, Any]] = field(default_factory=list)
     message: str | None = None
 
 

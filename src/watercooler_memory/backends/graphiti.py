@@ -89,6 +89,11 @@ class GraphitiBackend(MemoryBackend):
     # to keep response sizes manageable while providing sufficient context for RAG
     _MAX_EPISODE_CONTENT_LENGTH = 8192
 
+    # Maximum node summary length (2KB - shorter than episodes)
+    # Node summaries are regional consolidations that can be verbose,
+    # truncate to prevent payload bloat per Codex feedback
+    _MAX_NODE_SUMMARY_LENGTH = 2048
+
     def __init__(self, config: GraphitiConfig | None = None) -> None:
         self.config = config or GraphitiConfig()
         self._validate_config()
@@ -324,6 +329,81 @@ class GraphitiBackend(MemoryBackend):
 
         return reranker_configs[reranker]
 
+    # Class-level cache for graph list (avoid repeated GRAPH.LIST calls)
+    _graph_list_cache: dict[str, tuple[list[str], float]] = {}
+    _GRAPH_LIST_CACHE_TTL = 60  # seconds
+    _MAX_GRAPHS_LIMIT = 100  # Resource limit for GRAPH.LIST fallback
+
+    def _get_effective_group_ids(self, group_ids: list[str] | None) -> list[str] | None:
+        """Get effective group IDs for search, with GRAPH.LIST fallback.
+
+        When group_ids is None, attempts to list all available graphs from FalkorDB
+        and use all non-default databases. Falls back to None if listing fails.
+
+        This mirrors the logic from query() method to ensure search operations
+        target actual thread databases instead of only searching default_db.
+
+        Resource limits:
+        - Caches graph list for 60 seconds to avoid repeated queries
+        - Limits to first 100 graphs to prevent memory exhaustion
+        - Logs warning when fallback is used or limit is hit
+
+        Args:
+            group_ids: Optional list of group IDs
+
+        Returns:
+            List of group IDs to search, or None (searches default_db)
+        """
+        if group_ids is not None:
+            # Already have group_ids, use as-is (will be sanitized later)
+            return group_ids
+
+        # Check cache first
+        import time
+        cache_key = f"{self.config.falkordb_host}:{self.config.falkordb_port}"
+        if cache_key in self._graph_list_cache:
+            cached_graphs, cached_time = self._graph_list_cache[cache_key]
+            if time.time() - cached_time < self._GRAPH_LIST_CACHE_TTL:
+                return cached_graphs if cached_graphs else None
+
+        # No group_ids specified - try to list all available graphs
+        try:
+            import redis
+            from ..observability import log_action
+            
+            log_action("MEMORY", "GRAPH.LIST fallback triggered (no group_ids provided)")
+            
+            r = redis.Redis(
+                host=self.config.falkordb_host,
+                port=self.config.falkordb_port,
+                password=self.config.falkordb_password,
+            )
+            graph_list = r.execute_command('GRAPH.LIST')
+            
+            # Decode bytes to strings (do this once, not twice)
+            decoded_graphs = [g.decode() if isinstance(g, bytes) else g for g in graph_list]
+            
+            # Filter out default_db
+            effective_group_ids = [g for g in decoded_graphs if g != 'default_db']
+            
+            # Apply resource limit
+            if len(effective_group_ids) > self._MAX_GRAPHS_LIMIT:
+                log_action(
+                    "MEMORY", 
+                    f"Warning: {len(effective_group_ids)} graphs found, limiting to {self._MAX_GRAPHS_LIMIT}"
+                )
+                effective_group_ids = effective_group_ids[:self._MAX_GRAPHS_LIMIT]
+            
+            # Cache the results
+            self._graph_list_cache[cache_key] = (effective_group_ids, time.time())
+            
+            return effective_group_ids if effective_group_ids else None
+        except Exception as e:
+            from ..observability import log_error
+            # If we can't list graphs, fall back to None (searches default_db)
+            log_error(f"MEMORY: GRAPH.LIST fallback failed: {e}")
+            return None
+
     def _sanitize_thread_id(self, thread_id: str) -> str:
         """Sanitize thread ID for use as Graphiti group_id.
 
@@ -403,6 +483,31 @@ class GraphitiBackend(MemoryBackend):
             return content
 
         return content[:max_length] + "\n...[truncated]"
+
+    def _truncate_node_summary(self, summary: str | None) -> str | None:
+        """Truncate node summary to prevent payload bloat.
+
+        Args:
+            summary: Node summary to truncate (may be None)
+
+        Returns:
+            Truncated summary with marker if needed, or None if input was None
+
+        Example:
+            >>> backend._truncate_node_summary(None)
+            None
+            >>> backend._truncate_node_summary("Short summary")
+            'Short summary'
+            >>> backend._truncate_node_summary("A" * 3000)
+            'AAA...[truncated]'  # Truncated to 2048 chars
+        """
+        if not summary:
+            return None
+
+        if len(summary) <= self._MAX_NODE_SUMMARY_LENGTH:
+            return summary
+
+        return summary[:self._MAX_NODE_SUMMARY_LENGTH] + "...[truncated]"
 
     def _map_entries_to_episodes(
         self, corpus: CorpusPayload
@@ -575,7 +680,7 @@ class GraphitiBackend(MemoryBackend):
         """
         Query Graphiti temporal graph with comprehensive multi-layer retrieval.
 
-        Executes hybrid search across:
+        Executes hybrid search across all four Graphiti subgraphs:
         - Edges: Extracted facts with bi-temporal tracking
         - Episodes: Full original content (non-lossy source data)
         - Nodes: Entity-centric summaries
@@ -585,29 +690,38 @@ class GraphitiBackend(MemoryBackend):
             query: Query payload with search queries
 
         Returns:
-            QueryResult with results containing:
-            - content: Brief extracted fact (edge.fact)
-            - score: Reranker relevance score (0.0-10.0+)
-            - metadata:
-                - uuid, source_node_uuid, target_node_uuid: Edge identifiers
-                - valid_at, invalid_at: Fact validity period
-                - group_id: Thread/topic identifier
-                - source_backend: "graphiti"
-                - reranker: Algorithm used (rrf, mmr, cross_encoder, etc.)
-                - episodes: List of source episodes with full content
-                    - uuid: Episode identifier
-                    - content: Full original text (truncated to 8KB max)
-                    - source: Episode type (text, json, message)
-                    - source_description: Origin context
-                    - valid_at: Creation timestamp (t_ref)
-                    - created_at: Database creation time (if available)
-                    - name: Episode identifier/title
+            QueryResult with:
+            - results: List of edge-centric results, each containing:
+                - content: Brief extracted fact (edge.fact)
+                - score: Edge reranker relevance score (0.0-10.0+)
+                - metadata:
+                    - Edge identifiers (uuid, source_node_uuid, target_node_uuid)
+                    - Temporal tracking (valid_at, invalid_at)
+                    - Backend provenance (source_backend, reranker)
+                    - episodes: List of source episodes with:
+                        - uuid, content (truncated to 8KB), score (episode relevance)
+                        - source, source_description, valid_at, created_at, name
+                        - NOTE: episode.score represents episode relevance, may differ
+                          from edge.score (fact relevance). For fact-based ranking, use
+                          edge scores. For content-based ranking, use episode scores.
+                    - nodes: List of connected entities with:
+                        - uuid, name, labels, summary (truncated to 2KB), created_at
+                        - role (source/target), edge_uuid (for context stitching)
+            - communities: Top 5 domain-level clusters (optional) with:
+                - uuid, name, summary, score
 
-        Example RAG Usage:
-            1. Rank by edge scores (brief facts)
-            2. Select top N edges
-            3. Extract episode content from metadata for context
-            4. Generate comprehensive answer from episodes
+        Scoring Precedence (Codex feedback):
+            - Edge scores: Rank extracted facts by relevance to query
+            - Episode scores: Rank source content by relevance to query
+            - Use edge scores for fact-based RAG (precise facts)
+            - Use episode scores for content-based RAG (rich context)
+            - Both are valid strategies depending on use case
+
+        Example Multi-Strategy RAG:
+            1. Fact-based: Rank by edge scores, extract episodes for context
+            2. Entity-based: Filter by node labels, use node summaries
+            3. Topic-based: Group by communities, aggregate related content
+            4. Content-based: Rank by episode scores, use episodes as primary source
 
         Raises:
             BackendError: If query fails
@@ -624,6 +738,7 @@ class GraphitiBackend(MemoryBackend):
             # Execute queries asynchronously
             async def execute_queries():
                 results = []
+                all_communities = []  # Collect communities across all queries
                 for query_item in query.queries:
                     query_text = query_item.get("query", "")
                     limit = query_item.get("limit", 10)
@@ -694,6 +809,24 @@ class GraphitiBackend(MemoryBackend):
                                     episode_index[edge_uuid] = []
                                 episode_index[edge_uuid].append(ep)
 
+                        # Build node index for efficient edge→node lookup
+                        # Nodes are connected entities (source/target) for each edge
+                        node_index: dict[str, Any] = {}
+                        for node in search_results.nodes:
+                            node_index[node.uuid] = node
+
+                        # Build episode score index with defensive length checks
+                        # Codex: defend against array length mismatches
+                        episode_score_index: dict[str, float] = {}
+                        num_episode_scores = len(search_results.episode_reranker_scores)
+                        for idx, ep in enumerate(search_results.episodes):
+                            # Use positional alignment but defend against array length mismatch
+                            if idx < num_episode_scores:
+                                episode_score_index[ep.uuid] = search_results.episode_reranker_scores[idx]
+                            else:
+                                # Default to 0.0 if scores missing (shouldn't happen but defend anyway)
+                                episode_score_index[ep.uuid] = 0.0
+
                         # Return only top N results after reranking
                         # Graphiti already sorted edges by reranker score
                         for idx, edge in enumerate(search_results.edges[:limit]):
@@ -704,6 +837,39 @@ class GraphitiBackend(MemoryBackend):
 
                             # Find episodes that contain this edge
                             source_episodes = episode_index.get(edge.uuid, [])
+
+                            # Find connected nodes (entities) for this edge
+                            # Codex: include edge UUID for context stitching
+                            source_node = node_index.get(edge.source_node_uuid)
+                            target_node = node_index.get(edge.target_node_uuid)
+
+                            # Build nodes list with role and edge linkage
+                            edge_nodes = []
+                            if source_node:
+                                edge_nodes.append({
+                                    "uuid": source_node.uuid,
+                                    "name": source_node.name,
+                                    "labels": source_node.labels,
+                                    "summary": self._truncate_node_summary(
+                                        source_node.summary if hasattr(source_node, 'summary') else None
+                                    ),
+                                    "created_at": source_node.created_at.isoformat() if source_node.created_at else None,
+                                    "role": "source",
+                                    "edge_uuid": edge.uuid,
+                                })
+                            if target_node and target_node.uuid != (source_node.uuid if source_node else None):
+                                # Avoid duplicates when source and target are the same node
+                                edge_nodes.append({
+                                    "uuid": target_node.uuid,
+                                    "name": target_node.name,
+                                    "labels": target_node.labels,
+                                    "summary": self._truncate_node_summary(
+                                        target_node.summary if hasattr(target_node, 'summary') else None
+                                    ),
+                                    "created_at": target_node.created_at.isoformat() if target_node.created_at else None,
+                                    "role": "target",
+                                    "edge_uuid": edge.uuid,
+                                })
 
                             results.append({
                                 "query": query_text,
@@ -725,6 +891,7 @@ class GraphitiBackend(MemoryBackend):
                                         {
                                             "uuid": ep.uuid,
                                             "content": self._truncate_episode_content(ep.content),
+                                            "score": episode_score_index.get(ep.uuid, 0.0),  # Episode relevance score
                                             "source": ep.source.value if hasattr(ep.source, 'value') else str(ep.source),
                                             "source_description": ep.source_description,
                                             "valid_at": ep.valid_at.isoformat() if ep.valid_at else None,
@@ -733,19 +900,42 @@ class GraphitiBackend(MemoryBackend):
                                         }
                                         for ep in source_episodes
                                     ],
+                                    # Connected nodes (entities) with summaries
+                                    # Codex: include for entity-centric queries and context stitching
+                                    "nodes": edge_nodes,
                                 },
                             })
+
+                        # Extract top 5 communities (domain-level clusters)
+                        # Codex: limit to small top-k to prevent payload bloat
+                        for idx, comm in enumerate(search_results.communities[:5]):
+                            comm_dict = {
+                                "uuid": comm.uuid if hasattr(comm, 'uuid') else None,
+                                "name": comm.name if hasattr(comm, 'name') else f"Community {idx}",
+                                "summary": comm.summary if hasattr(comm, 'summary') else None,
+                            }
+                            # Add score if available (positional alignment)
+                            if idx < len(search_results.community_reranker_scores):
+                                comm_dict["score"] = search_results.community_reranker_scores[idx]
+                            else:
+                                comm_dict["score"] = 0.0
+
+                            # Add if not already present (avoid duplicates across queries)
+                            if comm_dict not in all_communities:
+                                all_communities.append(comm_dict)
+
                     except Exception as e:
                         raise BackendError(f"Query '{query_text}' failed: {e}") from e
-                
-                return results
+
+                return results, all_communities
 
             # Run async query execution
-            results = asyncio.run(execute_queries())
+            results, communities = asyncio.run(execute_queries())
 
             return QueryResult(
                 manifest_version=query.manifest_version,
                 results=results,
+                communities=communities,
             )
 
         except ConfigError:
@@ -756,6 +946,299 @@ class GraphitiBackend(MemoryBackend):
             raise
         except Exception as e:
             raise BackendError(f"Query execution failed: {e}") from e
+
+    def search_nodes(
+        self,
+        query: str,
+        group_ids: list[str] | None = None,
+        max_nodes: int = 10,
+        entity_types: list[str] | None = None,
+    ) -> list[dict[str, Any]]:
+        """Search for nodes (entities) using hybrid semantic search.
+
+        Note: This method uses a sync facade pattern (approved by Codex).
+        It's synchronous but internally uses asyncio.run() to call async
+        Graphiti operations. The MCP layer calls this via asyncio.to_thread()
+        to avoid blocking. This pattern matches the existing query() method
+        and avoids nested event loop issues.
+
+        Args:
+            query: Search query string
+            group_ids: Optional list of group IDs to filter by
+            max_nodes: Maximum nodes to return (default: 10, max: 50)
+            entity_types: Optional list of entity type names to filter
+
+        Returns:
+            List of node dicts with uuid, name, labels, summary, etc.
+
+        Raises:
+            BackendError: If search fails
+            TransientError: If database connection fails
+        """
+        try:
+            graphiti = self._create_graphiti_client()
+        except Exception as e:
+            raise TransientError(f"Database connection failed: {e}") from e
+
+        async def search_nodes_async():
+            # Get effective group_ids with GRAPH.LIST fallback
+            effective_group_ids = self._get_effective_group_ids(group_ids)
+            
+            # Sanitize group_ids
+            sanitized_group_ids = None
+            if effective_group_ids:
+                sanitized_group_ids = [self._sanitize_thread_id(gid) for gid in effective_group_ids]
+
+            # Use NODE_HYBRID_SEARCH_RRF (official Graphiti MCP server approach)
+            from graphiti_core.search.search_config_recipes import NODE_HYBRID_SEARCH_RRF
+            from graphiti_core.search.search_filters import SearchFilters
+            
+            # Always create SearchFilters (match official implementation)
+            search_filters = SearchFilters(node_labels=entity_types)
+
+            # Execute search with node-specific config
+            search_results = await graphiti.search_(
+                query=query,
+                config=NODE_HYBRID_SEARCH_RRF,
+                group_ids=sanitized_group_ids,
+                search_filter=search_filters,  # Note: singular 'filter' not 'filters'
+            )
+            
+            # Extract nodes from results (official approach)
+            limit = min(max_nodes, 50)
+            nodes = search_results.nodes[:limit] if search_results.nodes else []
+            
+            # Format results with reranker scores
+            results = []
+            for idx, node in enumerate(nodes):
+                # Extract score with defensive indexing (match query_memory pattern)
+                score = 0.0
+                if idx < len(search_results.node_reranker_scores):
+                    score = search_results.node_reranker_scores[idx]
+                
+                results.append({
+                    "uuid": node.uuid,
+                    "name": node.name,
+                    "labels": node.labels if node.labels else [],
+                    "summary": self._truncate_node_summary(
+                        node.summary if hasattr(node, 'summary') else None
+                    ),
+                    "created_at": node.created_at.isoformat() if node.created_at else None,
+                    "group_id": node.group_id if hasattr(node, 'group_id') else None,
+                    "score": score,  # Hybrid search reranker score
+                })
+            
+            return results
+
+        try:
+            return asyncio.run(search_nodes_async())
+        except Exception as e:
+            raise BackendError(f"Node search failed for '{query}': {e}") from e
+
+    def get_entity_edge(self, uuid: str) -> dict[str, Any]:
+        """Get an entity edge by UUID.
+
+        Args:
+            uuid: Edge UUID to retrieve
+
+        Returns:
+            Edge dict with uuid, fact, source/target nodes, timestamps
+
+        Raises:
+            BackendError: If edge not found or retrieval fails
+            TransientError: If database connection fails
+        """
+        try:
+            graphiti = self._create_graphiti_client()
+        except Exception as e:
+            raise TransientError(f"Database connection failed: {e}") from e
+
+        async def get_edge_async():
+            from graphiti_core.edges import EntityEdge
+
+            # Get edge by UUID
+            try:
+                edge = await EntityEdge.get_by_uuid(graphiti.driver, uuid)
+            except Exception as e:
+                raise BackendError(f"Entity edge '{uuid}' not found: {e}") from e
+
+            # Format result
+            return {
+                "uuid": edge.uuid,
+                "fact": edge.fact,
+                "source_node_uuid": edge.source_node_uuid,
+                "target_node_uuid": edge.target_node_uuid,
+                "valid_at": edge.valid_at.isoformat() if edge.valid_at else None,
+                "invalid_at": edge.invalid_at.isoformat() if edge.invalid_at else None,
+                "created_at": edge.created_at.isoformat() if edge.created_at else None,
+                "group_id": edge.group_id if hasattr(edge, 'group_id') else None,
+            }
+
+        try:
+            return asyncio.run(get_edge_async())
+        except BackendError:
+            raise
+        except Exception as e:
+            raise BackendError(f"Failed to get entity edge '{uuid}': {e}") from e
+
+    def search_memory_facts(
+        self,
+        query: str,
+        group_ids: list[str] | None = None,
+        max_facts: int = 10,
+        center_node_uuid: str | None = None,
+    ) -> list[dict[str, Any]]:
+        """Search for facts (edges) with optional center-node traversal.
+
+        Args:
+            query: Search query string
+            group_ids: Optional list of group IDs to filter by
+            max_facts: Maximum facts to return (default: 10, max: 50)
+            center_node_uuid: Optional node UUID to center search around
+
+        Returns:
+            List of fact dicts with edge data
+
+        Raises:
+            BackendError: If search fails
+            TransientError: If database connection fails
+        """
+        try:
+            graphiti = self._create_graphiti_client()
+        except Exception as e:
+            raise TransientError(f"Database connection failed: {e}") from e
+
+        async def search_facts_async():
+            # Get effective group_ids with GRAPH.LIST fallback
+            effective_group_ids = self._get_effective_group_ids(group_ids)
+            
+            # Sanitize group_ids
+            sanitized_group_ids = None
+            if effective_group_ids:
+                sanitized_group_ids = [self._sanitize_thread_id(gid) for gid in effective_group_ids]
+
+            # Use search_() API for facts with reranker scores (match query_memory pattern)
+            limit = min(max_facts, 50)
+            search_config = self._get_search_config()
+            
+            search_results = await graphiti.search_(
+                query=query,
+                config=search_config,
+                group_ids=sanitized_group_ids,
+                center_node_uuid=center_node_uuid,
+            )
+            
+            # Extract edges with scores
+            edges = search_results.edges[:limit] if search_results.edges else []
+            
+            # Format results with reranker scores
+            results = []
+            for idx, edge in enumerate(edges):
+                # Extract score with defensive indexing (match query_memory pattern)
+                score = 0.0
+                if idx < len(search_results.edge_reranker_scores):
+                    score = search_results.edge_reranker_scores[idx]
+                
+                results.append({
+                    "uuid": edge.uuid,
+                    "fact": edge.fact,
+                    "source_node_uuid": edge.source_node_uuid,
+                    "target_node_uuid": edge.target_node_uuid,
+                    "valid_at": edge.valid_at.isoformat() if edge.valid_at else None,
+                    "invalid_at": edge.invalid_at.isoformat() if edge.invalid_at else None,
+                    "created_at": edge.created_at.isoformat() if edge.created_at else None,
+                    "group_id": edge.group_id if hasattr(edge, 'group_id') else None,
+                    "score": score,  # Hybrid search reranker score
+                })
+
+            return results
+
+        try:
+            return asyncio.run(search_facts_async())
+        except Exception as e:
+            raise BackendError(f"Fact search failed for '{query}': {e}") from e
+
+    def get_episodes(
+        self,
+        query: str,
+        group_ids: list[str] | None = None,
+        max_episodes: int = 10,
+    ) -> list[dict[str, Any]]:
+        """Search for episodes from Graphiti memory using semantic search.
+
+        Note: Graphiti doesn't support enumerating all episodes. This tool
+        performs semantic episode search using the query string.
+
+        Args:
+            query: Search query string (required, must be non-empty)
+            group_ids: Optional list of group IDs to filter by
+            max_episodes: Maximum episodes to return (default: 10, max: 50)
+
+        Returns:
+            List of episode dicts with uuid, name, content, timestamps
+
+        Raises:
+            ConfigError: If query is empty
+            BackendError: If search fails
+            TransientError: If database connection fails
+        """
+        # Validate query
+        if not query or not query.strip():
+            raise ConfigError("query parameter is required and must be non-empty")
+
+        try:
+            graphiti = self._create_graphiti_client()
+        except Exception as e:
+            raise TransientError(f"Database connection failed: {e}") from e
+
+        async def search_episodes_async():
+            # Get effective group_ids with GRAPH.LIST fallback
+            effective_group_ids = self._get_effective_group_ids(group_ids)
+            
+            # Sanitize group_ids
+            sanitized_group_ids = None
+            if effective_group_ids:
+                sanitized_group_ids = [self._sanitize_thread_id(gid) for gid in effective_group_ids]
+
+            # Search episodes via COMBINED config (retrieves episodes + edges + nodes)
+            limit = min(max_episodes, 50)
+            search_config = self._get_search_config()
+            
+            search_results = await graphiti.search_(
+                query=query,
+                config=search_config,
+                group_ids=sanitized_group_ids,
+            )
+            
+            # Extract episodes from search results
+            episodes = search_results.episodes[:limit] if search_results.episodes else []
+
+            # Format results with reranker scores
+            results = []
+            for idx, ep in enumerate(episodes):
+                # Extract score with defensive indexing (match query_memory pattern)
+                score = 0.0
+                if idx < len(search_results.episode_reranker_scores):
+                    score = search_results.episode_reranker_scores[idx]
+                
+                results.append({
+                    "uuid": ep.uuid,
+                    "name": ep.name,
+                    "content": self._truncate_episode_content(ep.content),
+                    "created_at": ep.created_at.isoformat() if ep.created_at else None,
+                    "source": ep.source.value if hasattr(ep.source, 'value') else str(ep.source),
+                    "source_description": ep.source_description,
+                    "group_id": ep.group_id,
+                    "valid_at": ep.valid_at.isoformat() if hasattr(ep, 'valid_at') and ep.valid_at else None,
+                    "score": score,  # Hybrid search reranker score
+                })
+
+            return results
+
+        try:
+            return asyncio.run(search_episodes_async())
+        except Exception as e:
+            raise BackendError(f"Episode search failed for '{query}': {e}") from e
 
     def healthcheck(self) -> HealthStatus:
         """
