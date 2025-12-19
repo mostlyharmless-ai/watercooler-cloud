@@ -94,6 +94,15 @@ class GraphitiBackend(MemoryBackend):
     # truncate to prevent payload bloat per Codex feedback
     _MAX_NODE_SUMMARY_LENGTH = 2048
 
+    # Query result default and hard limits
+    DEFAULT_MAX_NODES = 10
+    DEFAULT_MAX_FACTS = 10
+    DEFAULT_MAX_EPISODES = 10
+    HARD_RESULT_LIMIT = 50  # Maximum results regardless of user request
+
+    # Community limits (top-5 to prevent payload bloat per Codex feedback)
+    MAX_COMMUNITIES_RETURNED = 5
+
     def __init__(self, config: GraphitiConfig | None = None) -> None:
         self.config = config or GraphitiConfig()
         self._validate_config()
@@ -908,7 +917,7 @@ class GraphitiBackend(MemoryBackend):
 
                         # Extract top 5 communities (domain-level clusters)
                         # Codex: limit to small top-k to prevent payload bloat
-                        for idx, comm in enumerate(search_results.communities[:5]):
+                        for idx, comm in enumerate(search_results.communities[:self.MAX_COMMUNITIES_RETURNED]):
                             comm_dict = {
                                 "uuid": comm.uuid if hasattr(comm, 'uuid') else None,
                                 "name": comm.name if hasattr(comm, 'name') else f"Community {idx}",
@@ -951,7 +960,7 @@ class GraphitiBackend(MemoryBackend):
         self,
         query: str,
         group_ids: list[str] | None = None,
-        max_nodes: int = 10,
+        max_nodes: int = DEFAULT_MAX_NODES,
         entity_types: list[str] | None = None,
     ) -> list[dict[str, Any]]:
         """Search for nodes (entities) using hybrid semantic search.
@@ -1005,7 +1014,7 @@ class GraphitiBackend(MemoryBackend):
             )
             
             # Extract nodes from results (official approach)
-            limit = min(max_nodes, 50)
+            limit = min(max_nodes, self.HARD_RESULT_LIMIT)
             nodes = search_results.nodes[:limit] if search_results.nodes else []
             
             # Format results with reranker scores
@@ -1085,7 +1094,7 @@ class GraphitiBackend(MemoryBackend):
         self,
         query: str,
         group_ids: list[str] | None = None,
-        max_facts: int = 10,
+        max_facts: int = DEFAULT_MAX_FACTS,
         center_node_uuid: str | None = None,
     ) -> list[dict[str, Any]]:
         """Search for facts (edges) with optional center-node traversal.
@@ -1118,7 +1127,7 @@ class GraphitiBackend(MemoryBackend):
                 sanitized_group_ids = [self._sanitize_thread_id(gid) for gid in effective_group_ids]
 
             # Use search_() API for facts with reranker scores (match query_memory pattern)
-            limit = min(max_facts, 50)
+            limit = min(max_facts, self.HARD_RESULT_LIMIT)
             search_config = self._get_search_config()
             
             search_results = await graphiti.search_(
@@ -1162,7 +1171,7 @@ class GraphitiBackend(MemoryBackend):
         self,
         query: str,
         group_ids: list[str] | None = None,
-        max_episodes: int = 10,
+        max_episodes: int = DEFAULT_MAX_EPISODES,
     ) -> list[dict[str, Any]]:
         """Search for episodes from Graphiti memory using semantic search.
 
@@ -1201,7 +1210,7 @@ class GraphitiBackend(MemoryBackend):
                 sanitized_group_ids = [self._sanitize_thread_id(gid) for gid in effective_group_ids]
 
             # Search episodes via COMBINED config (retrieves episodes + edges + nodes)
-            limit = min(max_episodes, 50)
+            limit = min(max_episodes, self.HARD_RESULT_LIMIT)
             search_config = self._get_search_config()
             
             search_results = await graphiti.search_(

@@ -3094,91 +3094,48 @@ async def search_nodes(
         }
     """
     try:
-        # Import memory module (lazy-load)
-        try:
-            from . import memory as mem
-        except ImportError as e:
-            return ToolResult(content=[TextContent(
-                type="text",
-                text=json.dumps(
-                    {
-                        "error": "Memory module unavailable",
-                        "message": f"Install with: pip install watercooler-cloud[memory]. Details: {e}",
-                        "operation": "search_nodes",
-                        "query": query,
-                        "result_count": 0,
-                        "results": [],
-                    },
-                    indent=2,
-                )
-            )])
-
-        # Load configuration
-        config = mem.load_graphiti_config()
-        if config is None:
-            return ToolResult(content=[TextContent(
-                type="text",
-                text=json.dumps(
-                    {
-                        "error": "Graphiti not enabled",
-                        "message": (
-                            "Set WATERCOOLER_GRAPHITI_ENABLED=1 and configure "
-                            "OPENAI_API_KEY to enable memory queries."
-                        ),
-                        "operation": "search_nodes",
-                        "query": query,
-                        "result_count": 0,
-                        "results": [],
-                    },
-                    indent=2,
-                )
-            )])
-
+        from . import memory as mem
+        
+        # Validate query parameter
+        if not query or not query.strip():
+            return mem.create_error_response(
+                "Invalid query",
+                "Query parameter is required and must be non-empty",
+                "search_nodes",
+                query=query,
+                result_count=0,
+                results=[],
+            )
+        
         # Validate max_nodes parameter
         if max_nodes < 1:
             max_nodes = 10
         if max_nodes > 50:
             max_nodes = 50
-
-        # Get backend instance
-        backend = mem.get_graphiti_backend(config)
-        if backend is None or isinstance(backend, dict):
-            if isinstance(backend, dict):
-                error_type = backend.get("error", "unknown")
-                details = backend.get("details", "No details available")
-                return ToolResult(content=[TextContent(
-                    type="text",
-                    text=json.dumps({
-                        "error": f"Backend {error_type}",
-                        "message": details,
-                        "operation": "search_nodes",
-                        "query": query,
-                        "result_count": 0,
-                        "results": [],
-                    }, indent=2)
-                )])
-            else:
-                return ToolResult(content=[TextContent(
-                    type="text",
-                    text=json.dumps(
-                        {
-                            "error": "Backend initialization failed",
-                            "message": "Check logs for Graphiti backend errors",
-                            "operation": "search_nodes",
-                            "query": query,
-                            "result_count": 0,
-                            "results": [],
-                        },
-                        indent=2,
-                    )
-                )])
-
+        
+        # Common validation (replaces ~100 lines of duplicated code)
+        backend, error = mem.validate_memory_prerequisites("search_nodes")
+        if error:
+            # Add query/result fields to error response
+            import json
+            error_dict = json.loads(error.content[0].text)
+            error_dict.update({
+                "query": query,
+                "result_count": 0,
+                "results": [],
+            })
+            from mcp.types import TextContent
+            return ToolResult(content=[TextContent(
+                type="text",
+                text=json.dumps(error_dict, indent=2)
+            )])
+        
         # Execute search
         import asyncio
         from .observability import log_action, log_error
-
+        
         log_action("memory.search_nodes", query=query, max_nodes=max_nodes, group_ids=group_ids)
-
+        
         try:
             results = await asyncio.to_thread(
                 backend.search_nodes,
@@ -3187,7 +3144,7 @@ async def search_nodes(
                 max_nodes=max_nodes,
                 entity_types=entity_types,
             )
-
+            
             # Format response
             response = {
                 "query": query,
@@ -3195,49 +3152,40 @@ async def search_nodes(
                 "results": results,
                 "message": f"Found {len(results)} node(s)",
             }
-
+            
             if group_ids:
                 response["filtered_by_topics"] = group_ids
-
+            
+            from mcp.types import TextContent
             return ToolResult(content=[TextContent(
                 type="text",
                 text=json.dumps(response, indent=2)
             )])
-
+            
         except Exception as e:
             log_error(f"MEMORY: Node search failed: {e}")
-            return ToolResult(content=[TextContent(
-                type="text",
-                text=json.dumps(
-                    {
-                        "error": "Search execution failed",
-                        "message": str(e),
-                        "operation": "search_nodes",
-                        "query": query,
-                        "result_count": 0,
-                        "results": [],
-                    },
-                    indent=2,
-                )
-            )])
-
+            return mem.create_error_response(
+                "Search execution failed",
+                str(e),
+                "search_nodes",
+                query=query,
+                result_count=0,
+                results=[],
+            )
+    
     except Exception as e:
         from .observability import log_error
+        from . import memory as mem
+        
         log_error(f"MEMORY: Unexpected error in search_nodes: {e}")
-        return ToolResult(content=[TextContent(
-            type="text",
-            text=json.dumps(
-                {
-                    "error": "Internal error",
-                    "message": str(e),
-                    "operation": "search_nodes",
-                    "query": query,
-                    "result_count": 0,
-                    "results": [],
-                },
-                indent=2,
-            )
-        )])
+        return mem.create_error_response(
+            "Internal error",
+            str(e),
+            "search_nodes",
+            query=query,
+            result_count=0,
+            results=[],
+        )
 
 
 @mcp.tool(name="watercooler_v1_get_entity_edge")
@@ -3292,159 +3240,78 @@ async def get_entity_edge(
         }
     """
     try:
-        # Validate UUID parameter
+        from . import memory as mem
+        
+        # Validate UUID parameter (tool-specific validation)
         if not uuid or not uuid.strip():
-            return ToolResult(content=[TextContent(
-                type="text",
-                text=json.dumps(
-                    {
-                        "error": "Invalid UUID",
-                        "message": "UUID parameter is required and must be non-empty",
-                        "operation": "get_entity_edge",
-                    },
-                    indent=2,
-                )
-            )])
+            return mem.create_error_response(
+                "Invalid UUID",
+                "UUID parameter is required and must be non-empty",
+                "get_entity_edge"
+            )
         
         # Sanitize UUID (limit length and characters)
         if len(uuid) > 100:
-            return ToolResult(content=[TextContent(
-                type="text",
-                text=json.dumps(
-                    {
-                        "error": "Invalid UUID",
-                        "message": "UUID too long (max 100 characters)",
-                        "operation": "get_entity_edge",
-                        "uuid": uuid[:50] + "...",
-                    },
-                    indent=2,
-                )
-            )])
+            return mem.create_error_response(
+                "Invalid UUID",
+                "UUID too long (max 100 characters)",
+                "get_entity_edge",
+                uuid=uuid[:50] + "..."
+            )
         
         # Check for valid characters (alphanumeric, hyphen, underscore)
         if not all(c.isalnum() or c in '-_' for c in uuid):
-            return ToolResult(content=[TextContent(
-                type="text",
-                text=json.dumps(
-                    {
-                        "error": "Invalid UUID",
-                        "message": "UUID contains invalid characters (only alphanumeric, hyphen, underscore allowed)",
-                        "operation": "get_entity_edge",
-                    },
-                    indent=2,
-                )
-            )])
+            return mem.create_error_response(
+                "Invalid UUID",
+                "UUID contains invalid characters (only alphanumeric, hyphen, underscore allowed)",
+                "get_entity_edge"
+            )
         
-        # Import memory module (lazy-load)
-        try:
-            from . import memory as mem
-        except ImportError as e:
-            return ToolResult(content=[TextContent(
-                type="text",
-                text=json.dumps(
-                    {
-                        "error": "Memory module unavailable",
-                        "message": f"Install with: pip install watercooler-cloud[memory]. Details: {e}",
-                        "operation": "get_entity_edge",
-                    },
-                    indent=2,
-                )
-            )])
-
-        # Load configuration
-        config = mem.load_graphiti_config()
-        if config is None:
-            return ToolResult(content=[TextContent(
-                type="text",
-                text=json.dumps(
-                    {
-                        "error": "Graphiti not enabled",
-                        "message": (
-                            "Set WATERCOOLER_GRAPHITI_ENABLED=1 and configure "
-                            "OPENAI_API_KEY to enable memory queries."
-                        ),
-                        "operation": "get_entity_edge",
-                    },
-                    indent=2,
-                )
-            )])
-
-        # Get backend instance
-        backend = mem.get_graphiti_backend(config)
-        if backend is None or isinstance(backend, dict):
-            if isinstance(backend, dict):
-                error_type = backend.get("error", "unknown")
-                details = backend.get("details", "No details available")
-                return ToolResult(content=[TextContent(
-                    type="text",
-                    text=json.dumps({
-                        "error": f"Backend {error_type}",
-                        "message": details,
-                        "operation": "get_entity_edge",
-                    }, indent=2)
-                )])
-            else:
-                return ToolResult(content=[TextContent(
-                    type="text",
-                    text=json.dumps(
-                        {
-                            "error": "Backend initialization failed",
-                            "message": "Check logs for Graphiti backend errors",
-                            "operation": "get_entity_edge",
-                        },
-                        indent=2,
-                    )
-                )])
-
+        # Common validation (replaces ~100 lines of duplicated code)
+        backend, error = mem.validate_memory_prerequisites("get_entity_edge")
+        if error:
+            return error
+        
         # Execute query
         import asyncio
         from .observability import log_action, log_error
-
+        
         log_action("memory.get_entity_edge", uuid=uuid)
-
+        
         try:
             edge = await asyncio.to_thread(backend.get_entity_edge, uuid)
-
+            
             # Format response
             response = {
                 **edge,
                 "message": f"Retrieved edge {uuid}",
             }
-
+            
+            from mcp.types import TextContent
             return ToolResult(content=[TextContent(
                 type="text",
                 text=json.dumps(response, indent=2)
             )])
-
+            
         except Exception as e:
             log_error(f"MEMORY: Get entity edge failed: {e}")
-            return ToolResult(content=[TextContent(
-                type="text",
-                text=json.dumps(
-                    {
-                        "error": "Edge retrieval failed",
-                        "message": str(e),
-                        "operation": "get_entity_edge",
-                        "uuid": uuid,
-                    },
-                    indent=2,
-                )
-            )])
-
+            return mem.create_error_response(
+                "Edge retrieval failed",
+                str(e),
+                "get_entity_edge",
+                uuid=uuid
+            )
+    
     except Exception as e:
         from .observability import log_error
+        from . import memory as mem
+        
         log_error(f"MEMORY: Unexpected error in get_entity_edge: {e}")
-        return ToolResult(content=[TextContent(
-            type="text",
-            text=json.dumps(
-                {
-                    "error": "Internal error",
-                    "message": str(e),
-                    "operation": "get_entity_edge",
-                },
-                indent=2,
-            )
-        )])
+        return mem.create_error_response(
+            "Internal error",
+            str(e),
+            "get_entity_edge"
+        )
 
 
 @mcp.tool(name="watercooler_v1_search_memory_facts")
@@ -3509,89 +3376,46 @@ async def search_memory_facts(
         }
     """
     try:
-        # Import memory module (lazy-load)
-        try:
-            from . import memory as mem
-        except ImportError as e:
-            return ToolResult(content=[TextContent(
-                type="text",
-                text=json.dumps(
-                    {
-                        "error": "Memory module unavailable",
-                        "message": f"Install with: pip install watercooler-cloud[memory]. Details: {e}",
-                        "operation": "search_memory_facts",
-                        "query": query,
-                        "result_count": 0,
-                        "results": [],
-                    },
-                    indent=2,
-                )
-            )])
-
-        # Load configuration
-        config = mem.load_graphiti_config()
-        if config is None:
-            return ToolResult(content=[TextContent(
-                type="text",
-                text=json.dumps(
-                    {
-                        "error": "Graphiti not enabled",
-                        "message": (
-                            "Set WATERCOOLER_GRAPHITI_ENABLED=1 and configure "
-                            "OPENAI_API_KEY to enable memory queries."
-                        ),
-                        "operation": "search_memory_facts",
-                        "query": query,
-                        "result_count": 0,
-                        "results": [],
-                    },
-                    indent=2,
-                )
-            )])
-
+        from . import memory as mem
+        
+        # Validate query parameter
+        if not query or not query.strip():
+            return mem.create_error_response(
+                "Invalid query",
+                "Query parameter is required and must be non-empty",
+                "search_memory_facts",
+                query=query,
+                result_count=0,
+                results=[],
+            )
+        
         # Validate max_facts parameter
         if max_facts < 1:
             max_facts = 10
         if max_facts > 50:
             max_facts = 50
-
-        # Get backend instance
-        backend = mem.get_graphiti_backend(config)
-        if backend is None or isinstance(backend, dict):
-            if isinstance(backend, dict):
-                error_type = backend.get("error", "unknown")
-                details = backend.get("details", "No details available")
-                return ToolResult(content=[TextContent(
-                    type="text",
-                    text=json.dumps({
-                        "error": f"Backend {error_type}",
-                        "message": details,
-                        "operation": "search_memory_facts",
-                        "query": query,
-                        "result_count": 0,
-                        "results": [],
-                    }, indent=2)
-                )])
-            else:
-                return ToolResult(content=[TextContent(
-                    type="text",
-                    text=json.dumps(
-                        {
-                            "error": "Backend initialization failed",
-                            "message": "Check logs for Graphiti backend errors",
-                            "operation": "search_memory_facts",
-                            "query": query,
-                            "result_count": 0,
-                            "results": [],
-                        },
-                        indent=2,
-                    )
-                )])
-
+        
+        # Common validation (replaces ~100 lines of duplicated code)
+        backend, error = mem.validate_memory_prerequisites("search_memory_facts")
+        if error:
+            # Add query/result fields to error response
+            import json
+            error_dict = json.loads(error.content[0].text)
+            error_dict.update({
+                "query": query,
+                "result_count": 0,
+                "results": [],
+            })
+            from mcp.types import TextContent
+            return ToolResult(content=[TextContent(
+                type="text",
+                text=json.dumps(error_dict, indent=2)
+            )])
+        
         # Execute search
         import asyncio
         from .observability import log_action, log_error
-
+        
         log_action(
             "memory.search_memory_facts",
             query=query,
@@ -3599,7 +3423,7 @@ async def search_memory_facts(
             group_ids=group_ids,
             center_node_uuid=center_node_uuid,
         )
-
+        
         try:
             results = await asyncio.to_thread(
                 backend.search_memory_facts,
@@ -3608,7 +3432,7 @@ async def search_memory_facts(
                 max_facts=max_facts,
                 center_node_uuid=center_node_uuid,
             )
-
+            
             # Format response
             response = {
                 "query": query,
@@ -3616,51 +3440,42 @@ async def search_memory_facts(
                 "results": results,
                 "message": f"Found {len(results)} fact(s)",
             }
-
+            
             if group_ids:
                 response["filtered_by_topics"] = group_ids
             if center_node_uuid:
                 response["centered_on_node"] = center_node_uuid
-
+            
+            from mcp.types import TextContent
             return ToolResult(content=[TextContent(
                 type="text",
                 text=json.dumps(response, indent=2)
             )])
-
+            
         except Exception as e:
             log_error(f"MEMORY: Fact search failed: {e}")
-            return ToolResult(content=[TextContent(
-                type="text",
-                text=json.dumps(
-                    {
-                        "error": "Search execution failed",
-                        "message": str(e),
-                        "operation": "search_memory_facts",
-                        "query": query,
-                        "result_count": 0,
-                        "results": [],
-                    },
-                    indent=2,
-                )
-            )])
-
+            return mem.create_error_response(
+                "Search execution failed",
+                str(e),
+                "search_memory_facts",
+                query=query,
+                result_count=0,
+                results=[],
+            )
+    
     except Exception as e:
         from .observability import log_error
+        from . import memory as mem
+        
         log_error(f"MEMORY: Unexpected error in search_memory_facts: {e}")
-        return ToolResult(content=[TextContent(
-            type="text",
-            text=json.dumps(
-                {
-                    "error": "Internal error",
-                    "message": str(e),
-                    "operation": "search_memory_facts",
-                    "query": query,
-                    "result_count": 0,
-                    "results": [],
-                },
-                indent=2,
-            )
-        )])
+        return mem.create_error_response(
+            "Internal error",
+            str(e),
+            "search_memory_facts",
+            query=query,
+            result_count=0,
+            results=[],
+        )
 
 
 @mcp.tool(name="watercooler_v1_get_episodes")
@@ -3723,87 +3538,46 @@ async def get_episodes(
         }
     """
     try:
-        # Import memory module (lazy-load)
-        try:
-            from . import memory as mem
-        except ImportError as e:
-            return ToolResult(content=[TextContent(
-                type="text",
-                text=json.dumps(
-                    {
-                        "error": "Memory module unavailable",
-                        "message": f"Install with: pip install watercooler-cloud[memory]. Details: {e}",
-                        "operation": "get_episodes",
-                        "result_count": 0,
-                        "results": [],
-                    },
-                    indent=2,
-                )
-            )])
-
-        # Load configuration
-        config = mem.load_graphiti_config()
-        if config is None:
-            return ToolResult(content=[TextContent(
-                type="text",
-                text=json.dumps(
-                    {
-                        "error": "Graphiti not enabled",
-                        "message": (
-                            "Set WATERCOOLER_GRAPHITI_ENABLED=1 and configure "
-                            "OPENAI_API_KEY to enable memory queries."
-                        ),
-                        "operation": "get_episodes",
-                        "result_count": 0,
-                        "results": [],
-                    },
-                    indent=2,
-                )
-            )])
-
+        from . import memory as mem
+        
+        # Validate query parameter (tool-specific)
+        if not query or not query.strip():
+            return mem.create_error_response(
+                "Invalid query",
+                "Query parameter is required and must be non-empty for semantic search",
+                "get_episodes",
+                result_count=0,
+                results=[],
+            )
+        
         # Validate max_episodes parameter
         if max_episodes < 1:
             max_episodes = 10
         if max_episodes > 50:
             max_episodes = 50
-
-        # Get backend instance
-        backend = mem.get_graphiti_backend(config)
-        if backend is None or isinstance(backend, dict):
-            if isinstance(backend, dict):
-                error_type = backend.get("error", "unknown")
-                details = backend.get("details", "No details available")
-                return ToolResult(content=[TextContent(
-                    type="text",
-                    text=json.dumps({
-                        "error": f"Backend {error_type}",
-                        "message": details,
-                        "operation": "get_episodes",
-                        "result_count": 0,
-                        "results": [],
-                    }, indent=2)
-                )])
-            else:
-                return ToolResult(content=[TextContent(
-                    type="text",
-                    text=json.dumps(
-                        {
-                            "error": "Backend initialization failed",
-                            "message": "Check logs for Graphiti backend errors",
-                            "operation": "get_episodes",
-                            "result_count": 0,
-                            "results": [],
-                        },
-                        indent=2,
-                    )
-                )])
-
+        
+        # Common validation (replaces ~100 lines of duplicated code)
+        backend, error = mem.validate_memory_prerequisites("get_episodes")
+        if error:
+            # Add result fields to error response
+            import json
+            error_dict = json.loads(error.content[0].text)
+            error_dict.update({
+                "result_count": 0,
+                "results": [],
+            })
+            from mcp.types import TextContent
+            return ToolResult(content=[TextContent(
+                type="text",
+                text=json.dumps(error_dict, indent=2)
+            )])
+        
         # Execute query
         import asyncio
         from .observability import log_action, log_error
-
+        
         log_action("memory.get_episodes", query=query, max_episodes=max_episodes, group_ids=group_ids)
-
+        
         try:
             results = await asyncio.to_thread(
                 backend.get_episodes,
@@ -3811,54 +3585,45 @@ async def get_episodes(
                 group_ids=group_ids,
                 max_episodes=max_episodes,
             )
-
+            
             # Format response
             response = {
                 "result_count": len(results),
                 "results": results,
                 "message": f"Found {len(results)} episode(s)",
             }
-
+            
             if group_ids:
                 response["filtered_by_topics"] = group_ids
-
+            
+            from mcp.types import TextContent
             return ToolResult(content=[TextContent(
                 type="text",
                 text=json.dumps(response, indent=2)
             )])
-
+            
         except Exception as e:
             log_error(f"MEMORY: Get episodes failed: {e}")
-            return ToolResult(content=[TextContent(
-                type="text",
-                text=json.dumps(
-                    {
-                        "error": "Episodes retrieval failed",
-                        "message": str(e),
-                        "operation": "get_episodes",
-                        "result_count": 0,
-                        "results": [],
-                    },
-                    indent=2,
-                )
-            )])
-
+            return mem.create_error_response(
+                "Episodes retrieval failed",
+                str(e),
+                "get_episodes",
+                result_count=0,
+                results=[],
+            )
+    
     except Exception as e:
         from .observability import log_error
+        from . import memory as mem
+        
         log_error(f"MEMORY: Unexpected error in get_episodes: {e}")
-        return ToolResult(content=[TextContent(
-            type="text",
-            text=json.dumps(
-                {
-                    "error": "Internal error",
-                    "message": str(e),
-                    "operation": "get_episodes",
-                    "result_count": 0,
-                    "results": [],
-                },
-                indent=2,
-            )
-        )])
+        return mem.create_error_response(
+            "Internal error",
+            str(e),
+            "get_episodes",
+            result_count=0,
+            results=[],
+        )
 
 
 @mcp.tool(name="watercooler_v1_diagnose_memory")
