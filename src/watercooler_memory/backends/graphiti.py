@@ -94,6 +94,15 @@ class GraphitiBackend(MemoryBackend):
     # truncate to prevent payload bloat per Codex feedback
     _MAX_NODE_SUMMARY_LENGTH = 2048
 
+    # Query result default and hard limits
+    DEFAULT_MAX_NODES = 10
+    DEFAULT_MAX_FACTS = 10
+    DEFAULT_MAX_EPISODES = 10
+    HARD_RESULT_LIMIT = 50  # Maximum results regardless of user request
+
+    # Community limits (top-5 to prevent payload bloat per Codex feedback)
+    MAX_COMMUNITIES_RETURNED = 5
+
     def __init__(self, config: GraphitiConfig | None = None) -> None:
         self.config = config or GraphitiConfig()
         self._validate_config()
@@ -369,9 +378,6 @@ class GraphitiBackend(MemoryBackend):
         # No group_ids specified - try to list all available graphs
         try:
             import redis
-            from ..observability import log_action
-            
-            log_action("MEMORY", "GRAPH.LIST fallback triggered (no group_ids provided)")
             
             r = redis.Redis(
                 host=self.config.falkordb_host,
@@ -388,20 +394,15 @@ class GraphitiBackend(MemoryBackend):
             
             # Apply resource limit
             if len(effective_group_ids) > self._MAX_GRAPHS_LIMIT:
-                log_action(
-                    "MEMORY", 
-                    f"Warning: {len(effective_group_ids)} graphs found, limiting to {self._MAX_GRAPHS_LIMIT}"
-                )
+                # Limit to prevent memory exhaustion
                 effective_group_ids = effective_group_ids[:self._MAX_GRAPHS_LIMIT]
             
             # Cache the results
             self._graph_list_cache[cache_key] = (effective_group_ids, time.time())
             
             return effective_group_ids if effective_group_ids else None
-        except Exception as e:
-            from ..observability import log_error
+        except Exception:
             # If we can't list graphs, fall back to None (searches default_db)
-            log_error(f"MEMORY: GRAPH.LIST fallback failed: {e}")
             return None
 
     def _sanitize_thread_id(self, thread_id: str) -> str:
@@ -908,7 +909,7 @@ class GraphitiBackend(MemoryBackend):
 
                         # Extract top 5 communities (domain-level clusters)
                         # Codex: limit to small top-k to prevent payload bloat
-                        for idx, comm in enumerate(search_results.communities[:5]):
+                        for idx, comm in enumerate(search_results.communities[:self.MAX_COMMUNITIES_RETURNED]):
                             comm_dict = {
                                 "uuid": comm.uuid if hasattr(comm, 'uuid') else None,
                                 "name": comm.name if hasattr(comm, 'name') else f"Community {idx}",
@@ -951,7 +952,7 @@ class GraphitiBackend(MemoryBackend):
         self,
         query: str,
         group_ids: list[str] | None = None,
-        max_nodes: int = 10,
+        max_nodes: int = DEFAULT_MAX_NODES,
         entity_types: list[str] | None = None,
     ) -> list[dict[str, Any]]:
         """Search for nodes (entities) using hybrid semantic search.
@@ -1005,7 +1006,7 @@ class GraphitiBackend(MemoryBackend):
             )
             
             # Extract nodes from results (official approach)
-            limit = min(max_nodes, 50)
+            limit = min(max_nodes, self.HARD_RESULT_LIMIT)
             nodes = search_results.nodes[:limit] if search_results.nodes else []
             
             # Format results with reranker scores
@@ -1035,11 +1036,13 @@ class GraphitiBackend(MemoryBackend):
         except Exception as e:
             raise BackendError(f"Node search failed for '{query}': {e}") from e
 
-    def get_entity_edge(self, uuid: str) -> dict[str, Any]:
+    def get_entity_edge(self, uuid: str, group_id: str | None = None) -> dict[str, Any]:
         """Get an entity edge by UUID.
 
         Args:
             uuid: Edge UUID to retrieve
+            group_id: Group ID (database name) where the edge is stored.
+                     Required for multi-database setups. If None, queries default_db.
 
         Returns:
             Edge dict with uuid, fact, source/target nodes, timestamps
@@ -1047,6 +1050,7 @@ class GraphitiBackend(MemoryBackend):
         Raises:
             BackendError: If edge not found or retrieval fails
             TransientError: If database connection fails
+            ConfigError: If group_id is required but not provided
         """
         try:
             graphiti = self._create_graphiti_client()
@@ -1056,11 +1060,18 @@ class GraphitiBackend(MemoryBackend):
         async def get_edge_async():
             from graphiti_core.edges import EntityEdge
 
+            # Clone driver to use specific database if group_id provided
+            driver = graphiti.driver
+            if group_id:
+                sanitized_group_id = self._sanitize_thread_id(group_id)
+                driver = graphiti.driver.clone(database=sanitized_group_id)
+
             # Get edge by UUID
             try:
-                edge = await EntityEdge.get_by_uuid(graphiti.driver, uuid)
+                edge = await EntityEdge.get_by_uuid(driver, uuid)
             except Exception as e:
-                raise BackendError(f"Entity edge '{uuid}' not found: {e}") from e
+                db_info = f" in database '{group_id}'" if group_id else " in default database"
+                raise BackendError(f"Entity edge '{uuid}' not found{db_info}: {e}") from e
 
             # Format result
             return {
@@ -1085,7 +1096,7 @@ class GraphitiBackend(MemoryBackend):
         self,
         query: str,
         group_ids: list[str] | None = None,
-        max_facts: int = 10,
+        max_facts: int = DEFAULT_MAX_FACTS,
         center_node_uuid: str | None = None,
     ) -> list[dict[str, Any]]:
         """Search for facts (edges) with optional center-node traversal.
@@ -1118,7 +1129,7 @@ class GraphitiBackend(MemoryBackend):
                 sanitized_group_ids = [self._sanitize_thread_id(gid) for gid in effective_group_ids]
 
             # Use search_() API for facts with reranker scores (match query_memory pattern)
-            limit = min(max_facts, 50)
+            limit = min(max_facts, self.HARD_RESULT_LIMIT)
             search_config = self._get_search_config()
             
             search_results = await graphiti.search_(
@@ -1162,7 +1173,7 @@ class GraphitiBackend(MemoryBackend):
         self,
         query: str,
         group_ids: list[str] | None = None,
-        max_episodes: int = 10,
+        max_episodes: int = DEFAULT_MAX_EPISODES,
     ) -> list[dict[str, Any]]:
         """Search for episodes from Graphiti memory using semantic search.
 
@@ -1201,7 +1212,7 @@ class GraphitiBackend(MemoryBackend):
                 sanitized_group_ids = [self._sanitize_thread_id(gid) for gid in effective_group_ids]
 
             # Search episodes via COMBINED config (retrieves episodes + edges + nodes)
-            limit = min(max_episodes, 50)
+            limit = min(max_episodes, self.HARD_RESULT_LIMIT)
             search_config = self._get_search_config()
             
             search_results = await graphiti.search_(

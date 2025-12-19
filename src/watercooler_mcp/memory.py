@@ -6,9 +6,13 @@ Follows MCP server patterns for configuration, observability, and error handling
 
 from __future__ import annotations
 
+import json
 import os
 from pathlib import Path
 from typing import Any, Mapping, Optional, Sequence
+
+from fastmcp.tools.tool import ToolResult
+from mcp.types import TextContent
 
 from .observability import log_debug, log_warning
 
@@ -207,3 +211,93 @@ async def query_memory(
     import asyncio
     result = await asyncio.to_thread(backend.query, payload)
     return result.results, result.communities
+
+
+def create_error_response(
+    error: str,
+    message: str,
+    operation: str,
+    **kwargs: Any,
+) -> ToolResult:
+    """Create standardized error response for memory tools.
+    
+    Args:
+        error: Error type (e.g., "Invalid UUID", "Graphiti not enabled")
+        message: Human-readable error message
+        operation: Tool name (e.g., "search_nodes", "get_entity_edge")
+        **kwargs: Additional fields to include in error response
+    
+    Returns:
+        ToolResult with JSON error response
+    
+    Example:
+        >>> return create_error_response(
+        ...     "Invalid UUID",
+        ...     "UUID parameter is required",
+        ...     "get_entity_edge"
+        ... )
+    """
+    error_dict = {
+        **kwargs,
+        "error": error,
+        "message": message,
+        "operation": operation,
+    }
+    return ToolResult(content=[TextContent(
+        type="text",
+        text=json.dumps(error_dict, indent=2)
+    )])
+
+
+def validate_memory_prerequisites(operation: str) -> tuple[Any, Optional[ToolResult]]:
+    """Validate memory module, config, and backend prerequisites.
+
+    Centralizes common validation logic for all memory tools:
+    1. Load Graphiti configuration
+    2. Initialize backend
+
+    Args:
+        operation: Tool name for error messages (e.g., "search_nodes")
+
+    Returns:
+        Tuple of (backend, error_response):
+        - (backend, None) if successful
+        - (None, error_response) if validation fails
+
+    Example:
+        >>> backend, error = validate_memory_prerequisites("search_nodes")
+        >>> if error:
+        ...     return error
+        >>> # Use backend...
+    """
+    # Step 1: Load configuration
+    config = load_graphiti_config()
+    if config is None:
+        return None, create_error_response(
+            "Graphiti not enabled",
+            (
+                "Set WATERCOOLER_GRAPHITI_ENABLED=1 and configure "
+                "OPENAI_API_KEY to enable memory queries."
+            ),
+            operation
+        )
+
+    # Step 2: Get backend instance
+    backend = get_graphiti_backend(config)
+    if backend is None or isinstance(backend, dict):
+        if isinstance(backend, dict):
+            error_type = backend.get("error", "unknown")
+            details = backend.get("details", "No details available")
+            return None, create_error_response(
+                f"Backend {error_type}",
+                details,
+                operation
+            )
+        else:
+            return None, create_error_response(
+                "Backend initialization failed",
+                "Check logs for Graphiti backend errors",
+                operation
+            )
+    
+    return backend, None
