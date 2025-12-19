@@ -11,7 +11,8 @@ import os
 from pathlib import Path
 from typing import Any, Mapping, Optional, Sequence
 
-from mcp.types import TextContent, Tool as ToolResult
+from fastmcp.tools.tool import ToolResult
+from mcp.types import TextContent
 
 from .observability import log_debug, log_warning
 

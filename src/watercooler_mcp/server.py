@@ -3124,7 +3124,6 @@ async def search_nodes(
                 "result_count": 0,
                 "results": [],
             })
-            from mcp.types import TextContent
             return ToolResult(content=[TextContent(
                 type="text",
                 text=json.dumps(error_dict, indent=2)
@@ -3156,7 +3155,6 @@ async def search_nodes(
             if group_ids:
                 response["filtered_by_topics"] = group_ids
             
-            from mcp.types import TextContent
             return ToolResult(content=[TextContent(
                 type="text",
                 text=json.dumps(response, indent=2)
@@ -3287,7 +3285,6 @@ async def get_entity_edge(
                 "message": f"Retrieved edge {uuid}",
             }
             
-            from mcp.types import TextContent
             return ToolResult(content=[TextContent(
                 type="text",
                 text=json.dumps(response, indent=2)
@@ -3406,7 +3403,6 @@ async def search_memory_facts(
                 "result_count": 0,
                 "results": [],
             })
-            from mcp.types import TextContent
             return ToolResult(content=[TextContent(
                 type="text",
                 text=json.dumps(error_dict, indent=2)
@@ -3446,7 +3442,6 @@ async def search_memory_facts(
             if center_node_uuid:
                 response["centered_on_node"] = center_node_uuid
             
-            from mcp.types import TextContent
             return ToolResult(content=[TextContent(
                 type="text",
                 text=json.dumps(response, indent=2)
@@ -3566,7 +3561,6 @@ async def get_episodes(
                 "result_count": 0,
                 "results": [],
             })
-            from mcp.types import TextContent
             return ToolResult(content=[TextContent(
                 type="text",
                 text=json.dumps(error_dict, indent=2)
@@ -3596,7 +3590,6 @@ async def get_episodes(
             if group_ids:
                 response["filtered_by_topics"] = group_ids
             
-            from mcp.types import TextContent
             return ToolResult(content=[TextContent(
                 type="text",
                 text=json.dumps(response, indent=2)
