@@ -98,8 +98,6 @@ class GraphitiBackend(MemoryBackend):
     DEFAULT_MAX_NODES = 10
     DEFAULT_MAX_FACTS = 10
     DEFAULT_MAX_EPISODES = 10
-    HARD_RESULT_LIMIT = 50  # Maximum results regardless of user request
-    
     # Search result validation limits
     MIN_SEARCH_RESULTS = 1  # Minimum valid max_results parameter
     MAX_SEARCH_RESULTS = 50  # Maximum valid max_results parameter
@@ -952,6 +950,25 @@ class GraphitiBackend(MemoryBackend):
         except Exception as e:
             raise BackendError(f"Query execution failed: {e}") from e
 
+    def _validate_uuid(self, value: str, param_name: str) -> None:
+        """Validate that a string is a valid UUID format.
+        
+        Args:
+            value: String to validate as UUID
+            param_name: Parameter name for error messages
+            
+        Raises:
+            ConfigError: If value is not a valid UUID
+        """
+        try:
+            import uuid
+            uuid.UUID(value)
+        except ValueError:
+            from . import ConfigError
+            raise ConfigError(
+                f"{param_name} must be a valid UUID, got: {repr(value)}"
+            )
+
     def search_nodes(
         self,
         query: str,
@@ -1092,14 +1109,7 @@ class GraphitiBackend(MemoryBackend):
             raise ConfigError("node_id cannot be empty")
         
         # Validate node_id is a valid UUID format
-        try:
-            import uuid
-            uuid.UUID(node_id)
-        except ValueError:
-            from . import ConfigError
-            raise ConfigError(
-                f"node_id must be a valid UUID, got: {repr(node_id)}"
-            )
+        self._validate_uuid(node_id, "node_id")
         
         try:
             graphiti = self._create_graphiti_client()
@@ -1161,10 +1171,15 @@ class GraphitiBackend(MemoryBackend):
             List of fact dicts with edge data
 
         Raises:
-            ConfigError: If max_results is out of valid range
+            ConfigError: If query is empty or max_results is out of valid range
             BackendError: If search fails
             TransientError: If database connection fails
         """
+        # Validate query is not empty
+        if not query or not query.strip():
+            from . import ConfigError
+            raise ConfigError("query cannot be empty")
+        
         # Validate max_results to prevent resource exhaustion
         if max_results < self.MIN_SEARCH_RESULTS or max_results > self.MAX_SEARCH_RESULTS:
             from . import ConfigError
@@ -1172,12 +1187,24 @@ class GraphitiBackend(MemoryBackend):
                 f"max_results must be between {self.MIN_SEARCH_RESULTS} and {self.MAX_SEARCH_RESULTS}, got {max_results}"
             )
         
-        return self.search_memory_facts(
+        # Get results from underlying method
+        results = self.search_memory_facts(
             query=query,
             group_ids=group_ids,
             max_facts=max_results,
             center_node_uuid=center_node_id,
         )
+        
+        # Add CoreResult-compliant fields to each result
+        for result in results:
+            result.setdefault("id", result.get("uuid"))  # Required by CoreResult
+            result.setdefault("backend", "graphiti")  # Required by CoreResult
+            result.setdefault("content", None)  # Facts don't have content
+            result.setdefault("source", None)  # Source tracking not applicable to edges
+            result.setdefault("metadata", {})  # Additional metadata
+            result.setdefault("extra", {})  # Backend-specific fields
+        
+        return results
 
     def search_episodes(
         self,
@@ -1202,6 +1229,11 @@ class GraphitiBackend(MemoryBackend):
             BackendError: If search fails
             TransientError: If database connection fails
         """
+        # Validate query is not empty
+        if not query or not query.strip():
+            from . import ConfigError
+            raise ConfigError("query cannot be empty")
+        
         # Validate max_results to prevent resource exhaustion
         if max_results < self.MIN_SEARCH_RESULTS or max_results > self.MAX_SEARCH_RESULTS:
             from . import ConfigError
@@ -1209,11 +1241,21 @@ class GraphitiBackend(MemoryBackend):
                 f"max_results must be between {self.MIN_SEARCH_RESULTS} and {self.MAX_SEARCH_RESULTS}, got {max_results}"
             )
         
-        return self.get_episodes(
+        # Get results from underlying method
+        results = self.get_episodes(
             query=query,
             group_ids=group_ids,
             max_episodes=max_results,
         )
+        
+        # Add CoreResult-compliant fields to each result
+        for result in results:
+            result.setdefault("id", result.get("uuid"))  # Required by CoreResult
+            result.setdefault("backend", "graphiti")  # Required by CoreResult
+            result.setdefault("metadata", {})  # Additional metadata
+            result.setdefault("extra", {})  # Backend-specific fields
+        
+        return results
 
     def get_edge(
         self,
@@ -1242,13 +1284,7 @@ class GraphitiBackend(MemoryBackend):
             raise ConfigError("edge_id cannot be empty")
         
         # Validate edge_id is a valid UUID format
-        try:
-            import uuid
-            uuid.UUID(edge_id)
-        except ValueError:
-            from . import ConfigError
-            raise ConfigError(
-                f"edge_id must be a valid UUID, got: {repr(edge_id)}"
+        self._validate_uuid(edge_id, "edge_id"
             )
         
         # get_entity_edge() now returns None for not-found cases
@@ -1282,14 +1318,7 @@ class GraphitiBackend(MemoryBackend):
             raise ConfigError("uuid cannot be empty")
         
         # Validate uuid is a valid UUID format
-        try:
-            import uuid as uuid_module
-            uuid_module.UUID(uuid)
-        except ValueError:
-            from . import ConfigError
-            raise ConfigError(
-                f"uuid must be a valid UUID, got: {repr(uuid)}"
-            )
+        self._validate_uuid(uuid, "uuid")
         
         try:
             graphiti = self._create_graphiti_client()
@@ -1367,7 +1396,7 @@ class GraphitiBackend(MemoryBackend):
                 sanitized_group_ids = [self._sanitize_thread_id(gid) for gid in effective_group_ids]
 
             # Use search_() API for facts with reranker scores (match query_memory pattern)
-            limit = min(max_facts, self.HARD_RESULT_LIMIT)
+            limit = min(max_facts, self.MAX_SEARCH_RESULTS)
             search_config = self._get_search_config()
             
             search_results = await graphiti.search_(
@@ -1450,7 +1479,7 @@ class GraphitiBackend(MemoryBackend):
                 sanitized_group_ids = [self._sanitize_thread_id(gid) for gid in effective_group_ids]
 
             # Search episodes via COMBINED config (retrieves episodes + edges + nodes)
-            limit = min(max_episodes, self.HARD_RESULT_LIMIT)
+            limit = min(max_episodes, self.MAX_SEARCH_RESULTS)
             search_config = self._get_search_config()
             
             search_results = await graphiti.search_(

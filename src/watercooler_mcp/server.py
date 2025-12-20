@@ -3281,6 +3281,15 @@ async def get_entity_edge(
         try:
             edge = await asyncio.to_thread(backend.get_entity_edge, uuid, group_id=group_id)
             
+            # Handle None return (edge not found)
+            if edge is None:
+                return mem.create_error_response(
+                    "Edge not found",
+                    f"No edge found with UUID {uuid}",
+                    "get_entity_edge",
+                    uuid=uuid
+                )
+            
             # Format response
             response = {
                 **edge,
