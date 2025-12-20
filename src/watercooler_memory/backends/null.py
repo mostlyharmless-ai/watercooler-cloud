@@ -84,7 +84,7 @@ class NullBackend(MemoryBackend):
         max_results: int = 10,
         entity_types: list[str] | None = None,
     ) -> list[dict[str, Any]]:
-        """Null implementation - returns empty list."""
+        """Null implementation - raises UnsupportedOperationError."""
         from . import UnsupportedOperationError
         raise UnsupportedOperationError(
             "Backend 'null' does not support node search operations"
@@ -120,7 +120,7 @@ class NullBackend(MemoryBackend):
         node_id: str,
         group_id: str | None = None,
     ) -> dict[str, Any] | None:
-        """Null implementation - returns None."""
+        """Null implementation - raises UnsupportedOperationError."""
         from . import UnsupportedOperationError
         raise UnsupportedOperationError(
             "Backend 'null' does not support node retrieval operations"
@@ -131,7 +131,7 @@ class NullBackend(MemoryBackend):
         edge_id: str,
         group_id: str | None = None,
     ) -> dict[str, Any] | None:
-        """Null implementation - returns None."""
+        """Null implementation - raises UnsupportedOperationError."""
         from . import UnsupportedOperationError
         raise UnsupportedOperationError(
             "Backend 'null' does not support edge retrieval operations"

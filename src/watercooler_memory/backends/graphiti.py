@@ -1077,7 +1077,8 @@ class GraphitiBackend(MemoryBackend):
 
             # Format result
             return {
-                "uuid": node.uuid,
+                "id": node.uuid,  # Required by CoreResult protocol
+                "uuid": node.uuid,  # Preserved for backwards compatibility
                 "name": node.name,
                 "labels": node.labels if node.labels else [],
                 "summary": self._truncate_node_summary(
@@ -1085,6 +1086,7 @@ class GraphitiBackend(MemoryBackend):
                 ),
                 "created_at": node.created_at.isoformat() if node.created_at else None,
                 "group_id": node.group_id if hasattr(node, 'group_id') else None,
+                "backend": "graphiti",  # Required by CoreResult protocol
             }
 
         try:
