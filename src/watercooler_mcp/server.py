@@ -681,10 +681,45 @@ def _load_thread_entries_graph_first(
                 # For now, use summaries from graph (bodies are optional in graph)
                 thread_path = fs.thread_path(topic, threads_dir)
                 if thread_path.exists():
-                    # Parse markdown to get full bodies
+                    # Parse markdown to check graph completeness
                     content = fs.read_body(thread_path)
                     md_entries = parse_thread_entries(content)
-                    # Merge: use graph metadata but markdown bodies
+
+                    # Check if graph is stale (fewer entries than markdown)
+                    if len(graph_entries) < len(md_entries):
+                        log_debug(
+                            f"[GRAPH] Graph stale for {topic}: "
+                            f"{len(graph_entries)} graph vs {len(md_entries)} markdown. "
+                            "Auto-repairing from markdown."
+                        )
+                        # Auto-repair: sync full thread to graph
+                        try:
+                            from watercooler.baseline_graph.sync import sync_thread_to_graph
+                            from watercooler_mcp.config import get_watercooler_config
+
+                            wc_config = get_watercooler_config()
+                            graph_config = wc_config.mcp.graph
+
+                            sync_result = sync_thread_to_graph(
+                                threads_dir=threads_dir,
+                                topic=topic,
+                                generate_summaries=graph_config.generate_summaries,
+                                generate_embeddings=graph_config.generate_embeddings,
+                            )
+                            if sync_result:
+                                log_debug(f"[GRAPH] Auto-repair succeeded for {topic}")
+                                # Re-read from graph after repair
+                                repaired = read_thread_from_graph(threads_dir, topic)
+                                if repaired:
+                                    _, graph_entries = repaired
+                            else:
+                                log_debug(f"[GRAPH] Auto-repair failed, using markdown entries")
+                                return (None, md_entries)
+                        except Exception as repair_err:
+                            log_debug(f"[GRAPH] Auto-repair error: {repair_err}, using markdown")
+                            return (None, md_entries)
+
+                    # Merge: use graph metadata with markdown bodies
                     entries = []
                     for ge in graph_entries:
                         # Find matching markdown entry by index
@@ -697,7 +732,7 @@ def _load_thread_entries_graph_first(
                         else:
                             # Use graph entry with summary as body
                             entries.append(_graph_entry_to_thread_entry(ge))
-                    log_debug(f"[GRAPH] Loaded {len(entries)} entries from graph+markdown for {topic}")
+                    log_debug(f"[GRAPH] Loaded {len(entries)} entries from graph for {topic}")
                     return (None, entries)
                 else:
                     # No markdown, use graph entries directly
