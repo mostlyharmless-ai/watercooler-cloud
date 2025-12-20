@@ -64,5 +64,76 @@ class NullBackend(MemoryBackend):
         return HealthStatus(ok=True, details="null backend is healthy")
 
     def get_capabilities(self) -> Capabilities:
-        return deepcopy(self._capabilities)
+        # Create a copy and update with new operation flags
+        caps = deepcopy(self._capabilities)
+        # Null backend doesn't support any new operations
+        caps.supports_nodes = False
+        caps.supports_facts = False
+        caps.supports_episodes = False
+        caps.supports_chunks = False
+        caps.supports_edges = False
+        caps.node_id_type = "passthrough"
+        caps.edge_id_type = "passthrough"
+        return caps
+
+
+    def search_nodes(
+        self,
+        query: str,
+        group_ids: list[str] | None = None,
+        max_results: int = 10,
+        entity_types: list[str] | None = None,
+    ) -> list[dict[str, Any]]:
+        """Null implementation - returns empty list."""
+        from . import UnsupportedOperationError
+        raise UnsupportedOperationError(
+            "Backend 'null' does not support node search operations"
+        )
+
+    def search_facts(
+        self,
+        query: str,
+        group_ids: list[str] | None = None,
+        max_results: int = 10,
+        center_node_id: str | None = None,
+    ) -> list[dict[str, Any]]:
+        """Null implementation - raises UnsupportedOperationError."""
+        from . import UnsupportedOperationError
+        raise UnsupportedOperationError(
+            "Backend 'null' does not support fact search operations"
+        )
+
+    def search_episodes(
+        self,
+        query: str,
+        group_ids: list[str] | None = None,
+        max_results: int = 10,
+    ) -> list[dict[str, Any]]:
+        """Null implementation - raises UnsupportedOperationError."""
+        from . import UnsupportedOperationError
+        raise UnsupportedOperationError(
+            "Backend 'null' does not support episode search operations"
+        )
+
+    def get_node(
+        self,
+        node_id: str,
+        group_id: str | None = None,
+    ) -> dict[str, Any] | None:
+        """Null implementation - returns None."""
+        from . import UnsupportedOperationError
+        raise UnsupportedOperationError(
+            "Backend 'null' does not support node retrieval operations"
+        )
+
+    def get_edge(
+        self,
+        edge_id: str,
+        group_id: str | None = None,
+    ) -> dict[str, Any] | None:
+        """Null implementation - returns None."""
+        from . import UnsupportedOperationError
+        raise UnsupportedOperationError(
+            "Backend 'null' does not support edge retrieval operations"
+        )
 

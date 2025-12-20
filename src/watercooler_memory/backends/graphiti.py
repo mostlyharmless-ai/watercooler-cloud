@@ -1036,6 +1036,155 @@ class GraphitiBackend(MemoryBackend):
         except Exception as e:
             raise BackendError(f"Node search failed for '{query}': {e}") from e
 
+
+    def get_node(
+        self,
+        node_id: str,
+        group_id: str | None = None,
+    ) -> dict[str, Any] | None:
+        """Get a node by UUID.
+
+        Args:
+            node_id: Node UUID to retrieve
+            group_id: Group ID (database name) where the node is stored.
+                     Required for multi-database setups. If None, queries default_db.
+
+        Returns:
+            Node dict with uuid, name, labels, summary, etc. or None if not found
+
+        Raises:
+            BackendError: If retrieval fails
+            TransientError: If database connection fails
+        """
+        try:
+            graphiti = self._create_graphiti_client()
+        except Exception as e:
+            raise TransientError(f"Database connection failed: {e}") from e
+
+        async def get_node_async():
+            from graphiti_core.nodes import EntityNode
+
+            # Clone driver to use specific database if group_id provided
+            driver = graphiti.driver
+            if group_id:
+                sanitized_group_id = self._sanitize_thread_id(group_id)
+                driver = graphiti.driver.clone(database=sanitized_group_id)
+
+            # Get node by UUID
+            try:
+                node = await EntityNode.get_by_uuid(driver, node_id)
+                if not node:
+                    return None
+            except Exception:
+                # Node not found - return None instead of raising
+                return None
+
+            # Format result
+            return {
+                "uuid": node.uuid,
+                "name": node.name,
+                "labels": node.labels if node.labels else [],
+                "summary": self._truncate_node_summary(
+                    node.summary if hasattr(node, 'summary') else None
+                ),
+                "created_at": node.created_at.isoformat() if node.created_at else None,
+                "group_id": node.group_id if hasattr(node, 'group_id') else None,
+            }
+
+        try:
+            return asyncio.run(get_node_async())
+        except Exception as e:
+            raise BackendError(f"Failed to get node '{node_id}': {e}") from e
+
+
+    def search_facts(
+        self,
+        query: str,
+        group_ids: list[str] | None = None,
+        max_results: int = DEFAULT_MAX_FACTS,
+        center_node_id: str | None = None,
+    ) -> list[dict[str, Any]]:
+        """Search for facts (edges) using semantic search.
+
+        Protocol-compliant wrapper for search_memory_facts().
+
+        Args:
+            query: Search query string
+            group_ids: Optional list of group IDs to filter by
+            max_results: Maximum facts to return (default: 10, max: 50)
+            center_node_id: Optional node UUID to center search around
+
+        Returns:
+            List of fact dicts with edge data
+
+        Raises:
+            BackendError: If search fails
+            TransientError: If database connection fails
+        """
+        return self.search_memory_facts(
+            query=query,
+            group_ids=group_ids,
+            max_facts=max_results,
+            center_node_uuid=center_node_id,
+        )
+
+    def search_episodes(
+        self,
+        query: str,
+        group_ids: list[str] | None = None,
+        max_results: int = DEFAULT_MAX_EPISODES,
+    ) -> list[dict[str, Any]]:
+        """Search for episodes (provenance-bearing content) using semantic search.
+
+        Protocol-compliant wrapper for get_episodes().
+
+        Args:
+            query: Search query string
+            group_ids: Optional list of group IDs to filter by
+            max_results: Maximum episodes to return (default: 10, max: 50)
+
+        Returns:
+            List of episode dicts with uuid, name, content, timestamps
+
+        Raises:
+            ConfigError: If query is empty
+            BackendError: If search fails
+            TransientError: If database connection fails
+        """
+        return self.get_episodes(
+            query=query,
+            group_ids=group_ids,
+            max_episodes=max_results,
+        )
+
+    def get_edge(
+        self,
+        edge_id: str,
+        group_id: str | None = None,
+    ) -> dict[str, Any] | None:
+        """Get an edge/fact by UUID.
+
+        Protocol-compliant wrapper for get_entity_edge().
+
+        Args:
+            edge_id: Edge UUID to retrieve
+            group_id: Group ID (database name) where the edge is stored
+
+        Returns:
+            Edge dict or None if not found
+
+        Raises:
+            BackendError: If retrieval fails
+            TransientError: If database connection fails
+        """
+        try:
+            return self.get_entity_edge(uuid=edge_id, group_id=group_id)
+        except BackendError as e:
+            # Convert "not found" errors to None return
+            if "not found" in str(e):
+                return None
+            raise
+
     def get_entity_edge(self, uuid: str, group_id: str | None = None) -> dict[str, Any]:
         """Get an entity edge by UUID.
 
@@ -1303,8 +1452,10 @@ class GraphitiBackend(MemoryBackend):
         - Entity extraction: Yes (automatic)
         - Graph query: Yes (temporal graph)
         - Rerank: No (hybrid search instead)
+        - New operation support flags (Phase 1)
         """
         return Capabilities(
+            # Legacy capabilities
             embeddings=True,  # Always via OpenAI or compatible
             entity_extraction=True,  # Automatic fact extraction
             graph_query=True,  # Temporal graph queries
@@ -1314,4 +1465,13 @@ class GraphitiBackend(MemoryBackend):
             supports_milvus=False,  # Not used
             supports_neo4j=True,  # Graphiti also supports Neo4j
             max_tokens=None,  # No fixed limit
+            # New operation support flags (Phase 1)
+            supports_nodes=True,  # ✅ Via search_nodes()
+            supports_facts=True,  # ✅ Via search_memory_facts()
+            supports_episodes=True,  # ✅ Via get_episodes()
+            supports_chunks=False,  # ❌ Episodes are not chunks
+            supports_edges=True,  # ✅ Via get_entity_edge()
+            # ID modality
+            node_id_type="uuid",  # Graphiti uses UUIDs for nodes
+            edge_id_type="uuid",  # Graphiti uses UUIDs for edges
         )
