@@ -957,6 +957,11 @@ class GraphitiBackend(MemoryBackend):
     ) -> list[dict[str, Any]]:
         """Search for nodes (entities) using hybrid semantic search.
 
+        Protocol-compliant direct implementation (not a wrapper).
+        Unlike search_facts() and search_episodes(), this method doesn't delegate
+        to another method - it's the primary implementation. Added in Phase 1 as
+        a new protocol method with full Graphiti integration.
+
         Note: This method uses a sync facade pattern (approved by Codex).
         It's synchronous but internally uses asyncio.run() to call async
         Graphiti operations. The MCP layer calls this via asyncio.to_thread()
@@ -973,9 +978,17 @@ class GraphitiBackend(MemoryBackend):
             List of node dicts with uuid, name, labels, summary, etc.
 
         Raises:
+            ConfigError: If max_nodes is out of valid range
             BackendError: If search fails
             TransientError: If database connection fails
         """
+        # Validate max_nodes to prevent resource exhaustion
+        if max_nodes < 1 or max_nodes > 50:
+            from . import ConfigError
+            raise ConfigError(
+                f"max_nodes must be between 1 and 50, got {max_nodes}"
+            )
+        
         try:
             graphiti = self._create_graphiti_client()
         except Exception as e:
@@ -1053,9 +1066,15 @@ class GraphitiBackend(MemoryBackend):
             Node dict with uuid, name, labels, summary, etc. or None if not found
 
         Raises:
+            ConfigError: If node_id is empty or invalid
             BackendError: If retrieval fails
             TransientError: If database connection fails
         """
+        # Validate node_id is not empty
+        if not node_id or not node_id.strip():
+            from . import ConfigError
+            raise ConfigError("node_id cannot be empty")
+        
         try:
             graphiti = self._create_graphiti_client()
         except Exception as e:
@@ -1116,9 +1135,17 @@ class GraphitiBackend(MemoryBackend):
             List of fact dicts with edge data
 
         Raises:
+            ConfigError: If max_results is out of valid range
             BackendError: If search fails
             TransientError: If database connection fails
         """
+        # Validate max_results to prevent resource exhaustion
+        if max_results < 1 or max_results > 50:
+            from . import ConfigError
+            raise ConfigError(
+                f"max_results must be between 1 and 50, got {max_results}"
+            )
+        
         return self.search_memory_facts(
             query=query,
             group_ids=group_ids,
@@ -1145,10 +1172,17 @@ class GraphitiBackend(MemoryBackend):
             List of episode dicts with uuid, name, content, timestamps
 
         Raises:
-            ConfigError: If query is empty
+            ConfigError: If query is empty or max_results is out of valid range
             BackendError: If search fails
             TransientError: If database connection fails
         """
+        # Validate max_results to prevent resource exhaustion
+        if max_results < 1 or max_results > 50:
+            from . import ConfigError
+            raise ConfigError(
+                f"max_results must be between 1 and 50, got {max_results}"
+            )
+        
         return self.get_episodes(
             query=query,
             group_ids=group_ids,
@@ -1172,18 +1206,19 @@ class GraphitiBackend(MemoryBackend):
             Edge dict or None if not found
 
         Raises:
+            ConfigError: If edge_id is empty or invalid
             BackendError: If retrieval fails
             TransientError: If database connection fails
         """
-        try:
-            return self.get_entity_edge(uuid=edge_id, group_id=group_id)
-        except BackendError as e:
-            # Convert "not found" errors to None return
-            if "not found" in str(e):
-                return None
-            raise
+        # Validate edge_id is not empty
+        if not edge_id or not edge_id.strip():
+            from . import ConfigError
+            raise ConfigError("edge_id cannot be empty")
+        
+        # get_entity_edge() now returns None for not-found cases
+        return self.get_entity_edge(uuid=edge_id, group_id=group_id)
 
-    def get_entity_edge(self, uuid: str, group_id: str | None = None) -> dict[str, Any]:
+    def get_entity_edge(self, uuid: str, group_id: str | None = None) -> dict[str, Any] | None:
         """Get an entity edge by UUID.
 
         Args:
@@ -1192,13 +1227,18 @@ class GraphitiBackend(MemoryBackend):
                      Required for multi-database setups. If None, queries default_db.
 
         Returns:
-            Edge dict with uuid, fact, source/target nodes, timestamps
+            Edge dict with uuid, fact, source/target nodes, timestamps, or None if not found
 
         Raises:
-            BackendError: If edge not found or retrieval fails
+            ConfigError: If uuid is empty or invalid
+            BackendError: If retrieval fails
             TransientError: If database connection fails
-            ConfigError: If group_id is required but not provided
         """
+        # Validate uuid is not empty
+        if not uuid or not uuid.strip():
+            from . import ConfigError
+            raise ConfigError("uuid cannot be empty")
+        
         try:
             graphiti = self._create_graphiti_client()
         except Exception as e:
@@ -1214,11 +1254,10 @@ class GraphitiBackend(MemoryBackend):
                 driver = graphiti.driver.clone(database=sanitized_group_id)
 
             # Get edge by UUID
-            try:
-                edge = await EntityEdge.get_by_uuid(driver, uuid)
-            except Exception as e:
-                db_info = f" in database '{group_id}'" if group_id else " in default database"
-                raise BackendError(f"Entity edge '{uuid}' not found{db_info}: {e}") from e
+            edge = await EntityEdge.get_by_uuid(driver, uuid)
+            if not edge:
+                # Return None for not-found cases (protocol compliant)
+                return None
 
             # Format result
             return {
