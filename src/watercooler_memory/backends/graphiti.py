@@ -99,7 +99,11 @@ class GraphitiBackend(MemoryBackend):
     DEFAULT_MAX_FACTS = 10
     DEFAULT_MAX_EPISODES = 10
     HARD_RESULT_LIMIT = 50  # Maximum results regardless of user request
-
+    
+    # Search result validation limits
+    MIN_SEARCH_RESULTS = 1  # Minimum valid max_results parameter
+    MAX_SEARCH_RESULTS = 50  # Maximum valid max_results parameter
+    
     # Community limits (top-5 to prevent payload bloat per Codex feedback)
     MAX_COMMUNITIES_RETURNED = 5
 
@@ -983,10 +987,10 @@ class GraphitiBackend(MemoryBackend):
             TransientError: If database connection fails
         """
         # Validate max_nodes to prevent resource exhaustion
-        if max_nodes < 1 or max_nodes > 50:
+        if max_nodes < self.MIN_SEARCH_RESULTS or max_nodes > self.MAX_SEARCH_RESULTS:
             from . import ConfigError
             raise ConfigError(
-                f"max_nodes must be between 1 and 50, got {max_nodes}"
+                f"max_nodes must be between {self.MIN_SEARCH_RESULTS} and {self.MAX_SEARCH_RESULTS}, got {max_nodes}"
             )
         
         try:
@@ -1031,7 +1035,8 @@ class GraphitiBackend(MemoryBackend):
                     score = search_results.node_reranker_scores[idx]
                 
                 results.append({
-                    "uuid": node.uuid,
+                    "id": node.uuid,  # Required by CoreResult protocol
+                    "uuid": node.uuid,  # Preserved for backwards compatibility
                     "name": node.name,
                     "labels": node.labels if node.labels else [],
                     "summary": self._truncate_node_summary(
@@ -1039,8 +1044,12 @@ class GraphitiBackend(MemoryBackend):
                     ),
                     "created_at": node.created_at.isoformat() if node.created_at else None,
                     "group_id": node.group_id if hasattr(node, 'group_id') else None,
+
                     "score": score,  # Hybrid search reranker score
-                })
+
+                    "backend": "graphiti",  # Required by CoreResult protocol
+
+                    })
             
             return results
 
@@ -1074,6 +1083,16 @@ class GraphitiBackend(MemoryBackend):
         if not node_id or not node_id.strip():
             from . import ConfigError
             raise ConfigError("node_id cannot be empty")
+        
+        # Validate node_id is a valid UUID format
+        try:
+            import uuid
+            uuid.UUID(node_id)
+        except ValueError:
+            from . import ConfigError
+            raise ConfigError(
+                f"node_id must be a valid UUID, got: {node_id[:50]}"
+            )
         
         try:
             graphiti = self._create_graphiti_client()
@@ -1140,10 +1159,10 @@ class GraphitiBackend(MemoryBackend):
             TransientError: If database connection fails
         """
         # Validate max_results to prevent resource exhaustion
-        if max_results < 1 or max_results > 50:
+        if max_results < self.MIN_SEARCH_RESULTS or max_results > self.MAX_SEARCH_RESULTS:
             from . import ConfigError
             raise ConfigError(
-                f"max_results must be between 1 and 50, got {max_results}"
+                f"max_results must be between {self.MIN_SEARCH_RESULTS} and {self.MAX_SEARCH_RESULTS}, got {max_results}"
             )
         
         return self.search_memory_facts(
@@ -1177,10 +1196,10 @@ class GraphitiBackend(MemoryBackend):
             TransientError: If database connection fails
         """
         # Validate max_results to prevent resource exhaustion
-        if max_results < 1 or max_results > 50:
+        if max_results < self.MIN_SEARCH_RESULTS or max_results > self.MAX_SEARCH_RESULTS:
             from . import ConfigError
             raise ConfigError(
-                f"max_results must be between 1 and 50, got {max_results}"
+                f"max_results must be between {self.MIN_SEARCH_RESULTS} and {self.MAX_SEARCH_RESULTS}, got {max_results}"
             )
         
         return self.get_episodes(
@@ -1215,6 +1234,16 @@ class GraphitiBackend(MemoryBackend):
             from . import ConfigError
             raise ConfigError("edge_id cannot be empty")
         
+        # Validate edge_id is a valid UUID format
+        try:
+            import uuid
+            uuid.UUID(edge_id)
+        except ValueError:
+            from . import ConfigError
+            raise ConfigError(
+                f"edge_id must be a valid UUID, got: {edge_id[:50]}"
+            )
+        
         # get_entity_edge() now returns None for not-found cases
         return self.get_entity_edge(uuid=edge_id, group_id=group_id)
 
@@ -1238,6 +1267,16 @@ class GraphitiBackend(MemoryBackend):
         if not uuid or not uuid.strip():
             from . import ConfigError
             raise ConfigError("uuid cannot be empty")
+        
+        # Validate uuid is a valid UUID format
+        try:
+            import uuid as uuid_module
+            uuid_module.UUID(uuid)
+        except ValueError:
+            from . import ConfigError
+            raise ConfigError(
+                f"uuid must be a valid UUID, got: {uuid[:50]}"
+            )
         
         try:
             graphiti = self._create_graphiti_client()

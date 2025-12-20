@@ -136,8 +136,8 @@ class Capabilities:
     supports_edges: bool = False
 
     # ID modality flags (how backends identify entities/edges)
-    node_id_type: str = "uuid"  # "uuid", "name", or "hybrid"
-    edge_id_type: str = "uuid"  # "uuid", "synthetic", or "none"
+    node_id_type: Literal["uuid", "name", "hybrid"] = "uuid"
+    edge_id_type: Literal["uuid", "synthetic", "none"] = "uuid"
 
 
 @dataclass
