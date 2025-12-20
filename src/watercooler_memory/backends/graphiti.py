@@ -9,7 +9,7 @@ import subprocess
 import tempfile
 from dataclasses import dataclass
 from pathlib import Path
-from typing import Any
+from typing import Any, Sequence
 
 from . import (
     BackendError,
@@ -955,9 +955,9 @@ class GraphitiBackend(MemoryBackend):
     def search_nodes(
         self,
         query: str,
-        group_ids: list[str] | None = None,
-        max_nodes: int = DEFAULT_MAX_NODES,
-        entity_types: list[str] | None = None,
+        group_ids: Sequence[str] | None = None,
+        max_results: int = DEFAULT_MAX_NODES,
+        entity_types: Sequence[str] | None = None,
     ) -> list[dict[str, Any]]:
         """Search for nodes (entities) using hybrid semantic search.
 
@@ -975,22 +975,22 @@ class GraphitiBackend(MemoryBackend):
         Args:
             query: Search query string
             group_ids: Optional list of group IDs to filter by
-            max_nodes: Maximum nodes to return (default: 10, max: 50)
+            max_results: Maximum nodes to return (default: 10, max: 50)
             entity_types: Optional list of entity type names to filter
 
         Returns:
             List of node dicts with uuid, name, labels, summary, etc.
 
         Raises:
-            ConfigError: If max_nodes is out of valid range
+            ConfigError: If max_results is out of valid range
             BackendError: If search fails
             TransientError: If database connection fails
         """
-        # Validate max_nodes to prevent resource exhaustion
-        if max_nodes < self.MIN_SEARCH_RESULTS or max_nodes > self.MAX_SEARCH_RESULTS:
+        # Validate max_results to prevent resource exhaustion
+        if max_results < self.MIN_SEARCH_RESULTS or max_results > self.MAX_SEARCH_RESULTS:
             from . import ConfigError
             raise ConfigError(
-                f"max_nodes must be between {self.MIN_SEARCH_RESULTS} and {self.MAX_SEARCH_RESULTS}, got {max_nodes}"
+                f"max_results must be between {self.MIN_SEARCH_RESULTS} and {self.MAX_SEARCH_RESULTS}, got {max_results}"
             )
         
         try:
@@ -1023,7 +1023,7 @@ class GraphitiBackend(MemoryBackend):
             )
             
             # Extract nodes from results (official approach)
-            limit = min(max_nodes, self.HARD_RESULT_LIMIT)
+            limit = min(max_results, self.HARD_RESULT_LIMIT)
             nodes = search_results.nodes[:limit] if search_results.nodes else []
             
             # Format results with reranker scores
@@ -1136,7 +1136,7 @@ class GraphitiBackend(MemoryBackend):
     def search_facts(
         self,
         query: str,
-        group_ids: list[str] | None = None,
+        group_ids: Sequence[str] | None = None,
         max_results: int = DEFAULT_MAX_FACTS,
         center_node_id: str | None = None,
     ) -> list[dict[str, Any]]:
@@ -1175,7 +1175,7 @@ class GraphitiBackend(MemoryBackend):
     def search_episodes(
         self,
         query: str,
-        group_ids: list[str] | None = None,
+        group_ids: Sequence[str] | None = None,
         max_results: int = DEFAULT_MAX_EPISODES,
     ) -> list[dict[str, Any]]:
         """Search for episodes (provenance-bearing content) using semantic search.
