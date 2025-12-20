@@ -1071,12 +1071,8 @@ class GraphitiBackend(MemoryBackend):
                 driver = graphiti.driver.clone(database=sanitized_group_id)
 
             # Get node by UUID
-            try:
-                node = await EntityNode.get_by_uuid(driver, node_id)
-                if not node:
-                    return None
-            except Exception:
-                # Node not found - return None instead of raising
+            node = await EntityNode.get_by_uuid(driver, node_id)
+            if not node:
                 return None
 
             # Format result

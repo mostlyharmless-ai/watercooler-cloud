@@ -1,0 +1,22 @@
+{
+  "format": "leanrag-corpus",
+  "version": "1.0",
+  "source": "watercooler-cloud",
+  "memory_payload_version": "1.0.0",
+  "chunker": {
+    "name": "watercooler",
+    "params": {
+      "preset": "watercooler"
+    }
+  },
+  "statistics": {
+    "threads": 1,
+    "entries": 38,
+    "chunks": 86
+  },
+  "files": {
+    "documents": "documents.json",
+    "threads": "threads.json",
+    "chunks": "threads_chunk.json"
+  }
+}

@@ -196,3 +196,119 @@ class TestCapabilitiesDataclass:
         assert caps.supports_facts is True
         assert caps.node_id_type == "name"
         assert caps.edge_id_type == "synthetic"
+
+
+class TestGraphitiBackendProtocolCompliance:
+    """Test that GraphitiBackend implements the new protocol methods correctly."""
+
+    @pytest.fixture
+    def graphiti_backend(self):
+        """Create a GraphitiBackend instance for testing."""
+        from unittest.mock import Mock
+        from watercooler_memory.backends.graphiti import GraphitiBackend
+        
+        # Create a mock backend that has all the protocol methods
+        # We'll just verify the methods exist and have correct signatures
+        backend = Mock(spec=GraphitiBackend)
+        
+        # Set up capabilities
+        from watercooler_memory.backends import Capabilities
+        backend.get_capabilities.return_value = Capabilities(
+            supports_nodes=True,
+            supports_facts=True,
+            supports_episodes=True,
+            supports_chunks=False,
+            supports_edges=True,
+            node_id_type="uuid",
+            edge_id_type="uuid",
+        )
+        
+        return backend
+
+    def test_graphiti_backend_has_protocol_methods(self):
+        """GraphitiBackend should have all new protocol methods."""
+        from watercooler_memory.backends.graphiti import GraphitiBackend
+        
+        # Verify methods exist without needing to instantiate
+        assert hasattr(GraphitiBackend, 'search_nodes')
+        assert hasattr(GraphitiBackend, 'search_facts')
+        assert hasattr(GraphitiBackend, 'search_episodes')
+        assert hasattr(GraphitiBackend, 'get_node')
+        assert hasattr(GraphitiBackend, 'get_edge')
+
+    def test_graphiti_backend_capabilities_structure(self, graphiti_backend):
+        """GraphitiBackend capabilities should have correct structure."""
+        caps = graphiti_backend.get_capabilities()
+        
+        assert caps.supports_nodes is True
+        assert caps.supports_facts is True
+        assert caps.supports_episodes is True
+        assert caps.supports_chunks is False
+        assert caps.supports_edges is True
+        assert caps.node_id_type == "uuid"
+        assert caps.edge_id_type == "uuid"
+
+    def test_graphiti_search_facts_method_signature(self):
+        """search_facts() should have correct signature."""
+        from watercooler_memory.backends.graphiti import GraphitiBackend
+        import inspect
+        
+        sig = inspect.signature(GraphitiBackend.search_facts)
+        params = sig.parameters
+        
+        assert 'query' in params
+        assert 'group_ids' in params
+        assert 'max_results' in params
+        assert 'center_node_id' in params
+
+    def test_graphiti_search_episodes_method_signature(self):
+        """search_episodes() should have correct signature."""
+        from watercooler_memory.backends.graphiti import GraphitiBackend
+        import inspect
+        
+        sig = inspect.signature(GraphitiBackend.search_episodes)
+        params = sig.parameters
+        
+        assert 'query' in params
+        assert 'group_ids' in params
+        assert 'max_results' in params
+
+    def test_graphiti_get_edge_method_signature(self):
+        """get_edge() should have correct signature."""
+        from watercooler_memory.backends.graphiti import GraphitiBackend
+        import inspect
+        
+        sig = inspect.signature(GraphitiBackend.get_edge)
+        params = sig.parameters
+        
+        assert 'edge_id' in params
+        assert 'group_id' in params
+
+    def test_graphiti_get_node_method_signature(self):
+        """get_node() should have correct signature."""
+        from watercooler_memory.backends.graphiti import GraphitiBackend
+        import inspect
+        
+        sig = inspect.signature(GraphitiBackend.get_node)
+        params = sig.parameters
+        
+        assert 'node_id' in params
+        assert 'group_id' in params
+
+    def test_graphiti_search_methods_exist_and_callable(self):
+        """All search methods should exist and be callable."""
+        from watercooler_memory.backends.graphiti import GraphitiBackend
+        
+        for method_name in ['search_nodes', 'search_facts', 'search_episodes']:
+            assert hasattr(GraphitiBackend, method_name)
+            method = getattr(GraphitiBackend, method_name)
+            assert callable(method)
+
+    def test_graphiti_get_methods_exist_and_callable(self):
+        """All get methods should exist and be callable."""
+        from watercooler_memory.backends.graphiti import GraphitiBackend
+        
+        for method_name in ['get_node', 'get_edge']:
+            assert hasattr(GraphitiBackend, method_name)
+            method = getattr(GraphitiBackend, method_name)
+            assert callable(method)

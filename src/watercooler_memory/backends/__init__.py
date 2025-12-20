@@ -30,23 +30,35 @@ class IdNotSupportedError(BackendError):
 BackendName = Literal["graphiti", "leanrag", "null", "custom"]
 
 
-class CoreResult(TypedDict, total=False):
+class _CoreResultRequired(TypedDict):
+    """Required fields for CoreResult."""
+    id: str  # Backend-specific ID format
+    backend: BackendName  # Which backend produced this
+
+
+class CoreResult(_CoreResultRequired, total=False):
     """Normalized response format for all backends.
 
     Core fields that all backends should provide when returning
     nodes, facts, episodes, or chunks.
+
+    Required fields: id, backend
+    Optional fields: score, name, content, summary, source, group_id, metadata, extra
     """
 
-    id: str  # Required - backend-specific ID format
-    score: float | None  # Required - 0.0-1.0 or None
-    name: str | None  # Optional
-    content: str | None  # Optional
-    summary: str | None  # Optional
-    source: str | None  # Optional
-    group_id: str | None  # Optional
-    metadata: Mapping[str, Any]  # Optional free-form metadata
-    backend: BackendName  # Required - which backend produced this
+    score: float | None  # 0.0-1.0 or None
+    name: str | None
+    content: str | None
+    summary: str | None
+    source: str | None
+    group_id: str | None
+    metadata: Mapping[str, Any]  # Free-form metadata
     extra: Mapping[str, Any]  # Backend-specific fields
+
+
+# NOTE: The following TypedDicts (CapabilityGetNode, CapabilityGetEdge, etc.) are defined
+# for Phase 2+ of the backend abstraction refactoring. They will be used in the service
+# layer to enforce capability checks and provide detailed capability descriptors.
 
 
 class CapabilityGetNode(TypedDict):
@@ -364,7 +376,7 @@ class MemoryBackend(Protocol):
         group_ids: Sequence[str] | None = None,
         max_results: int = 10,
         entity_types: Sequence[str] | None = None,
-    ) -> Sequence[Mapping[str, Any]]:
+    ) -> list[dict[str, Any]]:
         """Search for entity nodes using semantic search.
 
         Args:
@@ -389,7 +401,7 @@ class MemoryBackend(Protocol):
         group_ids: Sequence[str] | None = None,
         max_results: int = 10,
         center_node_id: str | None = None,
-    ) -> Sequence[Mapping[str, Any]]:
+    ) -> list[dict[str, Any]]:
         """Search for facts/relationships using semantic search.
 
         Args:
@@ -413,7 +425,7 @@ class MemoryBackend(Protocol):
         query: str,
         group_ids: Sequence[str] | None = None,
         max_results: int = 10,
-    ) -> Sequence[Mapping[str, Any]]:
+    ) -> list[dict[str, Any]]:
         """Search for episodes (provenance-bearing content) using semantic search.
 
         Episodes are content with temporal/actor provenance (who/when context).
@@ -438,7 +450,7 @@ class MemoryBackend(Protocol):
         self,
         node_id: str,
         group_id: str | None = None,
-    ) -> Mapping[str, Any] | None:
+    ) -> dict[str, Any] | None:
         """Get a node by ID.
 
         ID format is backend-specific (UUID for Graphiti, entity name for LeanRAG).
@@ -462,7 +474,7 @@ class MemoryBackend(Protocol):
         self,
         edge_id: str,
         group_id: str | None = None,
-    ) -> Mapping[str, Any] | None:
+    ) -> dict[str, Any] | None:
         """Get an edge/fact by ID.
 
         ID format is backend-specific (UUID for Graphiti, synthetic for LeanRAG).
