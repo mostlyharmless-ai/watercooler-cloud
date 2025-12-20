@@ -3,7 +3,7 @@
 from __future__ import annotations
 
 from copy import deepcopy
-from typing import Any
+from typing import Any, Sequence
 
 from . import (
     Capabilities,
@@ -80,9 +80,9 @@ class NullBackend(MemoryBackend):
     def search_nodes(
         self,
         query: str,
-        group_ids: list[str] | None = None,
+        group_ids: Sequence[str] | None = None,
         max_results: int = 10,
-        entity_types: list[str] | None = None,
+        entity_types: Sequence[str] | None = None,
     ) -> list[dict[str, Any]]:
         """Null implementation - raises UnsupportedOperationError."""
         from . import UnsupportedOperationError
@@ -93,7 +93,7 @@ class NullBackend(MemoryBackend):
     def search_facts(
         self,
         query: str,
-        group_ids: list[str] | None = None,
+        group_ids: Sequence[str] | None = None,
         max_results: int = 10,
         center_node_id: str | None = None,
     ) -> list[dict[str, Any]]:
@@ -106,7 +106,7 @@ class NullBackend(MemoryBackend):
     def search_episodes(
         self,
         query: str,
-        group_ids: list[str] | None = None,
+        group_ids: Sequence[str] | None = None,
         max_results: int = 10,
     ) -> list[dict[str, Any]]:
         """Null implementation - raises UnsupportedOperationError."""

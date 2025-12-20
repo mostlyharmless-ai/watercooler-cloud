@@ -986,6 +986,11 @@ class GraphitiBackend(MemoryBackend):
             BackendError: If search fails
             TransientError: If database connection fails
         """
+        # Validate query is not empty
+        if not query or not query.strip():
+            from . import ConfigError
+            raise ConfigError("query cannot be empty")
+        
         # Validate max_results to prevent resource exhaustion
         if max_results < self.MIN_SEARCH_RESULTS or max_results > self.MAX_SEARCH_RESULTS:
             from . import ConfigError
@@ -1023,7 +1028,7 @@ class GraphitiBackend(MemoryBackend):
             )
             
             # Extract nodes from results (official approach)
-            limit = min(max_results, self.HARD_RESULT_LIMIT)
+            limit = min(max_results, self.MAX_SEARCH_RESULTS)
             nodes = search_results.nodes[:limit] if search_results.nodes else []
             
             # Format results with reranker scores
@@ -1044,12 +1049,14 @@ class GraphitiBackend(MemoryBackend):
                     ),
                     "created_at": node.created_at.isoformat() if node.created_at else None,
                     "group_id": node.group_id if hasattr(node, 'group_id') else None,
-
                     "score": score,  # Hybrid search reranker score
-
                     "backend": "graphiti",  # Required by CoreResult protocol
-
-                    })
+                    # Optional CoreResult fields
+                    "content": None,  # Nodes don't have content (episodes do)
+                    "source": None,  # Source tracking not applicable to entities
+                    "metadata": {},  # Additional metadata can be added here
+                    "extra": {},  # Backend-specific fields can be added here
+                })
             
             return results
 
@@ -1091,7 +1098,7 @@ class GraphitiBackend(MemoryBackend):
         except ValueError:
             from . import ConfigError
             raise ConfigError(
-                f"node_id must be a valid UUID, got: {node_id[:50]}"
+                f"node_id must be a valid UUID, got: {repr(node_id)}"
             )
         
         try:
@@ -1241,7 +1248,7 @@ class GraphitiBackend(MemoryBackend):
         except ValueError:
             from . import ConfigError
             raise ConfigError(
-                f"edge_id must be a valid UUID, got: {edge_id[:50]}"
+                f"edge_id must be a valid UUID, got: {repr(edge_id)}"
             )
         
         # get_entity_edge() now returns None for not-found cases
@@ -1249,6 +1256,12 @@ class GraphitiBackend(MemoryBackend):
 
     def get_entity_edge(self, uuid: str, group_id: str | None = None) -> dict[str, Any] | None:
         """Get an entity edge by UUID.
+
+        .. warning::
+            BEHAVIOR CHANGE: This method now returns None when an edge is not found,
+            instead of raising an exception. This is a potentially breaking change
+            if existing code expects exceptions for missing edges. Update error
+            handling accordingly.
 
         Args:
             uuid: Edge UUID to retrieve
@@ -1260,7 +1273,7 @@ class GraphitiBackend(MemoryBackend):
 
         Raises:
             ConfigError: If uuid is empty or invalid
-            BackendError: If retrieval fails
+            BackendError: If retrieval fails (not for "not found" cases)
             TransientError: If database connection fails
         """
         # Validate uuid is not empty
@@ -1275,7 +1288,7 @@ class GraphitiBackend(MemoryBackend):
         except ValueError:
             from . import ConfigError
             raise ConfigError(
-                f"uuid must be a valid UUID, got: {uuid[:50]}"
+                f"uuid must be a valid UUID, got: {repr(uuid)}"
             )
         
         try:
