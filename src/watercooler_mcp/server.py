@@ -865,6 +865,15 @@ def run_with_sync(
                     generate_embeddings=graph_config.generate_embeddings,
                 )
                 log_warning(f"[GRAPH] Sync result for {topic}/{entry_id}: {sync_result}")
+
+                # Phase 2: Commit graph files to keep working tree clean
+                # This prevents uncommitted graph files from blocking future preflight pulls
+                if sync_result:
+                    graph_committed = sync.commit_graph_changes(topic, entry_id)
+                    if graph_committed:
+                        log_warning(f"[GRAPH] Graph files committed for {topic}/{entry_id}")
+                    else:
+                        log_warning(f"[GRAPH] Graph commit skipped or failed for {topic}/{entry_id}")
             except Exception as graph_err:
                 # Graph sync failure should not block the write operation
                 log_warning(f"[GRAPH] Sync failed (non-blocking): {graph_err}")

@@ -1137,6 +1137,94 @@ class GitSyncManager:
             raise GitSyncError(f"Failed to commit: {e}") from e
         return True
 
+    def commit_graph_changes(
+        self,
+        topic: str,
+        entry_id: Optional[str] = None,
+        max_retries: int = 5,
+    ) -> bool:
+        """Commit and push graph files (Phase 2 of Two-Phase Commit).
+
+        This commits only graph/baseline/* files to keep the working tree clean
+        after graph sync operations. This prevents uncommitted graph files from
+        blocking future preflight pulls.
+
+        Args:
+            topic: Thread topic for commit message
+            entry_id: Optional entry ID for commit message
+            max_retries: Max push retry attempts
+
+        Returns:
+            True if commit+push succeeded or no changes, False on failure
+        """
+        try:
+            repo = self._repo
+            graph_path = Path(self.local_path) / "graph" / "baseline"
+
+            # Check if graph directory exists
+            if not graph_path.exists():
+                log_debug("[GRAPH-COMMIT] No graph/baseline directory, skipping")
+                return True
+
+            # Check for changes in graph files
+            log_debug("GIT_OP_START: status graph/baseline")
+            with git.Git().custom_environment(**self._env):
+                status_output = repo.git.status("--porcelain", "graph/baseline/")
+            log_debug(f"GIT_OP_END: status graph/baseline: {status_output[:100] if status_output else '(clean)'}")
+
+            if not status_output.strip():
+                log_debug("[GRAPH-COMMIT] No graph changes to commit")
+                return True
+
+            # Stage only graph files
+            log_debug("GIT_OP_START: add graph/baseline/")
+            with git.Git().custom_environment(**self._env):
+                repo.git.add("graph/baseline/")
+            log_debug("GIT_OP_END: add graph/baseline/")
+
+            # Build commit message
+            if entry_id:
+                message = f"graph: sync {topic}/{entry_id}"
+            else:
+                message = f"graph: sync {topic}"
+
+            # Commit
+            log_debug(f"GIT_OP_START: commit -m '{message}'")
+            with git.Git().custom_environment(**self._env):
+                repo.git.commit("-m", message, env=self._env)
+            log_debug("GIT_OP_END: commit")
+            self._log(f"[GRAPH-COMMIT] Committed graph changes: {message}")
+
+            # Push with retry
+            from watercooler_mcp.branch_parity import push_after_commit
+
+            try:
+                branch_name = repo.active_branch.name
+            except (TypeError, AttributeError):
+                branch_name = "main"
+
+            push_success, push_error = push_after_commit(
+                self.local_path, branch_name, max_retries=max_retries
+            )
+
+            if not push_success:
+                log_warning(f"[GRAPH-COMMIT] Push failed: {push_error}")
+                return False
+
+            self._log("[GRAPH-COMMIT] Graph changes pushed successfully")
+            return True
+
+        except GitCommandError as e:
+            # No changes to commit is not an error
+            if "nothing to commit" in str(e).lower():
+                log_debug("[GRAPH-COMMIT] Nothing to commit")
+                return True
+            log_warning(f"[GRAPH-COMMIT] Git error: {e}")
+            return False
+        except Exception as e:
+            log_warning(f"[GRAPH-COMMIT] Unexpected error: {e}")
+            return False
+
     def push_pending(self, max_retries: int = 5) -> bool:
         """Push local commits to the remote with retry logic."""
         self._last_push_error = None
