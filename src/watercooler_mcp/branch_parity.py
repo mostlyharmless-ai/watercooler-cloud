@@ -758,6 +758,7 @@ def run_preflight(
                 f"  git commit -m 'Resolve merge conflict'\n"
                 f"  # Then retry your watercooler operation"
             )
+            write_parity_state(threads_repo_path, state)
             return PreflightResult(
                 success=False,
                 state=state,
@@ -778,6 +779,7 @@ def run_preflight(
                 f"  git commit -m 'Resolve merge conflict'\n"
                 f"  # Then retry your watercooler operation"
             )
+            write_parity_state(threads_repo_path, state)
             return PreflightResult(
                 success=False,
                 state=state,
@@ -790,6 +792,7 @@ def run_preflight(
         if _is_rebase_in_progress(code_repo):
             state.status = ParityStatus.REBASE_IN_PROGRESS.value
             state.last_error = "Code repo has rebase/merge in progress (no conflicts detected)"
+            write_parity_state(threads_repo_path, state)
             return PreflightResult(
                 success=False,
                 state=state,
@@ -800,6 +803,7 @@ def run_preflight(
         if _is_rebase_in_progress(threads_repo):
             state.status = ParityStatus.REBASE_IN_PROGRESS.value
             state.last_error = "Threads repo has rebase/merge in progress (no conflicts detected)"
+            write_parity_state(threads_repo_path, state)
             return PreflightResult(
                 success=False,
                 state=state,
@@ -814,6 +818,7 @@ def run_preflight(
             if not code_fetch_ok and not threads_fetch_ok:
                 state.status = ParityStatus.REMOTE_UNREACHABLE.value
                 state.last_error = "Cannot reach origin for either repository"
+                write_parity_state(threads_repo_path, state)
                 return PreflightResult(
                     success=False,
                     state=state,
@@ -831,6 +836,7 @@ def run_preflight(
         if code_branch is None:
             state.status = ParityStatus.DETACHED_HEAD.value
             state.last_error = "Code repo is in detached HEAD state"
+            write_parity_state(threads_repo_path, state)
             return PreflightResult(
                 success=False,
                 state=state,
@@ -841,6 +847,7 @@ def run_preflight(
         if threads_branch is None:
             state.status = ParityStatus.DETACHED_HEAD.value
             state.last_error = "Threads repo is in detached HEAD state"
+            write_parity_state(threads_repo_path, state)
             return PreflightResult(
                 success=False,
                 state=state,
@@ -870,6 +877,7 @@ def run_preflight(
                                 f"Threads repo is on '{main_branch}' but code is on '{code_branch}'. "
                                 f"Auto-checkout to {code_branch} failed."
                             )
+                            write_parity_state(threads_repo_path, state)
                             return PreflightResult(
                                 success=False,
                                 state=state,
@@ -892,6 +900,7 @@ def run_preflight(
                                 f"Threads repo is on '{main_branch}' but code is on '{code_branch}'. "
                                 f"Auto-fetch and checkout failed: {e}"
                             )
+                            write_parity_state(threads_repo_path, state)
                             return PreflightResult(
                                 success=False,
                                 state=state,
@@ -910,6 +919,7 @@ def run_preflight(
                                 f"Threads repo is on '{main_branch}' but code is on '{code_branch}'. "
                                 f"Failed to create branch {code_branch}."
                             )
+                            write_parity_state(threads_repo_path, state)
                             return PreflightResult(
                                 success=False,
                                 state=state,
@@ -922,6 +932,7 @@ def run_preflight(
                         f"Threads repo is on '{main_branch}' but code is on '{code_branch}'. "
                         f"Use watercooler_sync_branch_state with operation='checkout' to fix."
                     )
+                    write_parity_state(threads_repo_path, state)
                     return PreflightResult(
                         success=False,
                         state=state,
@@ -940,6 +951,7 @@ def run_preflight(
                     f"This would create entries with incorrect Code-Branch metadata. "
                     f"Either checkout code to '{threads_branch}' or merge threads to '{main_branch}'."
                 )
+                write_parity_state(threads_repo_path, state)
                 return PreflightResult(
                     success=False,
                     state=state,
@@ -983,6 +995,7 @@ def run_preflight(
                     f"Branch mismatch: code is on '{code_branch}', threads is on '{threads_branch}'. "
                     f"Use watercooler_sync_branch_state with operation='checkout' to fix."
                 )
+                write_parity_state(threads_repo_path, state)
                 return PreflightResult(
                     success=False,
                     state=state,
@@ -1057,6 +1070,7 @@ def run_preflight(
                     # Cannot stash → BLOCK
                     state.status = ParityStatus.DIVERGED.value
                     state.last_error = f"Cannot stash changes before pull: {e}"
+                    write_parity_state(threads_repo_path, state)
                     return PreflightResult(
                         success=False,
                         state=state,
@@ -1093,6 +1107,7 @@ def run_preflight(
                     f"{f'Stash preserved: {stash_ref}. ' if stash_ref else ''}"
                     f"Use watercooler_reconcile_parity with force option to recover."
                 )
+                write_parity_state(threads_repo_path, state)
                 return PreflightResult(
                     success=False,
                     state=state,
@@ -1109,6 +1124,7 @@ def run_preflight(
                     f"{f'Stash preserved: {stash_ref}. ' if stash_ref else ''}"
                     f"Resolve conflicts manually, then run watercooler_reconcile_parity."
                 )
+                write_parity_state(threads_repo_path, state)
                 return PreflightResult(
                     success=False,
                     state=state,
@@ -1127,6 +1143,7 @@ def run_preflight(
                         f"Stash pop conflict after pull. Stash preserved: {stash_ref}. "
                         f"Resolve conflicts manually: cd <threads-repo> && git stash pop"
                     )
+                    write_parity_state(threads_repo_path, state)
                     return PreflightResult(
                         success=False,
                         state=state,
@@ -1146,6 +1163,7 @@ def run_preflight(
                 f"Threads branch is {threads_behind} commits behind origin. "
                 f"Enable auto_fix or use watercooler_reconcile_parity to sync."
             )
+            write_parity_state(threads_repo_path, state)
             return PreflightResult(
                 success=False,
                 state=state,
@@ -1213,6 +1231,11 @@ def run_preflight(
     except Exception as e:
         state.status = ParityStatus.ERROR.value
         state.last_error = f"Unexpected error during preflight: {e}"
+        # Try to persist state; may fail if threads_repo_path is invalid
+        try:
+            write_parity_state(threads_repo_path, state)
+        except Exception:
+            pass  # Best effort - don't mask the original error
         return PreflightResult(
             success=False,
             state=state,
