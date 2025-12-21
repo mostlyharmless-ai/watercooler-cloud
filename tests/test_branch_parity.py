@@ -1393,3 +1393,112 @@ def test_ensure_readable_skips_sync_on_preexisting_conflict(repos_with_remotes: 
     # Should have skipped sync due to conflicts
     assert any("conflict" in action.lower() for action in actions)
     assert any("stale" in action.lower() for action in actions)
+
+
+# =============================================================================
+# Code Behind Origin Tests
+# =============================================================================
+
+
+@pytest.fixture
+def code_repo_with_remote(tmp_path: Path) -> tuple[Path, Path]:
+    """Create a code repository with a bare remote."""
+    # Create bare remote
+    code_bare = tmp_path / "code-bare.git"
+    Repo.init(code_bare, bare=True)
+
+    # Create working directory and clone
+    code_path = tmp_path / "code-repo"
+    code = Repo.clone_from(str(code_bare), str(code_path))
+
+    # Create initial commit and push
+    author = Actor("Test", "test@example.com")
+    (code_path / "README.md").write_text("# Code Repo\n")
+    code.index.add(["README.md"])
+    code.index.commit("Initial commit", author=author)
+    code.git.push("origin", "HEAD:main")
+    code.git.checkout("-b", "main")
+    code.git.branch("--set-upstream-to=origin/main", "main")
+
+    return code_path, code_bare
+
+
+def test_preflight_code_behind_origin_blocks(
+    code_repo_with_remote: tuple[Path, Path],
+    threads_repo: Path,
+) -> None:
+    """Test preflight blocks when code repo is behind origin.
+
+    This is a critical safety check: we cannot auto-pull code because
+    that could affect work in progress. User must pull manually.
+    """
+    code_path, code_bare = code_repo_with_remote
+
+    # Push a commit to code origin from another "clone"
+    other_code = Repo.clone_from(str(code_bare), str(code_path.parent / "other-code"))
+    try:
+        other_code.git.checkout("main")
+    except Exception:
+        other_code.git.checkout("-b", "main")
+    author = Actor("Other", "other@example.com")
+    (Path(other_code.working_dir) / "other-file.py").write_text("# Other code\n")
+    other_code.index.add(["other-file.py"])
+    other_code.index.commit("Other developer commit", author=author)
+    other_code.git.push("origin", "main")
+
+    # Fetch to detect the difference (don't pull)
+    code = Repo(code_path)
+    code.git.fetch("origin")
+
+    # Now code is behind origin by 1 commit
+    result = run_preflight(
+        code_repo_path=code_path,
+        threads_repo_path=threads_repo,
+        auto_fix=True,  # Even with auto_fix, code behind cannot be fixed
+        fetch_first=False,  # We already fetched
+    )
+
+    # Should block - code behind origin requires user action
+    assert result.success is False
+    assert result.can_proceed is False
+    assert result.state.status == ParityStatus.CODE_BEHIND_ORIGIN.value
+    assert "behind origin" in result.blocking_reason.lower()
+    assert "pull" in result.blocking_reason.lower()
+
+
+def test_get_branch_health_reports_code_behind(
+    code_repo_with_remote: tuple[Path, Path],
+    threads_repo: Path,
+) -> None:
+    """Test get_branch_health correctly reports code_behind_origin after preflight."""
+    code_path, code_bare = code_repo_with_remote
+
+    # Push a commit to code origin from another "clone"
+    other_code = Repo.clone_from(str(code_bare), str(code_path.parent / "other-code-2"))
+    try:
+        other_code.git.checkout("main")
+    except Exception:
+        other_code.git.checkout("-b", "main")
+    author = Actor("Other", "other@example.com")
+    (Path(other_code.working_dir) / "new-feature.py").write_text("# New feature\n")
+    other_code.index.add(["new-feature.py"])
+    other_code.index.commit("New feature", author=author)
+    other_code.git.push("origin", "main")
+
+    # Fetch to detect the difference
+    code = Repo(code_path)
+    code.git.fetch("origin")
+
+    # Run preflight to populate the state file
+    run_preflight(
+        code_repo_path=code_path,
+        threads_repo_path=threads_repo,
+        auto_fix=False,
+        fetch_first=False,
+    )
+
+    # Get health status (reads from state file populated by preflight)
+    health = get_branch_health(code_path, threads_repo)
+
+    # Should report code behind origin
+    assert health["code_behind_origin"] == 1

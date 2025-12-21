@@ -1188,10 +1188,32 @@ def reconcile_parity(
 
         # First, try to sync threads if behind origin (the reconcile part)
         threads_repo = Repo(context.threads_dir, search_parent_directories=True)
+        code_repo = Repo(context.code_root, search_parent_directories=True)
         actions_taken = []
 
         # Get current health before reconcile
         health_before = get_branch_health(context.code_root, context.threads_dir)
+
+        # Check if CODE is behind origin - this requires user action, we can't auto-fix
+        code_behind = health_before.get('code_behind_origin', 0)
+        if code_behind > 0:
+            code_branch = health_before.get('code_branch', 'unknown')
+            return ToolResult(content=[TextContent(
+                type="text",
+                text=json.dumps({
+                    "status": "code_behind_origin",
+                    "error": f"Code branch '{code_branch}' is {code_behind} commits behind origin. "
+                             f"Please pull the code repo first: git pull",
+                    "code_behind": code_behind,
+                    "code_branch": code_branch,
+                    "code_root": str(context.code_root),
+                    "suggested_commands": [
+                        f"cd {context.code_root}",
+                        "git pull --rebase",
+                    ],
+                    "actions_taken": [],
+                }, indent=2)
+            )])
 
         # If threads is behind, pull it (this is the "reconcile" operation)
         threads_behind = health_before.get('threads_behind_origin', 0)

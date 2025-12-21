@@ -1023,6 +1023,8 @@ def run_preflight(
                 f"Code branch is {code_behind} commits behind origin. "
                 f"Please pull the code repo before proceeding."
             )
+            # Write state before returning so health reports this correctly
+            write_parity_state(threads_repo_path, state)
             return PreflightResult(
                 success=False,
                 state=state,
