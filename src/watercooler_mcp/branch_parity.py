@@ -910,15 +910,43 @@ def run_preflight(
                 # Try to auto-fix by checking out threads to code branch
                 if auto_fix:
                     log_debug(f"[PARITY] Main protection: threads on {main_branch}, code on {code_branch}")
+
+                    # Stash dirty tree before checkout (main protection path)
+                    mp_is_dirty = threads_repo.is_dirty(untracked_files=True)
+                    mp_stash_ref: Optional[str] = None
+                    if mp_is_dirty:
+                        try:
+                            mp_stash_ref = _preserve_stash(
+                                threads_repo, prefix="watercooler-main-protect"
+                            )
+                            if mp_stash_ref:
+                                actions_taken.append(f"Stashed before checkout: {mp_stash_ref}")
+                                log_debug(f"[PARITY] Stashed dirty tree: {mp_stash_ref}")
+                        except GitCommandError as e:
+                            state.status = ParityStatus.MAIN_PROTECTION.value
+                            state.last_error = (
+                                f"Cannot stash changes before checkout: {e}. "
+                                f"Please commit or stash manually, then retry."
+                            )
+                            write_parity_state(threads_repo_path, state)
+                            return PreflightResult(
+                                success=False,
+                                state=state,
+                                can_proceed=False,
+                                blocking_reason=state.last_error,
+                            )
+
                     # Check if threads branch exists locally or on origin
                     threads_has_branch = code_branch in [ref.name for ref in threads_repo.heads]
                     threads_origin_has_branch = _branch_exists_on_origin(threads_repo, code_branch)
+                    mp_checkout_succeeded = False
 
                     if threads_has_branch:
                         if _checkout_branch(threads_repo, code_branch):
                             actions_taken.append(f"Checked out threads to {code_branch}")
                             threads_branch = code_branch
                             state.threads_branch = threads_branch
+                            mp_checkout_succeeded = True
                         else:
                             state.status = ParityStatus.MAIN_PROTECTION.value
                             state.last_error = (
@@ -940,6 +968,7 @@ def run_preflight(
                                 actions_taken.append(f"Fetched and checked out threads to {code_branch}")
                                 threads_branch = code_branch
                                 state.threads_branch = threads_branch
+                                mp_checkout_succeeded = True
                             else:
                                 raise Exception("Checkout failed")
                         except Exception as e:
@@ -961,6 +990,7 @@ def run_preflight(
                             actions_taken.append(f"Created and checked out threads branch {code_branch}")
                             threads_branch = code_branch
                             state.threads_branch = threads_branch
+                            mp_checkout_succeeded = True
                         else:
                             state.status = ParityStatus.MAIN_PROTECTION.value
                             state.last_error = (
@@ -973,6 +1003,20 @@ def run_preflight(
                                 state=state,
                                 can_proceed=False,
                                 blocking_reason=state.last_error,
+                            )
+
+                    # Restore stash after successful checkout
+                    if mp_stash_ref and mp_checkout_succeeded:
+                        if _restore_stash(threads_repo, mp_stash_ref):
+                            actions_taken.append("Restored stashed changes after checkout")
+                            log_debug(f"[PARITY] Restored stash: {mp_stash_ref}")
+                        else:
+                            log_debug(
+                                f"[PARITY] Could not restore stash {mp_stash_ref} "
+                                "(may have conflicts). Stash preserved."
+                            )
+                            actions_taken.append(
+                                f"Warning: stash {mp_stash_ref} not restored (conflicts?)"
                             )
                 else:
                     state.status = ParityStatus.MAIN_PROTECTION.value
@@ -1012,14 +1056,43 @@ def run_preflight(
             if auto_fix:
                 # Try to checkout threads to code branch
                 log_debug(f"[PARITY] Branch mismatch: code={code_branch}, threads={threads_branch}")
+
+                # BRANCH_MISMATCH_DIRTY: stash before checkout if tree is dirty
+                is_dirty = threads_repo.is_dirty(untracked_files=True)
+                checkout_stash_ref: Optional[str] = None
+                if is_dirty:
+                    try:
+                        checkout_stash_ref = _preserve_stash(
+                            threads_repo, prefix="watercooler-checkout"
+                        )
+                        if checkout_stash_ref:
+                            actions_taken.append(f"Stashed before checkout: {checkout_stash_ref}")
+                            log_debug(f"[PARITY] Stashed dirty tree: {checkout_stash_ref}")
+                    except GitCommandError as e:
+                        # Cannot stash = cannot checkout safely
+                        state.status = ParityStatus.BRANCH_MISMATCH.value
+                        state.last_error = (
+                            f"Cannot stash changes before checkout: {e}. "
+                            f"Please commit or stash manually, then retry."
+                        )
+                        write_parity_state(threads_repo_path, state)
+                        return PreflightResult(
+                            success=False,
+                            state=state,
+                            can_proceed=False,
+                            blocking_reason=state.last_error,
+                        )
+
                 threads_has_branch = code_branch in [ref.name for ref in threads_repo.heads]
                 threads_origin_has_branch = _branch_exists_on_origin(threads_repo, code_branch)
+                checkout_succeeded = False
 
                 if threads_has_branch:
                     if _checkout_branch(threads_repo, code_branch):
                         actions_taken.append(f"Checked out threads to {code_branch}")
                         threads_branch = code_branch
                         state.threads_branch = threads_branch
+                        checkout_succeeded = True
                 elif threads_origin_has_branch:
                     try:
                         threads_repo.git.fetch("origin", f"{code_branch}:refs/heads/{code_branch}")
@@ -1027,6 +1100,7 @@ def run_preflight(
                             actions_taken.append(f"Fetched and checked out threads to {code_branch}")
                             threads_branch = code_branch
                             state.threads_branch = threads_branch
+                            checkout_succeeded = True
                     except Exception as e:
                         log_debug(f"[PARITY] Fetch and checkout failed: {e}")
                 else:
@@ -1035,6 +1109,22 @@ def run_preflight(
                         actions_taken.append(f"Created threads branch {code_branch}")
                         threads_branch = code_branch
                         state.threads_branch = threads_branch
+                        checkout_succeeded = True
+
+                # Restore stash after successful checkout
+                if checkout_stash_ref and checkout_succeeded:
+                    if _restore_stash(threads_repo, checkout_stash_ref):
+                        actions_taken.append("Restored stashed changes after checkout")
+                        log_debug(f"[PARITY] Restored stash after checkout: {checkout_stash_ref}")
+                    else:
+                        # Stash restore failed (conflict) - leave stash for user
+                        log_debug(
+                            f"[PARITY] Could not restore stash {checkout_stash_ref} "
+                            "(may have conflicts). Stash preserved for manual recovery."
+                        )
+                        actions_taken.append(
+                            f"Warning: stash {checkout_stash_ref} not restored (conflicts?)"
+                        )
 
             # Re-check after auto-fix attempt
             if code_branch != threads_branch:
@@ -1068,6 +1158,23 @@ def run_preflight(
                     state.last_error = f"Failed to push threads branch {code_branch} to origin"
                     # This is a warning, not a blocker - we can proceed with local commit
                     log_debug(f"[PARITY] {state.last_error}")
+
+        # ORPHANED_BRANCH: threads branch on origin but code branch isn't
+        # This indicates the code branch was deleted or never pushed, but threads still exist
+        if threads_on_origin and not code_on_origin:
+            state.status = ParityStatus.ORPHAN_BRANCH.value
+            state.last_error = (
+                f"Threads branch '{code_branch}' exists on origin but code branch does not. "
+                f"Either push the code branch to origin, or delete the orphaned threads branch."
+            )
+            log_debug(f"[PARITY] {state.last_error}")
+            write_parity_state(threads_repo_path, state)
+            return PreflightResult(
+                success=False,
+                state=state,
+                can_proceed=False,
+                blocking_reason=state.last_error,
+            )
 
         # Check upstream tracking and auto-set if missing
         # This ensures pull operations work correctly even after branch creation

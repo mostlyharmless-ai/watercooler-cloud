@@ -1752,3 +1752,134 @@ def test_preflight_sets_upstream_tracking(
     tracking_after = threads.active_branch.tracking_branch()
     assert tracking_after is not None
     assert tracking_after.name == "origin/feature-upstream-preflight"
+
+
+# =============================================================================
+# ORPHAN_BRANCH and BRANCH_MISMATCH_DIRTY Tests
+# =============================================================================
+
+
+def test_preflight_orphan_branch_blocks(
+    code_repo_with_remote: tuple[Path, Path],
+    threads_repo_with_remote: tuple[Path, Path],
+) -> None:
+    """Test preflight blocks when threads branch exists on origin but code branch doesn't."""
+    code_path, code_bare = code_repo_with_remote
+    threads_path, threads_bare = threads_repo_with_remote
+    code = Repo(code_path)
+    threads = Repo(threads_path)
+    author = Actor("Test", "test@example.com")
+
+    # Create feature branch in threads and push it
+    threads.git.checkout("-b", "feature-orphan-test")
+    (threads_path / "orphan.md").write_text("# Orphan Thread\n")
+    threads.index.add(["orphan.md"])
+    threads.index.commit("Orphan thread entry", author=author)
+    threads.git.push("-u", "origin", "feature-orphan-test")
+
+    # Create same branch in code but DON'T push it (simulates code branch deleted)
+    code.git.checkout("-b", "feature-orphan-test")
+    (code_path / "orphan.txt").write_text("Orphan code\n")
+    code.index.add(["orphan.txt"])
+    code.index.commit("Orphan code commit", author=author)
+    # Note: NOT pushing to origin, so code branch doesn't exist on origin
+
+    # Fetch to ensure local sees remote state
+    code.git.fetch("origin")
+    threads.git.fetch("origin")
+
+    # Run preflight - should block due to orphan branch
+    result = run_preflight(
+        code_repo_path=code_path,
+        threads_repo_path=threads_path,
+        auto_fix=True,
+        fetch_first=True,
+    )
+
+    assert result.success is False
+    assert result.can_proceed is False
+    assert result.state.status == ParityStatus.ORPHAN_BRANCH.value
+    assert "origin" in result.blocking_reason.lower()
+    assert "feature-orphan-test" in result.blocking_reason
+
+
+def test_preflight_branch_mismatch_dirty_stashes(
+    code_repo: Path,
+    threads_repo: Path,
+) -> None:
+    """Test preflight stashes dirty tree before checkout during branch mismatch auto-fix."""
+    code = Repo(code_repo)
+    threads = Repo(threads_repo)
+
+    # Create feature branch in code (triggers branch mismatch)
+    code.git.checkout("-b", "feature-dirty-checkout")
+
+    # Make threads dirty with uncommitted changes
+    (threads_repo / "uncommitted.md").write_text("# Uncommitted work\n")
+
+    # Verify threads is dirty
+    assert threads.is_dirty(untracked_files=True)
+
+    # Run preflight with auto_fix - should stash, checkout, restore
+    result = run_preflight(
+        code_repo_path=code_repo,
+        threads_repo_path=threads_repo,
+        auto_fix=True,
+        fetch_first=False,
+    )
+
+    assert result.success is True
+    assert result.can_proceed is True
+
+    # Verify branch was switched
+    assert threads.active_branch.name == "feature-dirty-checkout"
+
+    # Verify stash actions were taken
+    actions = result.state.actions_taken
+    stash_action = any("stash" in action.lower() for action in actions)
+    assert stash_action, f"Expected stash action, got: {actions}"
+
+    # Verify the uncommitted file still exists (stash was restored)
+    assert (threads_repo / "uncommitted.md").exists()
+
+
+def test_preflight_branch_mismatch_dirty_checkout_fails_keeps_stash(
+    code_repo: Path,
+    threads_repo: Path,
+) -> None:
+    """Test that stash is preserved if checkout fails during dirty branch mismatch."""
+    code = Repo(code_repo)
+    threads = Repo(threads_repo)
+
+    # Create a conflicting branch setup:
+    # 1. Create feature-conflict branch in threads with a file
+    threads.git.checkout("-b", "feature-conflict")
+    (threads_repo / "conflict.md").write_text("# Conflict in threads\n")
+    threads.index.add(["conflict.md"])
+    author = Actor("Test", "test@example.com")
+    threads.index.commit("Thread conflict commit", author=author)
+
+    # 2. Go back to main on threads
+    threads.git.checkout("main")
+
+    # 3. Create same branch name in code but with different content
+    code.git.checkout("-b", "feature-conflict")
+
+    # 4. Make threads dirty
+    (threads_repo / "dirty.md").write_text("# Dirty uncommitted\n")
+    assert threads.is_dirty(untracked_files=True)
+
+    # Run preflight - checkout will work (existing branch), stash should be restored
+    result = run_preflight(
+        code_repo_path=code_repo,
+        threads_repo_path=threads_repo,
+        auto_fix=True,
+        fetch_first=False,
+    )
+
+    # Should succeed - existing branch checkout works
+    assert result.success is True
+
+    # Verify actions include stash and restore
+    actions = result.state.actions_taken
+    assert any("stash" in a.lower() for a in actions), f"Expected stash, got: {actions}"
