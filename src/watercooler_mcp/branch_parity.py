@@ -51,6 +51,56 @@ class ParityStatus(str, Enum):
     ERROR = "error"  # Unexpected error during check
 
 
+class StateClass(str, Enum):
+    """Detailed state classification for deterministic remediation.
+
+    Maps the 3 orthogonal dimensions (Branch Alignment, Origin Sync, Working Tree)
+    to actionable state classes. See plan entry 01KCZGH3BDZPACW5YC746R6S54.
+    """
+
+    # Ready states - can proceed
+    READY = "ready"  # MATCHED, SYNCED, CLEAN
+    READY_DIRTY = "ready_dirty"  # MATCHED, SYNCED, DIRTY (write commits)
+
+    # Behind states - auto-fixable
+    BEHIND_CLEAN = "behind_clean"  # MATCHED, BEHIND, CLEAN -> pull --ff-only or --rebase
+    BEHIND_DIRTY = "behind_dirty"  # MATCHED, BEHIND, DIRTY -> stash -> pull -> pop
+
+    # Ahead states - auto-fixable
+    AHEAD = "ahead"  # MATCHED, AHEAD, CLEAN -> push after write
+    AHEAD_DIRTY = "ahead_dirty"  # MATCHED, AHEAD, DIRTY -> proceed, push after commit
+
+    # Diverged states - auto-fixable (rebase)
+    DIVERGED_CLEAN = "diverged_clean"  # MATCHED, DIVERGED, CLEAN -> pull --rebase -> push
+    DIVERGED_DIRTY = "diverged_dirty"  # MATCHED, DIVERGED, DIRTY -> stash -> rebase -> pop -> push
+
+    # Branch mismatch - auto-fixable (checkout)
+    BRANCH_MISMATCH = "branch_mismatch"  # MISMATCHED, *, CLEAN -> checkout <target>
+    BRANCH_MISMATCH_DIRTY = "branch_mismatch_dirty"  # MISMATCHED, *, DIRTY -> stash -> checkout -> pop
+
+    # Blocking states - require human intervention
+    DETACHED_HEAD = "detached_head"  # BLOCK
+    REBASE_IN_PROGRESS = "rebase_in_progress"  # BLOCK
+    CONFLICT = "conflict"  # BLOCK (merge/rebase conflict)
+    CODE_BEHIND = "code_behind"  # BLOCK (user must pull code)
+    ORPHANED_BRANCH = "orphaned_branch"  # BLOCK
+
+    # Auto-fixable edge cases
+    NO_UPSTREAM = "no_upstream"  # push -u origin <branch>
+    MAIN_PROTECTION = "main_protection"  # Auto-checkout threads to feature
+
+
+@dataclass
+class ParityError:
+    """Structured error for blocking states with recovery guidance."""
+
+    state_class: str
+    message: str
+    requires_human: bool
+    suggested_commands: List[str] = field(default_factory=list)
+    recovery_refs: dict = field(default_factory=dict)  # e.g., {"stash": "abc123"}
+
+
 @dataclass
 class ParityState:
     """Parity state persisted to branch_parity_state.json."""
@@ -543,6 +593,70 @@ def _pull_rebase(repo: Repo) -> bool:
         return False
 
 
+def _detect_stash(repo: Repo) -> bool:
+    """Check if repo has any stashed changes."""
+    try:
+        stash_list = repo.git.stash("list")
+        return bool(stash_list.strip())
+    except GitCommandError:
+        return False
+
+
+def _preserve_stash(repo: Repo, prefix: str = "watercooler-auto") -> Optional[str]:
+    """Stash changes with timestamped message. Returns stash ref or None if nothing to stash.
+
+    Data-safety invariant: Never drops stash on conflict. Stash ref preserved in error messages.
+    """
+    from datetime import datetime
+
+    if not repo.is_dirty(untracked_files=True):
+        return None
+
+    stash_msg = f"{prefix}-{datetime.utcnow().isoformat()}"
+    try:
+        result = repo.git.stash("push", "-m", stash_msg, "--include-untracked")
+        if "No local changes" in result:
+            return None
+        log_debug(f"[PARITY] Stashed changes: {stash_msg}")
+        return stash_msg
+    except GitCommandError as e:
+        log_debug(f"[PARITY] Failed to stash: {e}")
+        raise
+
+
+def _restore_stash(repo: Repo, stash_ref: Optional[str] = None) -> bool:
+    """Pop the most recent stash. Returns True on success.
+
+    Data-safety invariant: On conflict, stash is preserved (not dropped).
+    """
+    if stash_ref is None:
+        return True  # Nothing to restore
+
+    try:
+        repo.git.stash("pop")
+        log_debug(f"[PARITY] Restored stash: {stash_ref}")
+        return True
+    except GitCommandError as e:
+        # Stash pop failed (likely conflict) - stash is preserved
+        log_debug(f"[PARITY] Stash pop failed (stash preserved): {e}")
+        return False
+
+
+def _has_conflicts(repo: Repo) -> bool:
+    """Check if repo has unresolved merge/rebase conflicts."""
+    try:
+        status = repo.git.status("--porcelain")
+        # Check for conflict markers (UU, AA, DD, etc.)
+        for line in status.split("\n"):
+            if line and len(line) >= 2:
+                xy = line[:2]
+                if "U" in xy or xy == "AA" or xy == "DD":
+                    return True
+        return False
+    except GitCommandError:
+        return False
+
+
 def _push_with_retry(repo: Repo, branch: str, max_retries: int = MAX_PUSH_RETRIES, set_upstream: bool = False) -> bool:
     """Push to origin with retry. Returns True on success.
 
@@ -873,15 +987,119 @@ def run_preflight(
                 blocking_reason=state.last_error,
             )
 
-        # Threads behind origin: BLOCK - require explicit recover
-        # This is a safety measure to prevent auto-pulling changes that may conflict
-        # or that the user may not be aware of. Use watercooler_reconcile_parity to fix.
-        if threads_behind > 0:
+        # Threads behind origin: AUTO-REMEDIATE with stash safety
+        # State classification:
+        #   - behind only (threads_behind > 0, threads_ahead == 0): BEHIND_CLEAN or BEHIND_DIRTY
+        #   - diverged (threads_behind > 0, threads_ahead > 0): DIVERGED_CLEAN or DIVERGED_DIRTY
+        if threads_behind > 0 and auto_fix:
+            is_diverged = threads_ahead > 0
+            is_dirty = threads_repo.is_dirty(untracked_files=True)
+            stash_ref = None
+
+            log_debug(
+                f"[PARITY] Threads behind by {threads_behind} commits"
+                f"{f', ahead by {threads_ahead}' if is_diverged else ''}"
+                f"{', dirty tree' if is_dirty else ''}, auto-remediating"
+            )
+
+            # Step 1: Stash if dirty (with timestamp for identification)
+            if is_dirty:
+                try:
+                    stash_ref = _preserve_stash(threads_repo, prefix="watercooler-parity")
+                    if stash_ref:
+                        actions_taken.append(f"Stashed: {stash_ref}")
+                except GitCommandError as e:
+                    # Cannot stash → BLOCK
+                    state.status = ParityStatus.DIVERGED.value
+                    state.last_error = f"Cannot stash changes before pull: {e}"
+                    return PreflightResult(
+                        success=False,
+                        state=state,
+                        can_proceed=False,
+                        blocking_reason=state.last_error,
+                    )
+
+            # Step 2: Pull (ff-only first for behind-only, rebase for diverged)
+            pulled = False
+            if is_diverged:
+                # Diverged: must use rebase to reconcile
+                if _pull_rebase(threads_repo):
+                    pulled = True
+                    actions_taken.append(f"Pulled with rebase ({threads_behind} commits)")
+            else:
+                # Behind only: try ff-only first, fallback to rebase
+                if _pull_ff_only(threads_repo):
+                    pulled = True
+                    actions_taken.append(f"Pulled (ff-only, {threads_behind} commits)")
+                elif _pull_rebase(threads_repo):
+                    pulled = True
+                    actions_taken.append(f"Pulled (rebase fallback, {threads_behind} commits)")
+
+            if not pulled:
+                # Pull failed - restore stash before blocking
+                if stash_ref:
+                    if _restore_stash(threads_repo, stash_ref):
+                        actions_taken.append("Restored stashed changes after pull failure")
+                    # If restore fails, stash is preserved (not dropped)
+
+                state.status = ParityStatus.DIVERGED.value
+                state.last_error = (
+                    f"Pull failed for threads branch (was {threads_behind} commits behind). "
+                    f"{f'Stash preserved: {stash_ref}. ' if stash_ref else ''}"
+                    f"Use watercooler_reconcile_parity with force option to recover."
+                )
+                return PreflightResult(
+                    success=False,
+                    state=state,
+                    can_proceed=False,
+                    blocking_reason=state.last_error,
+                )
+
+            # Step 3: Check for conflicts after pull
+            if _has_conflicts(threads_repo):
+                # Conflict → BLOCK (stash preserved)
+                state.status = ParityStatus.DIVERGED.value
+                state.last_error = (
+                    f"Merge conflict after pull. "
+                    f"{f'Stash preserved: {stash_ref}. ' if stash_ref else ''}"
+                    f"Resolve conflicts manually, then run watercooler_reconcile_parity."
+                )
+                return PreflightResult(
+                    success=False,
+                    state=state,
+                    can_proceed=False,
+                    blocking_reason=state.last_error,
+                )
+
+            # Step 4: Pop stash if we stashed earlier
+            if stash_ref:
+                if _restore_stash(threads_repo, stash_ref):
+                    actions_taken.append("Restored stashed changes")
+                else:
+                    # Stash pop conflict → BLOCK (stash preserved)
+                    state.status = ParityStatus.DIVERGED.value
+                    state.last_error = (
+                        f"Stash pop conflict after pull. Stash preserved: {stash_ref}. "
+                        f"Resolve conflicts manually: cd <threads-repo> && git stash pop"
+                    )
+                    return PreflightResult(
+                        success=False,
+                        state=state,
+                        can_proceed=False,
+                        blocking_reason=state.last_error,
+                    )
+
+            # Step 5: Re-check ahead/behind counts after pull
+            threads_ahead, threads_behind = _get_ahead_behind(threads_repo, code_branch)
+            state.threads_ahead_origin = threads_ahead
+            state.threads_behind_origin = threads_behind
+
+        elif threads_behind > 0 and not auto_fix:
+            # Auto-fix disabled: BLOCK with guidance
             state.status = ParityStatus.DIVERGED.value
             state.last_error = (
                 f"Threads branch is {threads_behind} commits behind origin. "
-                f"Use watercooler_reconcile_parity or "
-                f"watercooler_sync_branch_state with operation='recover' to sync."
+                f"Enable auto_fix or use watercooler_reconcile_parity to sync."
             )
             return PreflightResult(
                 success=False,
@@ -956,6 +1174,85 @@ def run_preflight(
             can_proceed=False,
             blocking_reason=state.last_error,
         )
+
+
+def ensure_readable(
+    threads_repo_path: Path,
+    code_repo_path: Optional[Path] = None,
+) -> tuple[bool, List[str]]:
+    """Lightweight sync for read operations. Never blocks - worst case is stale data.
+
+    This function is designed to be called before read operations (list_threads,
+    read_thread, get_thread_entry, etc.) to ensure the local threads repo is
+    up-to-date with origin. Unlike run_preflight(), this function:
+
+    - Never blocks: Always returns (True, actions) even on failure
+    - No stashing: Only pulls if the tree is clean (safe operation)
+    - No pushing: Read operations don't require push parity
+    - Logs warnings: Issues are logged but don't prevent the read
+
+    Args:
+        threads_repo_path: Path to threads repository
+        code_repo_path: Optional path to code repository (for context logging)
+
+    Returns:
+        Tuple of (success, list of actions taken)
+    """
+    actions: List[str] = []
+
+    try:
+        repo = Repo(threads_repo_path, search_parent_directories=True)
+
+        # Fetch from origin (with timeout)
+        if not _fetch_with_timeout(repo):
+            log_debug("[PARITY] ensure_readable: fetch failed (proceeding with cached data)")
+            return (True, actions)
+
+        # Get current branch
+        branch = _get_branch_name(repo)
+        if not branch:
+            log_debug("[PARITY] ensure_readable: detached HEAD (proceeding anyway)")
+            return (True, actions)
+
+        # Get ahead/behind status
+        ahead, behind = _get_ahead_behind(repo, branch)
+
+        # Only auto-pull if:
+        # 1. Behind origin (need to catch up)
+        # 2. NOT ahead (no local commits to lose)
+        # 3. Tree is clean (safe to pull without stash)
+        if behind > 0 and ahead == 0 and not repo.is_dirty(untracked_files=True):
+            log_debug(f"[PARITY] ensure_readable: behind by {behind} commits, auto-pulling")
+
+            # Try ff-only first, then rebase
+            if _pull_ff_only(repo):
+                actions.append(f"Pulled (ff-only, {behind} commits)")
+            elif _pull_rebase(repo):
+                actions.append(f"Pulled (rebase, {behind} commits)")
+            else:
+                log_debug("[PARITY] ensure_readable: pull failed (proceeding with stale data)")
+
+        elif behind > 0:
+            # Behind but can't safely pull - log warning
+            if ahead > 0:
+                log_debug(
+                    f"[PARITY] ensure_readable: diverged (ahead={ahead}, behind={behind}), "
+                    "using local data"
+                )
+            elif repo.is_dirty(untracked_files=True):
+                log_debug(
+                    f"[PARITY] ensure_readable: behind by {behind} but tree is dirty, "
+                    "using local data"
+                )
+
+        return (True, actions)
+
+    except InvalidGitRepositoryError:
+        log_debug(f"[PARITY] ensure_readable: not a git repo: {threads_repo_path}")
+        return (True, actions)
+    except Exception as e:
+        log_debug(f"[PARITY] ensure_readable: error (proceeding anyway): {e}")
+        return (True, actions)
 
 
 def push_after_commit(

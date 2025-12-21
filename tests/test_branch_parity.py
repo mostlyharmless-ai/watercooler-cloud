@@ -19,12 +19,19 @@ from watercooler_mcp.branch_parity import (
     ParityStatus,
     ParityState,
     PreflightResult,
+    StateClass,
+    ParityError,
     read_parity_state,
     write_parity_state,
     acquire_topic_lock,
     run_preflight,
     push_after_commit,
     get_branch_health,
+    ensure_readable,
+    _detect_stash,
+    _preserve_stash,
+    _restore_stash,
+    _has_conflicts,
     STATE_FILE_NAME,
     LOCKS_DIR_NAME,
     LOCK_TIMEOUT_SECONDS,
@@ -850,12 +857,11 @@ def test_preflight_inverse_main_protection_not_auto_fixed(code_repo: Path, threa
 # =============================================================================
 
 
-def test_preflight_threads_behind_origin_blocks(repos_with_remotes: tuple[Path, Path, Path, Path]) -> None:
-    """Test preflight blocks when threads is behind origin.
+def test_preflight_threads_behind_origin_auto_pulls(repos_with_remotes: tuple[Path, Path, Path, Path]) -> None:
+    """Test preflight auto-pulls when threads is behind origin with clean tree.
 
-    When threads repo is behind origin, we block to prevent auto-pulling
-    changes that may conflict or that the user may not be aware of.
-    Use reconcile_parity to fix.
+    When threads repo is behind origin and working tree is clean,
+    auto-remediation pulls via ff-only to sync.
     """
     code_path, threads_path, code_bare, threads_bare = repos_with_remotes
 
@@ -881,22 +887,23 @@ def test_preflight_threads_behind_origin_blocks(repos_with_remotes: tuple[Path, 
     result = run_preflight(
         code_repo_path=code_path,
         threads_repo_path=threads_path,
-        auto_fix=True,  # Even with auto_fix, should block
+        auto_fix=True,  # With auto_fix, should auto-pull
         fetch_first=False,  # We already fetched
     )
 
-    assert result.success is False
-    assert result.can_proceed is False
-    assert result.state.status == ParityStatus.DIVERGED.value
-    assert "behind origin" in result.blocking_reason
-    assert "reconcile_parity" in result.blocking_reason
+    # Should succeed - auto-pull should have happened
+    assert result.success is True
+    assert result.can_proceed is True
+    assert result.auto_fixed is True
+    # Verify pull action was taken
+    assert any("Pulled" in action for action in result.state.actions_taken)
 
 
-def test_preflight_threads_diverged_blocks(repos_with_remotes: tuple[Path, Path, Path, Path]) -> None:
-    """Test preflight blocks when threads has diverged (both ahead and behind origin).
+def test_preflight_threads_diverged_auto_rebases(repos_with_remotes: tuple[Path, Path, Path, Path]) -> None:
+    """Test preflight auto-rebases when threads has diverged (both ahead and behind origin).
 
-    When threads has local commits AND is behind origin, we have a diverged
-    state that requires manual resolution.
+    When threads has local commits AND is behind origin (diverged),
+    auto-remediation rebases local commits on top of origin.
     """
     code_path, threads_path, code_bare, threads_bare = repos_with_remotes
 
@@ -931,7 +938,326 @@ def test_preflight_threads_diverged_blocks(repos_with_remotes: tuple[Path, Path,
         fetch_first=False,
     )
 
-    # Should block - we're behind origin
-    assert result.success is False
-    assert result.can_proceed is False
-    assert result.state.status == ParityStatus.DIVERGED.value
+    # Should succeed - auto-rebase should have happened
+    assert result.success is True
+    assert result.can_proceed is True
+    assert result.auto_fixed is True
+    # Verify rebase action was taken
+    assert any("rebase" in action.lower() for action in result.state.actions_taken)
+
+
+# =============================================================================
+# StateClass Enum Tests
+# =============================================================================
+
+
+def test_state_class_enum_values() -> None:
+    """Test StateClass enum has expected values."""
+    # Core ready states
+    assert StateClass.READY.value == "ready"
+    assert StateClass.READY_DIRTY.value == "ready_dirty"
+
+    # Behind origin states
+    assert StateClass.BEHIND_CLEAN.value == "behind_clean"
+    assert StateClass.BEHIND_DIRTY.value == "behind_dirty"
+
+    # Ahead states
+    assert StateClass.AHEAD.value == "ahead"
+    assert StateClass.AHEAD_DIRTY.value == "ahead_dirty"
+
+    # Diverged states
+    assert StateClass.DIVERGED_CLEAN.value == "diverged_clean"
+    assert StateClass.DIVERGED_DIRTY.value == "diverged_dirty"
+
+    # Branch mismatch states
+    assert StateClass.BRANCH_MISMATCH.value == "branch_mismatch"
+    assert StateClass.BRANCH_MISMATCH_DIRTY.value == "branch_mismatch_dirty"
+
+    # Blocking states
+    assert StateClass.DETACHED_HEAD.value == "detached_head"
+    assert StateClass.REBASE_IN_PROGRESS.value == "rebase_in_progress"
+    assert StateClass.CONFLICT.value == "conflict"
+    assert StateClass.CODE_BEHIND.value == "code_behind"
+    assert StateClass.ORPHANED_BRANCH.value == "orphaned_branch"
+    assert StateClass.NO_UPSTREAM.value == "no_upstream"
+    assert StateClass.MAIN_PROTECTION.value == "main_protection"
+
+
+def test_state_class_is_string_enum() -> None:
+    """Test StateClass values are strings (for JSON serialization)."""
+    for state in StateClass:
+        assert isinstance(state.value, str)
+
+
+# =============================================================================
+# ParityError Dataclass Tests
+# =============================================================================
+
+
+def test_parity_error_basic() -> None:
+    """Test ParityError dataclass construction."""
+    error = ParityError(
+        state_class=StateClass.DETACHED_HEAD.value,
+        message="Code repo is in detached HEAD state",
+        requires_human=True,
+    )
+
+    assert error.state_class == "detached_head"
+    assert "detached HEAD" in error.message
+    assert error.requires_human is True
+    assert error.suggested_commands == []
+    assert error.recovery_refs == {}
+
+
+def test_parity_error_with_recovery() -> None:
+    """Test ParityError with suggested commands and recovery refs."""
+    error = ParityError(
+        state_class=StateClass.BEHIND_DIRTY.value,
+        message="Threads behind by 3 commits with dirty tree",
+        requires_human=False,
+        suggested_commands=["git stash", "git pull --rebase", "git stash pop"],
+        recovery_refs={"stash": "stash@{0}"},
+    )
+
+    assert error.state_class == "behind_dirty"
+    assert error.requires_human is False
+    assert len(error.suggested_commands) == 3
+    assert "stash" in error.recovery_refs
+
+
+# =============================================================================
+# Stash Helper Function Tests
+# =============================================================================
+
+
+def test_detect_stash_empty(threads_repo: Path) -> None:
+    """Test _detect_stash returns False when no stash."""
+    repo = Repo(threads_repo)
+    assert _detect_stash(repo) is False
+
+
+def test_detect_stash_with_stash(threads_repo: Path) -> None:
+    """Test _detect_stash returns True when stash exists."""
+    repo = Repo(threads_repo)
+
+    # Create some uncommitted changes
+    (threads_repo / "dirty.md").write_text("# Dirty\n")
+    repo.index.add(["dirty.md"])
+
+    # Stash the changes
+    repo.git.stash("push", "-m", "test stash")
+
+    assert _detect_stash(repo) is True
+
+
+def test_preserve_stash_clean_tree(threads_repo: Path) -> None:
+    """Test _preserve_stash returns None on clean tree."""
+    repo = Repo(threads_repo)
+
+    stash_ref = _preserve_stash(repo, "watercooler-test")
+    assert stash_ref is None
+
+
+def test_preserve_stash_dirty_tree(threads_repo: Path) -> None:
+    """Test _preserve_stash creates stash with prefix."""
+    repo = Repo(threads_repo)
+
+    # Create uncommitted changes
+    (threads_repo / "dirty.md").write_text("# Dirty\n")
+    repo.index.add(["dirty.md"])
+
+    stash_ref = _preserve_stash(repo, "watercooler-test")
+
+    # Should return a stash message with the prefix and timestamp
+    assert stash_ref is not None
+    assert stash_ref.startswith("watercooler-test-")
+
+    # Tree should now be clean
+    assert not repo.is_dirty(untracked_files=True)
+
+
+def test_restore_stash_success(threads_repo: Path) -> None:
+    """Test _restore_stash pops the stash."""
+    repo = Repo(threads_repo)
+
+    # Create and stash changes
+    (threads_repo / "dirty.md").write_text("# Dirty\n")
+    repo.index.add(["dirty.md"])
+    stash_ref = _preserve_stash(repo, "watercooler-test")
+
+    # Verify tree is clean after stash
+    assert not repo.is_dirty(untracked_files=True)
+
+    # Restore the stash
+    success = _restore_stash(repo, stash_ref)
+
+    assert success is True
+    # Tree should be dirty again
+    assert repo.is_dirty(untracked_files=True)
+
+
+def test_restore_stash_no_stash_noop(threads_repo: Path) -> None:
+    """Test _restore_stash is a no-op when stash_ref is None.
+
+    When stash_ref is None, there's nothing to restore, so it succeeds.
+    """
+    repo = Repo(threads_repo)
+
+    # No stash ref provided - should succeed as no-op
+    success = _restore_stash(repo, None)
+    assert success is True
+
+
+def test_has_conflicts_clean(threads_repo: Path) -> None:
+    """Test _has_conflicts returns False on clean tree."""
+    repo = Repo(threads_repo)
+    assert _has_conflicts(repo) is False
+
+
+# =============================================================================
+# Auto-Remediation with Dirty Tree Tests
+# =============================================================================
+
+
+def test_preflight_threads_behind_dirty_stash_pull_pop(repos_with_remotes: tuple[Path, Path, Path, Path]) -> None:
+    """Test preflight stashes, pulls, then pops when behind with dirty tree.
+
+    When threads is behind origin and has uncommitted changes,
+    auto-remediation: stash → pull → stash pop.
+    """
+    code_path, threads_path, code_bare, threads_bare = repos_with_remotes
+
+    # Push a commit to threads origin from another "clone"
+    other_threads = Repo.clone_from(str(threads_bare), str(threads_path.parent / "other-threads-dirty"))
+    try:
+        other_threads.git.checkout("main")
+    except Exception:
+        other_threads.git.checkout("-b", "main")
+    author = Actor("Other", "other@example.com")
+    (Path(other_threads.working_dir) / "other-file.md").write_text("# Other File\n")
+    other_threads.index.add(["other-file.md"])
+    other_threads.index.commit("Other agent entry", author=author)
+    other_threads.git.push("origin", "main")
+
+    # Create dirty state in local threads
+    threads = Repo(threads_path)
+    (threads_path / "local-dirty.md").write_text("# Local Dirty\n")
+    threads.index.add(["local-dirty.md"])
+    # Note: not committed, just staged
+
+    # Fetch to detect the difference
+    threads.git.fetch("origin")
+
+    result = run_preflight(
+        code_repo_path=code_path,
+        threads_repo_path=threads_path,
+        auto_fix=True,
+        fetch_first=False,
+    )
+
+    # Should succeed - stash/pull/pop should have happened
+    assert result.success is True
+    assert result.can_proceed is True
+    assert result.auto_fixed is True
+
+    # Verify stash was used
+    assert any("Stashed" in action for action in result.state.actions_taken)
+    assert any("Pulled" in action for action in result.state.actions_taken)
+    assert any("Restored" in action or "popped" in action.lower() for action in result.state.actions_taken)
+
+    # Local changes should still be there
+    assert (threads_path / "local-dirty.md").exists()
+
+
+# =============================================================================
+# ensure_readable() Tests
+# =============================================================================
+
+
+def test_ensure_readable_clean_synced(threads_repo: Path, code_repo: Path) -> None:
+    """Test ensure_readable returns success when already synced."""
+    success, actions = ensure_readable(threads_repo, code_repo)
+
+    assert success is True
+    # No actions needed when already synced
+    # (may have fetch action depending on implementation)
+
+
+def test_ensure_readable_no_origin(threads_repo: Path, code_repo: Path) -> None:
+    """Test ensure_readable handles repos without remotes."""
+    # threads_repo fixture has no origin
+    success, actions = ensure_readable(threads_repo, code_repo)
+
+    # Should not crash, just allow read
+    assert success is True
+
+
+def test_ensure_readable_behind_clean_auto_pulls(repos_with_remotes: tuple[Path, Path, Path, Path]) -> None:
+    """Test ensure_readable auto-pulls when behind with clean tree."""
+    code_path, threads_path, code_bare, threads_bare = repos_with_remotes
+
+    # Push a commit to threads origin from another "clone"
+    other_threads = Repo.clone_from(str(threads_bare), str(threads_path.parent / "other-read"))
+    try:
+        other_threads.git.checkout("main")
+    except Exception:
+        other_threads.git.checkout("-b", "main")
+    author = Actor("Other", "other@example.com")
+    (Path(other_threads.working_dir) / "new-entry.md").write_text("# New Entry\n")
+    other_threads.index.add(["new-entry.md"])
+    other_threads.index.commit("New entry from other agent", author=author)
+    other_threads.git.push("origin", "main")
+
+    # Fetch to detect the difference
+    threads = Repo(threads_path)
+    threads.git.fetch("origin")
+
+    success, actions = ensure_readable(threads_path, code_path)
+
+    assert success is True
+    # Should have pulled
+    assert any("Pulled" in action for action in actions)
+
+
+def test_ensure_readable_dirty_allows_stale(repos_with_remotes: tuple[Path, Path, Path, Path]) -> None:
+    """Test ensure_readable allows stale read when tree is dirty.
+
+    For read operations, we don't stash - just allow stale data.
+    """
+    code_path, threads_path, code_bare, threads_bare = repos_with_remotes
+
+    # Push a commit to threads origin from another "clone"
+    other_threads = Repo.clone_from(str(threads_bare), str(threads_path.parent / "other-read-dirty"))
+    try:
+        other_threads.git.checkout("main")
+    except Exception:
+        other_threads.git.checkout("-b", "main")
+    author = Actor("Other", "other@example.com")
+    (Path(other_threads.working_dir) / "new-entry2.md").write_text("# New Entry 2\n")
+    other_threads.index.add(["new-entry2.md"])
+    other_threads.index.commit("Another entry", author=author)
+    other_threads.git.push("origin", "main")
+
+    # Create dirty state in local threads
+    threads = Repo(threads_path)
+    (threads_path / "wip.md").write_text("# Work in Progress\n")
+    threads.index.add(["wip.md"])
+
+    # Fetch to detect the difference
+    threads.git.fetch("origin")
+
+    success, actions = ensure_readable(threads_path, code_path)
+
+    # Should still succeed (stale read allowed)
+    assert success is True
+    # Should NOT have pulled (dirty tree)
+    assert not any("Pulled" in action for action in actions)
+
+
+def test_ensure_readable_never_blocks() -> None:
+    """Test ensure_readable never blocks, even on error."""
+    # Pass a non-existent path - should not raise or block
+    success, actions = ensure_readable(Path("/nonexistent/path"), None)
+
+    # Should return success (reads should never be blocked)
+    assert success is True

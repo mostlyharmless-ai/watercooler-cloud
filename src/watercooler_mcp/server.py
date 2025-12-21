@@ -70,6 +70,7 @@ from .branch_parity import (
     acquire_topic_lock,
     write_parity_state,
     get_branch_health,
+    ensure_readable,
     PreflightResult,
     ParityStatus,
 )
@@ -1340,6 +1341,12 @@ def list_threads(
             ))])
 
         agent = get_agent_name(ctx.client_id)
+
+        # Lightweight read sync: auto-pull if behind origin (never blocks)
+        sync_ok, sync_actions = ensure_readable(context.threads_dir, context.code_root)
+        if sync_actions:
+            log_debug(f"list_threads read sync: {sync_actions}")
+
         log_debug("list_threads refreshing git state")
         git_start = time.time()
         _refresh_threads(context)
@@ -1511,6 +1518,11 @@ def read_thread(
                 "Run from inside your code repo or set WATERCOOLER_CODE_REPO/WATERCOOLER_GIT_REPO."
             )
 
+        # Lightweight read sync: auto-pull if behind origin (never blocks)
+        sync_ok, sync_actions = ensure_readable(context.threads_dir, context.code_root)
+        if sync_actions:
+            log_debug(f"read_thread read sync: {sync_actions}")
+
         _refresh_threads(context)
         threads_dir = context.threads_dir
 
@@ -1586,6 +1598,11 @@ def list_thread_entries(
     if limit is not None and limit > _MAX_LIMIT:
         return ToolResult(content=[TextContent(type="text", text=f"Error: limit must not exceed {_MAX_LIMIT}.")])
 
+    # Lightweight read sync: auto-pull if behind origin (never blocks)
+    sync_ok, sync_actions = ensure_readable(context.threads_dir, context.code_root)
+    if sync_actions:
+        log_debug(f"list_thread_entries read sync: {sync_actions}")
+
     _refresh_threads(context)
     load_error, entries = _load_thread_entries_graph_first(topic, context)
     if load_error:
@@ -1642,6 +1659,11 @@ def get_thread_entry(
     error, context = _validate_thread_context(code_path)
     if error or context is None:
         return ToolResult(content=[TextContent(type="text", text=error or "Unknown error")])
+
+    # Lightweight read sync: auto-pull if behind origin (never blocks)
+    sync_ok, sync_actions = ensure_readable(context.threads_dir, context.code_root)
+    if sync_actions:
+        log_debug(f"get_thread_entry read sync: {sync_actions}")
 
     _refresh_threads(context)
     load_error, entries = _load_thread_entries_graph_first(topic, context)
@@ -1710,6 +1732,11 @@ def get_thread_entry_range(
     error, context = _validate_thread_context(code_path)
     if error or context is None:
         return ToolResult(content=[TextContent(type="text", text=error or "Unknown error")])
+
+    # Lightweight read sync: auto-pull if behind origin (never blocks)
+    sync_ok, sync_actions = ensure_readable(context.threads_dir, context.code_root)
+    if sync_actions:
+        log_debug(f"get_thread_entry_range read sync: {sync_actions}")
 
     _refresh_threads(context)
     load_error, entries = _load_thread_entries_graph_first(topic, context)
@@ -2434,7 +2461,7 @@ def baseline_graph_build(
         return f"Error building baseline graph: {str(e)}"
 
 
-@mcp.tool(name="watercooler_v1_search")
+@mcp.tool(name="watercooler_search")
 def search_graph_tool(
     ctx: Context,
     code_path: str = "",
@@ -2498,7 +2525,7 @@ def search_graph_tool(
         if not is_graph_available(threads_dir):
             return json.dumps({
                 "error": "Graph not available",
-                "message": "No baseline graph found. Run watercooler_v1_baseline_graph_build first.",
+                "message": "No baseline graph found. Run watercooler_baseline_graph_build first.",
                 "results": [],
                 "count": 0,
             })
@@ -2574,7 +2601,7 @@ def search_graph_tool(
         return f"Error searching graph: {str(e)}"
 
 
-@mcp.tool(name="watercooler_v1_find_similar")
+@mcp.tool(name="watercooler_find_similar")
 def find_similar_entries_tool(
     ctx: Context,
     entry_id: str,
@@ -2615,7 +2642,7 @@ def find_similar_entries_tool(
         if not is_graph_available(threads_dir):
             return json.dumps({
                 "error": "Graph not available",
-                "message": "No baseline graph found. Run watercooler_v1_baseline_graph_build first.",
+                "message": "No baseline graph found. Run watercooler_baseline_graph_build first.",
                 "results": [],
             })
 
@@ -2658,7 +2685,7 @@ def find_similar_entries_tool(
         return f"Error finding similar entries: {str(e)}"
 
 
-@mcp.tool(name="watercooler_v1_graph_health")
+@mcp.tool(name="watercooler_graph_health")
 def graph_health_tool(
     ctx: Context,
     code_path: str = "",
@@ -2714,11 +2741,11 @@ def graph_health_tool(
         # Add recommendations
         if not graph_available:
             output["recommendations"].append(
-                "Graph not available. Run watercooler_v1_baseline_graph_build to create it."
+                "Graph not available. Run watercooler_baseline_graph_build to create it."
             )
         if health.stale_threads:
             output["recommendations"].append(
-                f"{len(health.stale_threads)} threads need sync. Run watercooler_v1_reconcile_graph."
+                f"{len(health.stale_threads)} threads need sync. Run watercooler_reconcile_graph."
             )
         if health.error_threads:
             output["recommendations"].append(
@@ -2731,7 +2758,7 @@ def graph_health_tool(
         return f"Error checking graph health: {str(e)}"
 
 
-@mcp.tool(name="watercooler_v1_reconcile_graph")
+@mcp.tool(name="watercooler_reconcile_graph")
 def reconcile_graph_tool(
     ctx: Context,
     code_path: str = "",
@@ -2799,7 +2826,7 @@ def reconcile_graph_tool(
         return f"Error reconciling graph: {str(e)}"
 
 
-@mcp.tool(name="watercooler_v1_access_stats")
+@mcp.tool(name="watercooler_access_stats")
 def access_stats_tool(
     ctx: Context,
     code_path: str = "",
