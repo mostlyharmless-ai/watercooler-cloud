@@ -45,6 +45,9 @@ from watercooler_mcp.branch_parity import (
     UNSAFE_TOPIC_CHARS_PATTERN,
     _sanitize_topic_for_filename,
     _validate_branch_name,
+    _pull_ff_only,
+    _pull_rebase,
+    _checkout_branch,
 )
 
 
@@ -1423,6 +1426,29 @@ def code_repo_with_remote(tmp_path: Path) -> tuple[Path, Path]:
     return code_path, code_bare
 
 
+@pytest.fixture
+def threads_repo_with_remote(tmp_path: Path) -> tuple[Path, Path]:
+    """Create a threads repository with a bare remote."""
+    # Create bare remote
+    threads_bare = tmp_path / "threads-bare.git"
+    Repo.init(threads_bare, bare=True)
+
+    # Create working directory and clone
+    threads_path = tmp_path / "code-repo-threads"
+    threads = Repo.clone_from(str(threads_bare), str(threads_path))
+
+    # Create initial commit and push
+    author = Actor("Test", "test@example.com")
+    (threads_path / "README.md").write_text("# Threads Repo\n")
+    threads.index.add(["README.md"])
+    threads.index.commit("Initial commit", author=author)
+    threads.git.push("origin", "HEAD:main")
+    threads.git.checkout("-b", "main")
+    threads.git.branch("--set-upstream-to=origin/main", "main")
+
+    return threads_path, threads_bare
+
+
 def test_preflight_code_behind_origin_blocks(
     code_repo_with_remote: tuple[Path, Path],
     threads_repo: Path,
@@ -1502,3 +1528,227 @@ def test_get_branch_health_reports_code_behind(
 
     # Should report code behind origin
     assert health["code_behind_origin"] == 1
+
+
+# =============================================================================
+# Upstream Tracking Tests
+# =============================================================================
+
+
+@pytest.fixture
+def repo_with_remote(tmp_path: Path) -> tuple[Path, Path]:
+    """Create a local repo with a bare remote for testing upstream scenarios."""
+    bare_path = tmp_path / "remote.git"
+    bare_path.mkdir()
+    bare = Repo.init(bare_path, bare=True)
+
+    local_path = tmp_path / "local-repo"
+    local_path.mkdir()
+    local = Repo.init(local_path)
+
+    # Create initial commit on main
+    (local_path / "README.md").write_text("# Test Repo\n")
+    local.index.add(["README.md"])
+    author = Actor("Test", "test@example.com")
+    local.index.commit("Initial commit", author=author)
+
+    # Setup main branch and remote
+    try:
+        local.git.checkout("-b", "main")
+    except Exception:
+        pass
+    local.create_remote("origin", str(bare_path))
+    local.git.push("-u", "origin", "main")
+
+    return local_path, bare_path
+
+
+def test_pull_ff_only_with_branch_parameter(repo_with_remote: tuple[Path, Path]) -> None:
+    """Test _pull_ff_only works with explicit branch parameter even without upstream tracking."""
+    local_path, bare_path = repo_with_remote
+    local = Repo(local_path)
+
+    # Create a new branch without upstream tracking
+    local.git.checkout("-b", "feature-no-tracking")
+
+    # Create and push a commit on the remote (via a separate clone)
+    other_path = local_path.parent / "other-clone"
+    other = Repo.clone_from(str(bare_path), str(other_path))
+    # Ensure we're on main before creating the feature branch
+    other.git.checkout("main")
+    other.git.checkout("-b", "feature-no-tracking")
+    author = Actor("Other", "other@example.com")
+    (Path(other.working_dir) / "feature.txt").write_text("Feature content\n")
+    other.index.add(["feature.txt"])
+    other.index.commit("Feature commit", author=author)
+    other.git.push("-u", "origin", "feature-no-tracking")
+
+    # Fetch to see the remote branch
+    local.git.fetch("origin")
+
+    # Verify no upstream tracking
+    try:
+        tracking = local.active_branch.tracking_branch()
+    except Exception:
+        tracking = None
+    assert tracking is None
+
+    # Pull with explicit branch - should succeed
+    result = _pull_ff_only(local, "feature-no-tracking")
+    assert result is True
+
+    # Verify we got the commit
+    assert (local_path / "feature.txt").exists()
+
+
+def test_pull_rebase_with_branch_parameter(repo_with_remote: tuple[Path, Path]) -> None:
+    """Test _pull_rebase works with explicit branch parameter even without upstream tracking."""
+    local_path, bare_path = repo_with_remote
+    local = Repo(local_path)
+
+    # Create a new branch without upstream tracking
+    local.git.checkout("-b", "feature-rebase-test")
+
+    # Create a local commit
+    author = Actor("Local", "local@example.com")
+    (local_path / "local.txt").write_text("Local content\n")
+    local.index.add(["local.txt"])
+    local.index.commit("Local commit", author=author)
+
+    # Create and push a commit on the remote (via a separate clone)
+    other_path = local_path.parent / "other-clone-rebase"
+    other = Repo.clone_from(str(bare_path), str(other_path))
+    other.git.checkout("-b", "feature-rebase-test")
+    (Path(other.working_dir) / "remote.txt").write_text("Remote content\n")
+    other.index.add(["remote.txt"])
+    other.index.commit("Remote commit", author=Actor("Other", "other@example.com"))
+    other.git.push("-u", "origin", "feature-rebase-test")
+
+    # Fetch to see the remote branch
+    local.git.fetch("origin")
+
+    # Verify no upstream tracking
+    try:
+        tracking = local.active_branch.tracking_branch()
+    except Exception:
+        tracking = None
+    assert tracking is None
+
+    # Pull with rebase using explicit branch - should succeed
+    result = _pull_rebase(local, "feature-rebase-test")
+    assert result is True
+
+    # Verify we got both commits
+    assert (local_path / "local.txt").exists()
+    assert (local_path / "remote.txt").exists()
+
+
+def test_checkout_branch_sets_upstream_tracking(repo_with_remote: tuple[Path, Path]) -> None:
+    """Test _checkout_branch sets upstream tracking when remote branch exists."""
+    local_path, bare_path = repo_with_remote
+    local = Repo(local_path)
+
+    # Create and push a feature branch on the remote
+    other_path = local_path.parent / "other-clone-checkout"
+    other = Repo.clone_from(str(bare_path), str(other_path))
+    other.git.checkout("-b", "feature-upstream-test")
+    author = Actor("Other", "other@example.com")
+    (Path(other.working_dir) / "feature.txt").write_text("Feature content\n")
+    other.index.add(["feature.txt"])
+    other.index.commit("Feature commit", author=author)
+    other.git.push("-u", "origin", "feature-upstream-test")
+
+    # Fetch so local knows about the remote branch
+    local.git.fetch("origin")
+
+    # Checkout with create=True and set_upstream=True
+    result = _checkout_branch(local, "feature-upstream-test", create=True, set_upstream=True)
+    assert result is True
+
+    # Verify upstream tracking is set
+    tracking = local.active_branch.tracking_branch()
+    assert tracking is not None
+    assert tracking.name == "origin/feature-upstream-test"
+
+
+def test_checkout_branch_existing_branch_sets_upstream(repo_with_remote: tuple[Path, Path]) -> None:
+    """Test _checkout_branch sets upstream for existing branch without tracking."""
+    local_path, bare_path = repo_with_remote
+    local = Repo(local_path)
+
+    # Create a local branch without tracking
+    local.git.checkout("-b", "feature-existing")
+    author = Actor("Local", "local@example.com")
+    (local_path / "local.txt").write_text("Local content\n")
+    local.index.add(["local.txt"])
+    local.index.commit("Local commit", author=author)
+
+    # Push to create remote branch
+    local.git.push("origin", "feature-existing")
+
+    # Switch to main, verify no tracking on feature-existing
+    local.git.checkout("main")
+
+    # Checkout back to feature-existing with set_upstream=True
+    result = _checkout_branch(local, "feature-existing", create=False, set_upstream=True)
+    assert result is True
+
+    # Verify upstream tracking is now set
+    tracking = local.active_branch.tracking_branch()
+    assert tracking is not None
+    assert tracking.name == "origin/feature-existing"
+
+
+def test_preflight_sets_upstream_tracking(
+    code_repo_with_remote: tuple[Path, Path],
+    threads_repo_with_remote: tuple[Path, Path],
+) -> None:
+    """Test run_preflight auto-sets upstream tracking when missing."""
+    code_path, _ = code_repo_with_remote
+    threads_path, _ = threads_repo_with_remote
+    code = Repo(code_path)
+    threads = Repo(threads_path)
+
+    # Create feature branch in code repo with upstream
+    code.git.checkout("-b", "feature-upstream-preflight")
+    author = Actor("Test", "test@example.com")
+    (code_path / "code.txt").write_text("Code content\n")
+    code.index.add(["code.txt"])
+    code.index.commit("Code commit", author=author)
+    code.git.push("-u", "origin", "feature-upstream-preflight")
+
+    # Create threads branch WITHOUT upstream tracking
+    threads.git.checkout("-b", "feature-upstream-preflight")
+    (threads_path / "thread.md").write_text("# Thread\n")
+    threads.index.add(["thread.md"])
+    threads.index.commit("Thread commit", author=author)
+    # Push but don't set upstream
+    threads.git.push("origin", "feature-upstream-preflight")
+
+    # Verify no upstream on threads
+    threads.git.fetch("origin")
+    try:
+        tracking_before = threads.active_branch.tracking_branch()
+    except Exception:
+        tracking_before = None
+    assert tracking_before is None
+
+    # Run preflight with auto_fix
+    result = run_preflight(
+        code_repo_path=code_path,
+        threads_repo_path=threads_path,
+        auto_fix=True,
+        fetch_first=True,
+    )
+
+    assert result.success is True
+
+    # Verify upstream was set (action logged)
+    actions = result.state.actions_taken
+    upstream_set = any("upstream" in action.lower() for action in actions)
+    assert upstream_set, f"Expected upstream tracking action, got: {actions}"
+
+    # Verify tracking is now configured
+    tracking_after = threads.active_branch.tracking_branch()
+    assert tracking_after is not None
+    assert tracking_after.name == "origin/feature-upstream-preflight"

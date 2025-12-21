@@ -516,13 +516,14 @@ def _fetch_with_timeout(repo: Repo, timeout: int = 30) -> bool:
         return False
 
 
-def _checkout_branch(repo: Repo, branch: str, create: bool = False) -> bool:
-    """Checkout a branch, optionally creating it. Returns True on success.
+def _checkout_branch(repo: Repo, branch: str, create: bool = False, set_upstream: bool = True) -> bool:
+    """Checkout a branch, optionally creating it with upstream tracking.
 
     Args:
         repo: Git repository
         branch: Branch name (validated for safety)
         create: If True, create the branch with -b flag
+        set_upstream: If True and remote branch exists, configure upstream tracking
 
     Returns:
         True on success, False on failure
@@ -530,13 +531,40 @@ def _checkout_branch(repo: Repo, branch: str, create: bool = False) -> bool:
     Note:
         Branch name is validated to prevent flag injection and ensure
         git compatibility before any git operations are performed.
+
+        When create=True and origin/branch exists, the new branch will track the remote.
+        When create=False, upstream tracking will be set if not already configured.
     """
     try:
         _validate_branch_name(branch)
+        remote_ref = f"origin/{branch}"
+
+        # Check if remote branch exists
+        has_remote = False
+        try:
+            has_remote = remote_ref in [r.name for r in repo.remotes.origin.refs]
+        except Exception:
+            pass  # No remote or refs unavailable
+
         if create:
-            repo.git.checkout("-b", branch)
+            if has_remote and set_upstream:
+                # Create branch tracking the remote
+                repo.git.checkout("-b", branch, "--track", remote_ref)
+                log_debug(f"[PARITY] Created branch {branch} tracking {remote_ref}")
+            else:
+                repo.git.checkout("-b", branch)
+                log_debug(f"[PARITY] Created branch {branch} (no remote to track)")
         else:
             repo.git.checkout(branch)
+            # Set upstream if exists and not already set
+            if set_upstream and has_remote:
+                try:
+                    tracking = repo.active_branch.tracking_branch()
+                    if tracking is None:
+                        repo.git.branch("--set-upstream-to", remote_ref)
+                        log_debug(f"[PARITY] Set upstream tracking for {branch} -> {remote_ref}")
+                except Exception as e:
+                    log_debug(f"[PARITY] Could not set upstream (non-fatal): {e}")
         return True
     except ValueError as e:
         log_debug(f"[PARITY] Invalid branch name: {e}")
@@ -573,20 +601,40 @@ def _create_and_push_branch(repo: Repo, branch: str) -> bool:
         return False
 
 
-def _pull_ff_only(repo: Repo) -> bool:
-    """Pull with --ff-only. Returns True on success."""
+def _pull_ff_only(repo: Repo, branch: Optional[str] = None) -> bool:
+    """Pull with --ff-only. Returns True on success.
+
+    Args:
+        repo: Git repository
+        branch: Optional branch name. If provided, pulls from origin/branch explicitly.
+                This allows pull to work even without upstream tracking configured.
+    """
     try:
-        repo.git.pull("--ff-only")
+        if branch:
+            # Note: --ff-only must come before origin/branch for git pull
+            repo.git.pull("--ff-only", "origin", branch)
+        else:
+            repo.git.pull("--ff-only")
         return True
     except GitCommandError as e:
         log_debug(f"[PARITY] FF-only pull failed: {e}")
         return False
 
 
-def _pull_rebase(repo: Repo) -> bool:
-    """Pull with --rebase. Returns True on success."""
+def _pull_rebase(repo: Repo, branch: Optional[str] = None) -> bool:
+    """Pull with --rebase. Returns True on success.
+
+    Args:
+        repo: Git repository
+        branch: Optional branch name. If provided, pulls from origin/branch explicitly.
+                This allows pull to work even without upstream tracking configured.
+    """
     try:
-        repo.git.pull("--rebase")
+        if branch:
+            # Note: --rebase must come before origin/branch for git pull
+            repo.git.pull("--rebase", "origin", branch)
+        else:
+            repo.git.pull("--rebase")
         return True
     except GitCommandError as e:
         log_debug(f"[PARITY] Rebase pull failed: {e}")
@@ -687,7 +735,7 @@ def _push_with_retry(repo: Repo, branch: str, max_retries: int = MAX_PUSH_RETRIE
             if "rejected" in error_text or "non-fast-forward" in error_text:
                 # Try pull --rebase then retry
                 log_debug(f"[PARITY] Push rejected, attempting pull --rebase (attempt {attempt + 1})")
-                if _pull_rebase(repo):
+                if _pull_rebase(repo, branch):
                     continue  # Retry push
                 else:
                     return False
@@ -1021,6 +1069,25 @@ def run_preflight(
                     # This is a warning, not a blocker - we can proceed with local commit
                     log_debug(f"[PARITY] {state.last_error}")
 
+        # Check upstream tracking and auto-set if missing
+        # This ensures pull operations work correctly even after branch creation
+        try:
+            upstream = threads_repo.active_branch.tracking_branch()
+        except Exception:
+            upstream = None
+
+        if upstream is None and threads_on_origin:
+            if auto_fix:
+                try:
+                    threads_repo.git.branch("--set-upstream-to", f"origin/{code_branch}")
+                    actions_taken.append(f"Set upstream tracking for {code_branch}")
+                    log_debug(f"[PARITY] Set upstream tracking: {code_branch} -> origin/{code_branch}")
+                except GitCommandError as e:
+                    # Non-blocking - we can still work with explicit origin/branch
+                    log_debug(f"[PARITY] Failed to set upstream (non-fatal): {e}")
+            else:
+                log_debug(f"[PARITY] Warning: No upstream tracking for {code_branch}")
+
         # Get ahead/behind status
         code_ahead, code_behind = _get_ahead_behind(code_repo, code_branch)
         threads_ahead, threads_behind = _get_ahead_behind(threads_repo, code_branch)
@@ -1079,18 +1146,19 @@ def run_preflight(
                     )
 
             # Step 2: Pull (ff-only first for behind-only, rebase for diverged)
+            # Pass code_branch explicitly to work without upstream tracking
             pulled = False
             if is_diverged:
                 # Diverged: must use rebase to reconcile
-                if _pull_rebase(threads_repo):
+                if _pull_rebase(threads_repo, code_branch):
                     pulled = True
                     actions_taken.append(f"Pulled with rebase ({threads_behind} commits)")
             else:
                 # Behind only: try ff-only first, fallback to rebase
-                if _pull_ff_only(threads_repo):
+                if _pull_ff_only(threads_repo, code_branch):
                     pulled = True
                     actions_taken.append(f"Pulled (ff-only, {threads_behind} commits)")
-                elif _pull_rebase(threads_repo):
+                elif _pull_rebase(threads_repo, code_branch):
                     pulled = True
                     actions_taken.append(f"Pulled (rebase fallback, {threads_behind} commits)")
 
@@ -1302,9 +1370,10 @@ def ensure_readable(
             log_debug(f"[PARITY] ensure_readable: behind by {behind} commits, auto-pulling")
 
             # Try ff-only first, then rebase
-            if _pull_ff_only(repo):
+            # Pass branch explicitly to work without upstream tracking
+            if _pull_ff_only(repo, branch):
                 actions.append(f"Pulled (ff-only, {behind} commits)")
-            elif _pull_rebase(repo):
+            elif _pull_rebase(repo, branch):
                 actions.append(f"Pulled (rebase, {behind} commits)")
             else:
                 log_debug("[PARITY] ensure_readable: pull failed (proceeding with stale data)")
