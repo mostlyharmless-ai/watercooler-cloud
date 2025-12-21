@@ -617,6 +617,10 @@ def _track_access(threads_dir: Path, node_type: str, node_id: str) -> None:
         node_type: "thread" or "entry"
         node_id: Topic (for threads) or entry_id (for entries)
     """
+    # TODO: Counter writes disabled - they dirty the tree and block auto-sync.
+    # See thread: graph-access-counters-sync-strategy for design discussion.
+    # Re-enable once per-system counter files or deferred writes are implemented.
+    return
     if not _use_graph_for_reads(threads_dir):
         return
     try:
