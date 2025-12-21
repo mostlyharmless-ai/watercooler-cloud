@@ -1261,3 +1261,135 @@ def test_ensure_readable_never_blocks() -> None:
 
     # Should return success (reads should never be blocked)
     assert success is True
+
+
+# =============================================================================
+# Pre-Existing Conflict Detection Tests (Regression for bug fix)
+# =============================================================================
+
+
+def test_preflight_blocks_on_preexisting_conflict(repos_with_remotes: tuple[Path, Path, Path, Path]) -> None:
+    """Test that run_preflight blocks when repo already has unresolved conflicts.
+
+    Regression test for bug where attempting pulls on already-conflicted repos
+    would fail with cryptic 'unmerged files' error instead of detecting the
+    conflict early and providing clear instructions.
+
+    Bug context: When a previous operation created a conflict and left it
+    unresolved, subsequent operations would try to pull again, fail immediately
+    with git error, and block all watercooler operations.
+    """
+    code_path, threads_path, code_bare, threads_bare = repos_with_remotes
+
+    # Create a conflict scenario:
+    # 1. Create a file locally with content A
+    # 2. Create same file on remote with content B
+    # 3. Try to pull/merge - this creates a conflict
+    # 4. Leave conflict unresolved (this is the pre-existing state)
+
+    threads = Repo(threads_path)
+
+    # Local: Create test.md with content A
+    test_file = threads_path / "test.md"
+    test_file.write_text("# Local Content A\n")
+    threads.index.add(["test.md"])
+    threads.index.commit("Local commit A")
+
+    # Remote: Create test.md with conflicting content B
+    other_threads = Repo.clone_from(str(threads_bare), str(threads_path.parent / "other-conflict"))
+    try:
+        other_threads.git.checkout("main")
+    except Exception:
+        other_threads.git.checkout("-b", "main")
+
+    other_test_file = Path(other_threads.working_dir) / "test.md"
+    other_test_file.write_text("# Remote Content B\n")
+    author = Actor("Other", "other@example.com")
+    other_threads.index.add(["test.md"])
+    other_threads.index.commit("Remote commit B", author=author)
+    other_threads.git.push("origin", "main")
+
+    # Fetch to detect the difference
+    threads.git.fetch("origin")
+
+    # Try to merge - this will create a conflict
+    try:
+        threads.git.merge("origin/main")
+    except Exception:
+        # Expected - merge creates conflict
+        pass
+
+    # Verify we have an actual conflict (UU status)
+    assert _has_conflicts(threads), "Setup failed: should have created a conflict"
+
+    # Now run preflight - should detect pre-existing conflict and block
+    code = Repo(code_path)
+    result = run_preflight(
+        threads_path,
+        code_path,
+        auto_fix=True,
+    )
+
+    # Should block (not proceed)
+    assert result.success is False
+    assert result.can_proceed is False
+    assert result.blocking_reason is not None
+
+    # Error message should mention unresolved conflicts and provide instructions
+    assert "unresolved" in result.blocking_reason.lower()
+    assert "conflict" in result.blocking_reason.lower()
+
+    # Should provide actionable instructions
+    assert "git status" in result.blocking_reason or "git add" in result.blocking_reason
+
+    # Status should be DIVERGED (conflict state)
+    assert result.state.status == ParityStatus.DIVERGED.value
+
+
+def test_ensure_readable_skips_sync_on_preexisting_conflict(repos_with_remotes: tuple[Path, Path, Path, Path]) -> None:
+    """Test that ensure_readable gracefully handles pre-existing conflicts.
+
+    Unlike write operations which must block on conflicts, read operations
+    should skip sync and allow stale reads (with warning logged).
+    """
+    code_path, threads_path, code_bare, threads_bare = repos_with_remotes
+
+    threads = Repo(threads_path)
+
+    # Create a conflict scenario (same as above)
+    test_file = threads_path / "conflict.md"
+    test_file.write_text("# Local Version\n")
+    threads.index.add(["conflict.md"])
+    threads.index.commit("Local commit")
+
+    other_threads = Repo.clone_from(str(threads_bare), str(threads_path.parent / "other-read-conflict"))
+    try:
+        other_threads.git.checkout("main")
+    except Exception:
+        other_threads.git.checkout("-b", "main")
+
+    other_test_file = Path(other_threads.working_dir) / "conflict.md"
+    other_test_file.write_text("# Remote Version\n")
+    author = Actor("Other", "other@example.com")
+    other_threads.index.add(["conflict.md"])
+    other_threads.index.commit("Remote commit", author=author)
+    other_threads.git.push("origin", "main")
+
+    threads.git.fetch("origin")
+
+    try:
+        threads.git.merge("origin/main")
+    except Exception:
+        pass  # Expected conflict
+
+    assert _has_conflicts(threads), "Setup failed: should have created a conflict"
+
+    # ensure_readable should not block, but should skip sync
+    success, actions = ensure_readable(threads_path, code_path)
+
+    # Should succeed (reads never block)
+    assert success is True
+
+    # Should have skipped sync due to conflicts
+    assert any("conflict" in action.lower() for action in actions)
+    assert any("stale" in action.lower() for action in actions)

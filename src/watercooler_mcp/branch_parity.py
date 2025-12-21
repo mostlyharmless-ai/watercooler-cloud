@@ -743,10 +743,53 @@ def run_preflight(
                 blocking_reason=state.last_error,
             )
 
-        # Check for rebase/merge in progress
+        # Check for conflicts FIRST - if a merge/rebase has conflicts, that's the primary issue
+        # This must come before _is_rebase_in_progress because MERGE_HEAD exists during conflicts
+        if _has_conflicts(code_repo):
+            state.status = ParityStatus.DIVERGED.value
+            state.last_error = (
+                f"Code repository has unresolved merge conflicts. "
+                f"Resolve conflicts manually and commit, then retry.\n\n"
+                f"To resolve:\n"
+                f"  cd {code_repo_path}\n"
+                f"  git status  # See conflicted files\n"
+                f"  # Edit files to resolve <<<< ==== >>>> markers\n"
+                f"  git add <resolved-files>\n"
+                f"  git commit -m 'Resolve merge conflict'\n"
+                f"  # Then retry your watercooler operation"
+            )
+            return PreflightResult(
+                success=False,
+                state=state,
+                can_proceed=False,
+                blocking_reason=state.last_error,
+            )
+
+        if _has_conflicts(threads_repo):
+            state.status = ParityStatus.DIVERGED.value
+            state.last_error = (
+                f"Threads repository has unresolved merge conflicts from a previous operation. "
+                f"Resolve conflicts manually and commit, then retry.\n\n"
+                f"To resolve:\n"
+                f"  cd {threads_repo_path}\n"
+                f"  git status  # See conflicted files\n"
+                f"  # Edit files to resolve <<<< ==== >>>> markers\n"
+                f"  git add <resolved-files>\n"
+                f"  git commit -m 'Resolve merge conflict'\n"
+                f"  # Then retry your watercooler operation"
+            )
+            return PreflightResult(
+                success=False,
+                state=state,
+                can_proceed=False,
+                blocking_reason=state.last_error,
+            )
+
+        # Check for clean rebase/merge in progress (no conflicts)
+        # If we get here, any MERGE_HEAD/rebase state is conflict-free and just needs completion
         if _is_rebase_in_progress(code_repo):
             state.status = ParityStatus.REBASE_IN_PROGRESS.value
-            state.last_error = "Code repo has rebase/merge in progress"
+            state.last_error = "Code repo has rebase/merge in progress (no conflicts detected)"
             return PreflightResult(
                 success=False,
                 state=state,
@@ -756,7 +799,7 @@ def run_preflight(
 
         if _is_rebase_in_progress(threads_repo):
             state.status = ParityStatus.REBASE_IN_PROGRESS.value
-            state.last_error = "Threads repo has rebase/merge in progress"
+            state.last_error = "Threads repo has rebase/merge in progress (no conflicts detected)"
             return PreflightResult(
                 success=False,
                 state=state,
@@ -1202,6 +1245,15 @@ def ensure_readable(
 
     try:
         repo = Repo(threads_repo_path, search_parent_directories=True)
+
+        # Early conflict detection - skip sync but allow stale reads
+        # This prevents attempting pulls on a conflicted repo
+        if _has_conflicts(repo):
+            log_debug(
+                f"[PARITY] ensure_readable: Threads repo has unresolved conflicts, "
+                f"skipping sync (may return stale data)"
+            )
+            return (True, ["Skipped sync due to unresolved conflicts - reading potentially stale data"])
 
         # Fetch from origin (with timeout)
         if not _fetch_with_timeout(repo):
