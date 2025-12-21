@@ -3,7 +3,7 @@
 from __future__ import annotations
 
 from dataclasses import dataclass, field
-from typing import Mapping, Protocol, Sequence, Any, runtime_checkable
+from typing import Literal, Mapping, Protocol, Sequence, Any, TypedDict, runtime_checkable
 
 
 class BackendError(Exception):
@@ -18,10 +18,106 @@ class TransientError(BackendError):
     """Raised for retryable errors."""
 
 
+class UnsupportedOperationError(BackendError):
+    """Raised when an operation is not supported by the backend."""
+
+
+class IdNotSupportedError(BackendError):
+    """Raised when an ID format is not supported by the backend."""
+
+
+# Type aliases for backend identification
+BackendName = Literal["graphiti", "leanrag", "null", "custom"]
+
+
+class _CoreResultRequired(TypedDict):
+    """Required fields for CoreResult."""
+    id: str  # Backend-specific ID format
+    backend: BackendName  # Which backend produced this
+
+
+class CoreResult(_CoreResultRequired, total=False):
+    """Normalized response format for all backends.
+
+    Core fields that all backends should provide when returning
+    nodes, facts, episodes, or chunks.
+
+    Required fields: id, backend
+    Optional fields: score, name, content, summary, source, group_id, metadata, extra
+    """
+
+    score: float | None  # 0.0-1.0 or None
+    name: str | None
+    content: str | None
+    summary: str | None
+    source: str | None
+    group_id: str | None
+    metadata: Mapping[str, Any]  # Free-form metadata
+    extra: Mapping[str, Any]  # Backend-specific fields
+
+
+# NOTE: The following TypedDicts (CapabilityGetNode, CapabilityGetEdge, etc.) are defined
+# for Phase 2+ of the backend abstraction refactoring. They will be used in the service
+# layer to enforce capability checks and provide detailed capability descriptors.
+
+
+class CapabilityGetNode(TypedDict):
+    """Node retrieval capabilities."""
+
+    id: bool  # Supports UUID/ID lookup
+    name: bool  # Supports name lookup
+
+
+class CapabilityGetEdge(TypedDict):
+    """Edge retrieval capabilities."""
+
+    id: bool  # Supports edge ID lookup
+
+
+class CapabilityGetEpisode(TypedDict):
+    """Episode retrieval capabilities."""
+
+    id: bool  # Supports episode ID lookup
+
+
+class Supports(TypedDict):
+    """Operation support flags."""
+
+    search_nodes: bool
+    search_facts: bool
+    search_episodes: bool
+    search_chunks: bool
+    get_node: CapabilityGetNode
+    get_edge: CapabilityGetEdge
+    get_episode: CapabilityGetEpisode
+
+
+class IdShapes(TypedDict):
+    """ID format descriptors for different entity types."""
+
+    node: Literal["uuid", "name", "passthrough"]
+    edge: Literal["uuid", "synthetic", "passthrough"]
+    episode: Literal["uuid", "passthrough"]
+
+
+class CapabilityDescriptor(TypedDict, total=False):
+    """Complete backend capability descriptor.
+
+    Describes what operations a backend supports and what ID formats
+    it uses for different entity types.
+    """
+
+    backend: BackendName
+    supports: Supports
+    id_shapes: IdShapes
+    notes: Sequence[str]
+
+
 @dataclass
 class Capabilities:
     """Describes supported backend features."""
 
+    # Legacy capabilities (maintain backwards compatibility)
     embeddings: bool = False
     entity_extraction: bool = False
     graph_query: bool = False
@@ -31,6 +127,17 @@ class Capabilities:
     supports_milvus: bool = False
     supports_neo4j: bool = False
     max_tokens: int | None = None
+
+    # New operation support flags (Phase 1)
+    supports_nodes: bool = False
+    supports_facts: bool = False
+    supports_episodes: bool = False
+    supports_chunks: bool = False
+    supports_edges: bool = False
+
+    # ID modality flags (how backends identify entities/edges)
+    node_id_type: Literal["uuid", "name", "hybrid"] = "uuid"
+    edge_id_type: Literal["uuid", "synthetic", "none"] = "uuid"
 
 
 @dataclass
@@ -263,19 +370,159 @@ class MemoryBackend(Protocol):
         """
 
 
+    def search_nodes(
+        self,
+        query: str,
+        group_ids: Sequence[str] | None = None,
+        max_results: int = 10,
+        entity_types: Sequence[str] | None = None,
+    ) -> list[dict[str, Any]]:
+        """Search for entity nodes using semantic search.
+
+        Args:
+            query: Search query string
+            group_ids: Optional list of group IDs to filter by (backend-specific)
+            max_results: Maximum number of results to return
+            entity_types: Optional list of entity types to filter by
+
+        Returns:
+            Sequence of normalized CoreResult dictionaries
+
+        Raises:
+            UnsupportedOperationError: If backend doesn't support node search
+            ConfigError: If backend configuration is invalid
+            TransientError: For retryable failures
+            BackendError: For other backend failures
+        """
+
+    def search_facts(
+        self,
+        query: str,
+        group_ids: Sequence[str] | None = None,
+        max_results: int = 10,
+        center_node_id: str | None = None,
+    ) -> list[dict[str, Any]]:
+        """Search for facts/relationships using semantic search.
+
+        Args:
+            query: Search query string
+            group_ids: Optional list of group IDs to filter by (backend-specific)
+            max_results: Maximum number of results to return
+            center_node_id: Optional node ID to center search around
+
+        Returns:
+            Sequence of normalized CoreResult dictionaries
+
+        Raises:
+            UnsupportedOperationError: If backend doesn't support fact search
+            ConfigError: If backend configuration is invalid
+            TransientError: For retryable failures
+            BackendError: For other backend failures
+        """
+
+    def search_episodes(
+        self,
+        query: str,
+        group_ids: Sequence[str] | None = None,
+        max_results: int = 10,
+    ) -> list[dict[str, Any]]:
+        """Search for episodes (provenance-bearing content) using semantic search.
+
+        Episodes are content with temporal/actor provenance (who/when context).
+        Different from chunks which are static document segments.
+
+        Args:
+            query: Search query string
+            group_ids: Optional list of group IDs to filter by (backend-specific)
+            max_results: Maximum number of results to return
+
+        Returns:
+            Sequence of normalized CoreResult dictionaries
+
+        Raises:
+            UnsupportedOperationError: If backend doesn't support episode search
+            ConfigError: If backend configuration is invalid
+            TransientError: For retryable failures
+            BackendError: For other backend failures
+        """
+
+    def get_node(
+        self,
+        node_id: str,
+        group_id: str | None = None,
+    ) -> dict[str, Any] | None:
+        """Get a node by ID.
+
+        ID format is backend-specific (UUID for Graphiti, entity name for LeanRAG).
+
+        Args:
+            node_id: Node identifier (format depends on backend)
+            group_id: Optional group ID to filter by (backend-specific)
+
+        Returns:
+            Normalized CoreResult dictionary or None if not found
+
+        Raises:
+            UnsupportedOperationError: If backend doesn't support node retrieval
+            IdNotSupportedError: If ID format is not supported by backend
+            ConfigError: If backend configuration is invalid
+            TransientError: For retryable failures
+            BackendError: For other backend failures
+        """
+
+    def get_edge(
+        self,
+        edge_id: str,
+        group_id: str | None = None,
+    ) -> dict[str, Any] | None:
+        """Get an edge/fact by ID.
+
+        ID format is backend-specific (UUID for Graphiti, synthetic for LeanRAG).
+
+        Args:
+            edge_id: Edge identifier (format depends on backend)
+            group_id: Optional group ID to filter by (backend-specific)
+
+        Returns:
+            Normalized CoreResult dictionary or None if not found
+
+        Raises:
+            UnsupportedOperationError: If backend doesn't support edge retrieval
+            IdNotSupportedError: If ID format is not supported by backend
+            ConfigError: If backend configuration is invalid
+            TransientError: For retryable failures
+            BackendError: For other backend failures
+        """
+
+
 __all__ = [
+    # Exceptions
     "BackendError",
+    "ConfigError",
+    "TransientError",
+    "UnsupportedOperationError",
+    "IdNotSupportedError",
+    # Type aliases
+    "BackendName",
+    # TypedDicts
+    "CoreResult",
+    "CapabilityGetNode",
+    "CapabilityGetEdge",
+    "CapabilityGetEpisode",
+    "Supports",
+    "IdShapes",
+    "CapabilityDescriptor",
+    # Dataclasses
     "Capabilities",
     "ChunkPayload",
-    "ConfigError",
     "CorpusPayload",
     "HealthStatus",
     "IndexResult",
-    "MemoryBackend",
     "PrepareResult",
     "QueryPayload",
     "QueryResult",
-    "TransientError",
+    # Protocol
+    "MemoryBackend",
     # Registry helpers
     "register_backend",
     "get_backend",

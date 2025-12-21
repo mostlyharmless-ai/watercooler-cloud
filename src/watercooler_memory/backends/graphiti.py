@@ -9,7 +9,7 @@ import subprocess
 import tempfile
 from dataclasses import dataclass
 from pathlib import Path
-from typing import Any
+from typing import Any, Sequence
 
 from . import (
     BackendError,
@@ -98,8 +98,10 @@ class GraphitiBackend(MemoryBackend):
     DEFAULT_MAX_NODES = 10
     DEFAULT_MAX_FACTS = 10
     DEFAULT_MAX_EPISODES = 10
-    HARD_RESULT_LIMIT = 50  # Maximum results regardless of user request
-
+    # Search result validation limits
+    MIN_SEARCH_RESULTS = 1  # Minimum valid max_results parameter
+    MAX_SEARCH_RESULTS = 50  # Maximum valid max_results parameter
+    
     # Community limits (top-5 to prevent payload bloat per Codex feedback)
     MAX_COMMUNITIES_RETURNED = 5
 
@@ -948,14 +950,38 @@ class GraphitiBackend(MemoryBackend):
         except Exception as e:
             raise BackendError(f"Query execution failed: {e}") from e
 
+    def _validate_uuid(self, value: str, param_name: str) -> None:
+        """Validate that a string is a valid UUID format.
+        
+        Args:
+            value: String to validate as UUID
+            param_name: Parameter name for error messages
+            
+        Raises:
+            ConfigError: If value is not a valid UUID
+        """
+        try:
+            import uuid
+            uuid.UUID(value)
+        except ValueError:
+            from . import ConfigError
+            raise ConfigError(
+                f"{param_name} must be a valid UUID, got: {repr(value)}"
+            )
+
     def search_nodes(
         self,
         query: str,
-        group_ids: list[str] | None = None,
-        max_nodes: int = DEFAULT_MAX_NODES,
-        entity_types: list[str] | None = None,
+        group_ids: Sequence[str] | None = None,
+        max_results: int = DEFAULT_MAX_NODES,
+        entity_types: Sequence[str] | None = None,
     ) -> list[dict[str, Any]]:
         """Search for nodes (entities) using hybrid semantic search.
+
+        Protocol-compliant direct implementation (not a wrapper).
+        Unlike search_facts() and search_episodes(), this method doesn't delegate
+        to another method - it's the primary implementation. Added in Phase 1 as
+        a new protocol method with full Graphiti integration.
 
         Note: This method uses a sync facade pattern (approved by Codex).
         It's synchronous but internally uses asyncio.run() to call async
@@ -966,16 +992,29 @@ class GraphitiBackend(MemoryBackend):
         Args:
             query: Search query string
             group_ids: Optional list of group IDs to filter by
-            max_nodes: Maximum nodes to return (default: 10, max: 50)
+            max_results: Maximum nodes to return (default: 10, max: 50)
             entity_types: Optional list of entity type names to filter
 
         Returns:
             List of node dicts with uuid, name, labels, summary, etc.
 
         Raises:
+            ConfigError: If max_results is out of valid range
             BackendError: If search fails
             TransientError: If database connection fails
         """
+        # Validate query is not empty
+        if not query or not query.strip():
+            from . import ConfigError
+            raise ConfigError("query cannot be empty")
+        
+        # Validate max_results to prevent resource exhaustion
+        if max_results < self.MIN_SEARCH_RESULTS or max_results > self.MAX_SEARCH_RESULTS:
+            from . import ConfigError
+            raise ConfigError(
+                f"max_results must be between {self.MIN_SEARCH_RESULTS} and {self.MAX_SEARCH_RESULTS}, got {max_results}"
+            )
+        
         try:
             graphiti = self._create_graphiti_client()
         except Exception as e:
@@ -1006,7 +1045,7 @@ class GraphitiBackend(MemoryBackend):
             )
             
             # Extract nodes from results (official approach)
-            limit = min(max_nodes, self.HARD_RESULT_LIMIT)
+            limit = min(max_results, self.MAX_SEARCH_RESULTS)
             nodes = search_results.nodes[:limit] if search_results.nodes else []
             
             # Format results with reranker scores
@@ -1018,7 +1057,8 @@ class GraphitiBackend(MemoryBackend):
                     score = search_results.node_reranker_scores[idx]
                 
                 results.append({
-                    "uuid": node.uuid,
+                    "id": node.uuid,  # Required by CoreResult protocol
+                    "uuid": node.uuid,  # Preserved for backwards compatibility
                     "name": node.name,
                     "labels": node.labels if node.labels else [],
                     "summary": self._truncate_node_summary(
@@ -1027,6 +1067,12 @@ class GraphitiBackend(MemoryBackend):
                     "created_at": node.created_at.isoformat() if node.created_at else None,
                     "group_id": node.group_id if hasattr(node, 'group_id') else None,
                     "score": score,  # Hybrid search reranker score
+                    "backend": "graphiti",  # Required by CoreResult protocol
+                    # Optional CoreResult fields
+                    "content": None,  # Nodes don't have content (episodes do)
+                    "source": None,  # Source tracking not applicable to entities
+                    "metadata": {},  # Additional metadata can be added here
+                    "extra": {},  # Backend-specific fields can be added here
                 })
             
             return results
@@ -1036,8 +1082,222 @@ class GraphitiBackend(MemoryBackend):
         except Exception as e:
             raise BackendError(f"Node search failed for '{query}': {e}") from e
 
-    def get_entity_edge(self, uuid: str, group_id: str | None = None) -> dict[str, Any]:
+
+    def get_node(
+        self,
+        node_id: str,
+        group_id: str | None = None,
+    ) -> dict[str, Any] | None:
+        """Get a node by UUID.
+
+        Args:
+            node_id: Node UUID to retrieve
+            group_id: Group ID (database name) where the node is stored.
+                     Required for multi-database setups. If None, queries default_db.
+
+        Returns:
+            Node dict with uuid, name, labels, summary, etc. or None if not found
+
+        Raises:
+            ConfigError: If node_id is empty or invalid
+            BackendError: If retrieval fails
+            TransientError: If database connection fails
+        """
+        # Validate node_id is not empty
+        if not node_id or not node_id.strip():
+            from . import ConfigError
+            raise ConfigError("node_id cannot be empty")
+        
+        # Validate node_id is a valid UUID format
+        self._validate_uuid(node_id, "node_id")
+        
+        try:
+            graphiti = self._create_graphiti_client()
+        except Exception as e:
+            raise TransientError(f"Database connection failed: {e}") from e
+
+        async def get_node_async():
+            from graphiti_core.nodes import EntityNode
+
+            # Clone driver to use specific database if group_id provided
+            driver = graphiti.driver
+            if group_id:
+                sanitized_group_id = self._sanitize_thread_id(group_id)
+                driver = graphiti.driver.clone(database=sanitized_group_id)
+
+            # Get node by UUID
+            node = await EntityNode.get_by_uuid(driver, node_id)
+            if not node:
+                return None
+
+            # Format result
+            return {
+                "id": node.uuid,  # Required by CoreResult protocol
+                "uuid": node.uuid,  # Preserved for backwards compatibility
+                "name": node.name,
+                "labels": node.labels if node.labels else [],
+                "summary": self._truncate_node_summary(
+                    node.summary if hasattr(node, 'summary') else None
+                ),
+                "created_at": node.created_at.isoformat() if node.created_at else None,
+                "group_id": node.group_id if hasattr(node, 'group_id') else None,
+                "backend": "graphiti",  # Required by CoreResult protocol
+            }
+
+        try:
+            return asyncio.run(get_node_async())
+        except Exception as e:
+            raise BackendError(f"Failed to get node '{node_id}': {e}") from e
+
+
+    def search_facts(
+        self,
+        query: str,
+        group_ids: Sequence[str] | None = None,
+        max_results: int = DEFAULT_MAX_FACTS,
+        center_node_id: str | None = None,
+    ) -> list[dict[str, Any]]:
+        """Search for facts (edges) using semantic search.
+
+        Protocol-compliant wrapper for search_memory_facts().
+
+        Args:
+            query: Search query string
+            group_ids: Optional list of group IDs to filter by
+            max_results: Maximum facts to return (default: 10, max: 50)
+            center_node_id: Optional node UUID to center search around
+
+        Returns:
+            List of fact dicts with edge data
+
+        Raises:
+            ConfigError: If query is empty or max_results is out of valid range
+            BackendError: If search fails
+            TransientError: If database connection fails
+        """
+        # Validate query is not empty
+        if not query or not query.strip():
+            from . import ConfigError
+            raise ConfigError("query cannot be empty")
+        
+        # Validate max_results to prevent resource exhaustion
+        if max_results < self.MIN_SEARCH_RESULTS or max_results > self.MAX_SEARCH_RESULTS:
+            from . import ConfigError
+            raise ConfigError(
+                f"max_results must be between {self.MIN_SEARCH_RESULTS} and {self.MAX_SEARCH_RESULTS}, got {max_results}"
+            )
+        
+        # Get results from underlying method
+        results = self.search_memory_facts(
+            query=query,
+            group_ids=group_ids,
+            max_facts=max_results,
+            center_node_uuid=center_node_id,
+        )
+        
+        # Add CoreResult-compliant fields to each result
+        for result in results:
+            result.setdefault("id", result.get("uuid"))  # Required by CoreResult
+            result.setdefault("backend", "graphiti")  # Required by CoreResult
+            result.setdefault("content", None)  # Facts don't have content
+            result.setdefault("source", None)  # Source tracking not applicable to edges
+            result.setdefault("metadata", {})  # Additional metadata
+            result.setdefault("extra", {})  # Backend-specific fields
+        
+        return results
+
+    def search_episodes(
+        self,
+        query: str,
+        group_ids: Sequence[str] | None = None,
+        max_results: int = DEFAULT_MAX_EPISODES,
+    ) -> list[dict[str, Any]]:
+        """Search for episodes (provenance-bearing content) using semantic search.
+
+        Protocol-compliant wrapper for get_episodes().
+
+        Args:
+            query: Search query string
+            group_ids: Optional list of group IDs to filter by
+            max_results: Maximum episodes to return (default: 10, max: 50)
+
+        Returns:
+            List of episode dicts with uuid, name, content, timestamps
+
+        Raises:
+            ConfigError: If query is empty or max_results is out of valid range
+            BackendError: If search fails
+            TransientError: If database connection fails
+        """
+        # Validate query is not empty
+        if not query or not query.strip():
+            from . import ConfigError
+            raise ConfigError("query cannot be empty")
+        
+        # Validate max_results to prevent resource exhaustion
+        if max_results < self.MIN_SEARCH_RESULTS or max_results > self.MAX_SEARCH_RESULTS:
+            from . import ConfigError
+            raise ConfigError(
+                f"max_results must be between {self.MIN_SEARCH_RESULTS} and {self.MAX_SEARCH_RESULTS}, got {max_results}"
+            )
+        
+        # Get results from underlying method
+        results = self.get_episodes(
+            query=query,
+            group_ids=group_ids,
+            max_episodes=max_results,
+        )
+        
+        # Add CoreResult-compliant fields to each result
+        for result in results:
+            result.setdefault("id", result.get("uuid"))  # Required by CoreResult
+            result.setdefault("backend", "graphiti")  # Required by CoreResult
+            result.setdefault("metadata", {})  # Additional metadata
+            result.setdefault("extra", {})  # Backend-specific fields
+        
+        return results
+
+    def get_edge(
+        self,
+        edge_id: str,
+        group_id: str | None = None,
+    ) -> dict[str, Any] | None:
+        """Get an edge/fact by UUID.
+
+        Protocol-compliant wrapper for get_entity_edge().
+
+        Args:
+            edge_id: Edge UUID to retrieve
+            group_id: Group ID (database name) where the edge is stored
+
+        Returns:
+            Edge dict or None if not found
+
+        Raises:
+            ConfigError: If edge_id is empty or invalid
+            BackendError: If retrieval fails
+            TransientError: If database connection fails
+        """
+        # Validate edge_id is not empty
+        if not edge_id or not edge_id.strip():
+            from . import ConfigError
+            raise ConfigError("edge_id cannot be empty")
+        
+        # Validate edge_id is a valid UUID format
+        self._validate_uuid(edge_id, "edge_id"
+            )
+        
+        # get_entity_edge() now returns None for not-found cases
+        return self.get_entity_edge(uuid=edge_id, group_id=group_id)
+
+    def get_entity_edge(self, uuid: str, group_id: str | None = None) -> dict[str, Any] | None:
         """Get an entity edge by UUID.
+
+        .. warning::
+            BEHAVIOR CHANGE: This method now returns None when an edge is not found,
+            instead of raising an exception. This is a potentially breaking change
+            if existing code expects exceptions for missing edges. Update error
+            handling accordingly.
 
         Args:
             uuid: Edge UUID to retrieve
@@ -1045,13 +1305,21 @@ class GraphitiBackend(MemoryBackend):
                      Required for multi-database setups. If None, queries default_db.
 
         Returns:
-            Edge dict with uuid, fact, source/target nodes, timestamps
+            Edge dict with uuid, fact, source/target nodes, timestamps, or None if not found
 
         Raises:
-            BackendError: If edge not found or retrieval fails
+            ConfigError: If uuid is empty or invalid
+            BackendError: If retrieval fails (not for "not found" cases)
             TransientError: If database connection fails
-            ConfigError: If group_id is required but not provided
         """
+        # Validate uuid is not empty
+        if not uuid or not uuid.strip():
+            from . import ConfigError
+            raise ConfigError("uuid cannot be empty")
+        
+        # Validate uuid is a valid UUID format
+        self._validate_uuid(uuid, "uuid")
+        
         try:
             graphiti = self._create_graphiti_client()
         except Exception as e:
@@ -1067,11 +1335,10 @@ class GraphitiBackend(MemoryBackend):
                 driver = graphiti.driver.clone(database=sanitized_group_id)
 
             # Get edge by UUID
-            try:
-                edge = await EntityEdge.get_by_uuid(driver, uuid)
-            except Exception as e:
-                db_info = f" in database '{group_id}'" if group_id else " in default database"
-                raise BackendError(f"Entity edge '{uuid}' not found{db_info}: {e}") from e
+            edge = await EntityEdge.get_by_uuid(driver, uuid)
+            if not edge:
+                # Return None for not-found cases (protocol compliant)
+                return None
 
             # Format result
             return {
@@ -1129,7 +1396,7 @@ class GraphitiBackend(MemoryBackend):
                 sanitized_group_ids = [self._sanitize_thread_id(gid) for gid in effective_group_ids]
 
             # Use search_() API for facts with reranker scores (match query_memory pattern)
-            limit = min(max_facts, self.HARD_RESULT_LIMIT)
+            limit = min(max_facts, self.MAX_SEARCH_RESULTS)
             search_config = self._get_search_config()
             
             search_results = await graphiti.search_(
@@ -1212,7 +1479,7 @@ class GraphitiBackend(MemoryBackend):
                 sanitized_group_ids = [self._sanitize_thread_id(gid) for gid in effective_group_ids]
 
             # Search episodes via COMBINED config (retrieves episodes + edges + nodes)
-            limit = min(max_episodes, self.HARD_RESULT_LIMIT)
+            limit = min(max_episodes, self.MAX_SEARCH_RESULTS)
             search_config = self._get_search_config()
             
             search_results = await graphiti.search_(
@@ -1303,8 +1570,10 @@ class GraphitiBackend(MemoryBackend):
         - Entity extraction: Yes (automatic)
         - Graph query: Yes (temporal graph)
         - Rerank: No (hybrid search instead)
+        - New operation support flags (Phase 1)
         """
         return Capabilities(
+            # Legacy capabilities
             embeddings=True,  # Always via OpenAI or compatible
             entity_extraction=True,  # Automatic fact extraction
             graph_query=True,  # Temporal graph queries
@@ -1314,4 +1583,13 @@ class GraphitiBackend(MemoryBackend):
             supports_milvus=False,  # Not used
             supports_neo4j=True,  # Graphiti also supports Neo4j
             max_tokens=None,  # No fixed limit
+            # New operation support flags (Phase 1)
+            supports_nodes=True,  # ✅ Via search_nodes()
+            supports_facts=True,  # ✅ Via search_memory_facts()
+            supports_episodes=True,  # ✅ Via get_episodes()
+            supports_chunks=False,  # ❌ Episodes are not chunks
+            supports_edges=True,  # ✅ Via get_entity_edge()
+            # ID modality
+            node_id_type="uuid",  # Graphiti uses UUIDs for nodes
+            edge_id_type="uuid",  # Graphiti uses UUIDs for edges
         )

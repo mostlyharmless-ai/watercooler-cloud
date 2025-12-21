@@ -241,4 +241,10 @@ cloudflare-worker/.cache/
 
 # Scratch/notes file
 .scratch.txt
+
+# Test artifacts from backend integration tests
 tests/test-artifacts/
+tests/test_artifacts/
+
+# Planning documents (not for version control)
+docs/planning/
