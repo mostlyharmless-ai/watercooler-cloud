@@ -4537,17 +4537,18 @@ def _check_first_run() -> None:
         if not has_config:
             print(
                 "\n"
-                "━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━\n"
+                "━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━\n"
                 "ℹ️  No watercooler config found.\n"
                 "\n"
-                "   To customize settings, create a config file:\n"
+                "   Create a config file to customize settings:\n"
                 "\n"
-                "     watercooler config init --user     # ~/.watercooler/config.toml\n"
-                "     watercooler config init --project  # .watercooler/config.toml\n"
+                "     uvx watercooler-cloud config init --user\n"
                 "\n"
-                "   Using defaults for now. This message won't appear again\n"
+                "   This creates ~/.watercooler/config.toml with sensible defaults.\n"
+                "\n"
+                "   Using built-in defaults for now. This message won't appear\n"
                 "   once a config file exists.\n"
-                "━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━\n",
+                "━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━\n",
                 file=sys.stderr
             )
     except Exception:
@@ -4639,12 +4640,42 @@ def _ensure_ollama_running():
         except (FileNotFoundError, subprocess.TimeoutExpired):
             pass
 
-        # If we get here, couldn't start Ollama
-        print(
-            "Warning: Could not start Ollama. Graph features (summaries/embeddings) "
-            "will be skipped. Install Ollama: https://ollama.ai",
-            file=sys.stderr
+        # If we get here, couldn't start Ollama - give platform-aware guidance
+        import platform
+        system = platform.system().lower()
+
+        if system == "windows":
+            install_cmd = "winget install Ollama.Ollama"
+            alt_install = "Or download from: https://ollama.com/download/windows"
+        elif system == "darwin":
+            install_cmd = "brew install ollama  # or: curl -fsSL https://ollama.com/install.sh | sh"
+            alt_install = ""
+        else:  # Linux
+            install_cmd = "curl -fsSL https://ollama.com/install.sh | sh"
+            alt_install = ""
+
+        msg = (
+            "\n"
+            "━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━\n"
+            "⚠️  Ollama not found - graph features (summaries/embeddings) disabled\n"
+            "\n"
+            "   To enable AI-powered summaries and semantic search, run:\n"
+            "\n"
+            f"     {install_cmd}\n"
         )
+        if alt_install:
+            msg += f"     {alt_install}\n"
+        msg += (
+            "\n"
+            "   Then pull the required models:\n"
+            "\n"
+            "     ollama pull llama3.2:3b\n"
+            "     ollama pull nomic-embed-text\n"
+            "\n"
+            "   Finally, restart your IDE to reload the MCP server.\n"
+            "━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━\n"
+        )
+        print(msg, file=sys.stderr)
     except Exception as e:
         # Don't let auto-start errors break server startup
         print(f"Warning: Ollama auto-start check failed: {e}", file=sys.stderr)
