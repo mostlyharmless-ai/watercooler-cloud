@@ -1230,15 +1230,9 @@ def reconcile_parity(
                 if _pull_rebase(threads_repo):
                     actions_taken.append(f"Pulled threads (rebase, {threads_behind} commits)")
                 else:
-                    return ToolResult(content=[TextContent(
-                        type="text",
-                        text=json.dumps({
-                            "status": "error",
-                            "error": "Failed to pull threads - rebase conflict detected. "
-                                     "Please resolve manually with: cd <threads-dir> && git rebase --abort",
-                            "threads_dir": str(context.threads_dir),
-                        }, indent=2)
-                    )])
+                    # Pull failed - let run_preflight handle any conflicts (including graph-only conflicts)
+                    log_debug("[RECONCILE] Pull with rebase failed, will check for conflicts in preflight")
+                    actions_taken.append(f"Pull with rebase failed (conflicts may exist)")
 
         # Run preflight with auto-fix enabled
         preflight_result = run_preflight(

@@ -14,6 +14,7 @@ import json
 import pytest
 from pathlib import Path
 from git import Repo, Actor
+from git.exc import GitCommandError
 
 from watercooler_mcp.branch_parity import (
     ParityStatus,
@@ -1883,3 +1884,311 @@ def test_preflight_branch_mismatch_dirty_checkout_fails_keeps_stash(
     # Verify actions include stash and restore
     actions = result.state.actions_taken
     assert any("stash" in a.lower() for a in actions), f"Expected stash, got: {actions}"
+
+
+def test_preflight_auto_resolves_graph_only_conflicts(
+    code_repo: Path,
+    threads_repo: Path,
+) -> None:
+    """Test that preflight auto-resolves graph-only conflicts from concurrent syncs.
+
+    Regression test for infinite retry loop when concurrent graph syncs create
+    deterministic conflicts in manifest.json.
+    """
+    import json
+
+    threads = Repo(threads_repo)
+    author = Actor("Test", "test@example.com")
+
+    # Create graph directory structure
+    graph_dir = threads_repo / "graph" / "baseline"
+    graph_dir.mkdir(parents=True, exist_ok=True)
+
+    # Create initial manifest
+    manifest = {
+        "version": "1.0",
+        "generated_at": "2025-01-01T00:00:00Z",
+        "last_updated": "2025-01-01T00:00:00Z",
+        "topics_synced": {
+            "test-topic": {
+                "last_entry_id": "01INITIAL",
+                "synced_at": "2025-01-01T00:00:00Z"
+            }
+        }
+    }
+    manifest_path = graph_dir / "manifest.json"
+    manifest_path.write_text(json.dumps(manifest, indent=2) + "\n")
+
+    # Create initial nodes and edges
+    nodes_path = graph_dir / "nodes.jsonl"
+    edges_path = graph_dir / "edges.jsonl"
+    nodes_path.write_text('{"uuid":"node1","name":"Test Node"}\n')
+    edges_path.write_text('{"uuid":"edge1","fact":"Test Fact"}\n')
+
+    # Commit initial graph
+    threads.index.add(["graph/baseline/manifest.json", "graph/baseline/nodes.jsonl", "graph/baseline/edges.jsonl"])
+    threads.index.commit("Initial graph state", author=author)
+
+    # Create LOCAL commit: update manifest with entry A
+    manifest["last_updated"] = "2025-01-01T01:00:00Z"
+    manifest["topics_synced"]["test-topic"]["last_entry_id"] = "01ENTRY_A"
+    manifest["topics_synced"]["test-topic"]["synced_at"] = "2025-01-01T01:00:00Z"
+    manifest_path.write_text(json.dumps(manifest, indent=2) + "\n")
+    nodes_path.write_text('{"uuid":"node1","name":"Test Node"}\n{"uuid":"node2","name":"Entry A Node"}\n')
+    threads.index.add(["graph/baseline/manifest.json", "graph/baseline/nodes.jsonl"])
+    threads.index.commit("graph: sync test-topic/01ENTRY_A", author=author)
+    local_commit = threads.head.commit.hexsha
+
+    # Go back one commit to diverge
+    threads.git.reset("--hard", "HEAD~1")
+
+    # Create REMOTE commit: update manifest with entry B
+    manifest["last_updated"] = "2025-01-01T01:30:00Z"  # Newer timestamp
+    manifest["topics_synced"]["test-topic"]["last_entry_id"] = "01ENTRY_B"
+    manifest["topics_synced"]["test-topic"]["synced_at"] = "2025-01-01T01:30:00Z"
+    manifest_path.write_text(json.dumps(manifest, indent=2) + "\n")
+    nodes_path.write_text('{"uuid":"node1","name":"Test Node"}\n{"uuid":"node3","name":"Entry B Node"}\n')
+    threads.index.add(["graph/baseline/manifest.json", "graph/baseline/nodes.jsonl"])
+    threads.index.commit("graph: sync test-topic/01ENTRY_B", author=author)
+
+    # Reset back to local commit to create diverged state
+    threads.git.reset("--hard", local_commit)
+
+    # Create conflict manually by attempting merge
+    try:
+        threads.git.merge("HEAD@{1}")  # Merge the remote commit
+    except GitCommandError:
+        pass  # Expected to fail with conflict
+
+    # Verify we have conflicts
+    status = threads.git.status("--porcelain")
+    assert "UU graph/baseline/manifest.json" in status or "AA graph/baseline/manifest.json" in status
+
+    # Run preflight - should auto-resolve graph conflicts
+    result = run_preflight(
+        code_repo_path=code_repo,
+        threads_repo_path=threads_repo,
+        auto_fix=True,
+        fetch_first=False,
+    )
+
+    # Should succeed with auto-resolution
+    assert result.success is True, f"Expected success, got: {result.blocking_reason}"
+
+    # Verify auto-resolution action was taken
+    actions = result.state.actions_taken or []
+    assert any("auto-resolved graph" in a.lower() for a in actions), f"Expected auto-resolve action, got: {actions}"
+
+    # Verify manifest was merged correctly (newer timestamp, merged topics)
+    merged_manifest = json.loads(manifest_path.read_text())
+    assert merged_manifest["last_updated"] == "2025-01-01T01:30:00Z", "Should have newer timestamp"
+    assert merged_manifest["topics_synced"]["test-topic"]["last_entry_id"] == "01ENTRY_B", "Should have latest entry"
+
+
+def test_preflight_blocks_on_mixed_conflicts(
+    code_repo: Path,
+    threads_repo: Path,
+) -> None:
+    """Test that preflight blocks when conflicts include user content (not graph-only).
+
+    Ensures safety - only auto-resolve graph metadata, not user threads.
+    """
+    import json
+
+    threads = Repo(threads_repo)
+    author = Actor("Test", "test@example.com")
+
+    # Create graph directory and a user thread
+    graph_dir = threads_repo / "graph" / "baseline"
+    graph_dir.mkdir(parents=True, exist_ok=True)
+
+    manifest = {
+        "version": "1.0",
+        "last_updated": "2025-01-01T00:00:00Z",
+        "topics_synced": {}
+    }
+    (graph_dir / "manifest.json").write_text(json.dumps(manifest, indent=2) + "\n")
+    (threads_repo / "user-thread.md").write_text("# User Thread\n\nContent A\n")
+
+    threads.index.add(["graph/baseline/manifest.json", "user-thread.md"])
+    threads.index.commit("Initial state", author=author)
+
+    # Create LOCAL commit: update both graph and user thread
+    manifest["last_updated"] = "2025-01-01T01:00:00Z"
+    (graph_dir / "manifest.json").write_text(json.dumps(manifest, indent=2) + "\n")
+    (threads_repo / "user-thread.md").write_text("# User Thread\n\nContent A Updated\n")
+    threads.index.add(["graph/baseline/manifest.json", "user-thread.md"])
+    threads.index.commit("Update A", author=author)
+    local_commit = threads.head.commit.hexsha
+
+    # Go back and create conflicting REMOTE commit
+    threads.git.reset("--hard", "HEAD~1")
+    manifest["last_updated"] = "2025-01-01T01:30:00Z"
+    (graph_dir / "manifest.json").write_text(json.dumps(manifest, indent=2) + "\n")
+    (threads_repo / "user-thread.md").write_text("# User Thread\n\nContent B Conflicting\n")
+    threads.index.add(["graph/baseline/manifest.json", "user-thread.md"])
+    threads.index.commit("Update B", author=author)
+
+    # Reset to local and create conflict
+    threads.git.reset("--hard", local_commit)
+    try:
+        threads.git.merge("HEAD@{1}")
+    except GitCommandError:
+        pass
+
+    # Verify mixed conflicts (graph + user content)
+    status = threads.git.status("--porcelain")
+    assert "UU graph/baseline/manifest.json" in status or "AA graph/baseline/manifest.json" in status
+    assert "UU user-thread.md" in status or "AA user-thread.md" in status
+
+    # Run preflight - should BLOCK (not auto-resolve mixed conflicts)
+    result = run_preflight(
+        code_repo_path=code_repo,
+        threads_repo_path=threads_repo,
+        auto_fix=True,
+        fetch_first=False,
+    )
+
+    # Should fail - mixed conflicts require manual resolution
+    assert result.success is False
+    assert "conflicts" in result.blocking_reason.lower()
+    assert "manually" in result.blocking_reason.lower()
+
+
+def test_preflight_auto_resolves_complex_graph_conflicts(
+    code_repo: Path,
+    threads_repo: Path,
+) -> None:
+    """Test auto-resolution with complex graph conflicts (multiple topics, many nodes/edges).
+
+    Verifies that merge logic correctly handles:
+    - Multiple topics in manifest
+    - Many nodes/edges in JSONL files
+    - Deduplication of UUIDs
+    """
+    import json
+
+    threads = Repo(threads_repo)
+    author = Actor("Test", "test@example.com")
+
+    # Create graph directory
+    graph_dir = threads_repo / "graph" / "baseline"
+    graph_dir.mkdir(parents=True, exist_ok=True)
+
+    # Create initial manifest with multiple topics
+    manifest = {
+        "version": "1.0",
+        "last_updated": "2025-01-01T00:00:00Z",
+        "topics_synced": {
+            "topic-alpha": {
+                "last_entry_id": "01ALPHA_INITIAL",
+                "synced_at": "2025-01-01T00:00:00Z"
+            },
+            "topic-beta": {
+                "last_entry_id": "01BETA_INITIAL",
+                "synced_at": "2025-01-01T00:00:00Z"
+            }
+        }
+    }
+    manifest_path = graph_dir / "manifest.json"
+    manifest_path.write_text(json.dumps(manifest, indent=2) + "\n")
+
+    # Create initial nodes/edges with multiple entries
+    nodes_path = graph_dir / "nodes.jsonl"
+    edges_path = graph_dir / "edges.jsonl"
+    nodes_path.write_text(
+        '{"uuid":"node1","name":"Alpha Node"}\n'
+        '{"uuid":"node2","name":"Beta Node"}\n'
+        '{"uuid":"node3","name":"Shared Node"}\n'
+    )
+    edges_path.write_text(
+        '{"uuid":"edge1","fact":"Alpha Fact"}\n'
+        '{"uuid":"edge2","fact":"Beta Fact"}\n'
+    )
+
+    threads.index.add(["graph/baseline/manifest.json", "graph/baseline/nodes.jsonl", "graph/baseline/edges.jsonl"])
+    threads.index.commit("Initial graph state", author=author)
+
+    # Create LOCAL commit: add new topic and nodes
+    manifest["last_updated"] = "2025-01-01T01:00:00Z"
+    manifest["topics_synced"]["topic-gamma"] = {
+        "last_entry_id": "01GAMMA_NEW",
+        "synced_at": "2025-01-01T01:00:00Z"
+    }
+    manifest_path.write_text(json.dumps(manifest, indent=2) + "\n")
+    nodes_path.write_text(
+        '{"uuid":"node1","name":"Alpha Node"}\n'
+        '{"uuid":"node2","name":"Beta Node"}\n'
+        '{"uuid":"node3","name":"Shared Node"}\n'
+        '{"uuid":"node4","name":"Gamma Node"}\n'
+    )
+    threads.index.add(["graph/baseline/manifest.json", "graph/baseline/nodes.jsonl"])
+    threads.index.commit("Add topic-gamma", author=author)
+    local_commit = threads.head.commit.hexsha
+
+    # Go back and create REMOTE commit: update alpha topic and add nodes
+    threads.git.reset("--hard", "HEAD~1")
+    manifest["last_updated"] = "2025-01-01T01:15:00Z"  # Newer timestamp
+    manifest["topics_synced"]["topic-alpha"]["last_entry_id"] = "01ALPHA_UPDATED"
+    manifest["topics_synced"]["topic-alpha"]["synced_at"] = "2025-01-01T01:15:00Z"
+    manifest_path.write_text(json.dumps(manifest, indent=2) + "\n")
+    nodes_path.write_text(
+        '{"uuid":"node1","name":"Alpha Node"}\n'
+        '{"uuid":"node2","name":"Beta Node"}\n'
+        '{"uuid":"node3","name":"Shared Node"}\n'
+        '{"uuid":"node5","name":"Alpha Updated Node"}\n'
+    )
+    edges_path.write_text(
+        '{"uuid":"edge1","fact":"Alpha Fact"}\n'
+        '{"uuid":"edge2","fact":"Beta Fact"}\n'
+        '{"uuid":"edge3","fact":"New Alpha Edge"}\n'
+    )
+    threads.index.add(["graph/baseline/manifest.json", "graph/baseline/nodes.jsonl", "graph/baseline/edges.jsonl"])
+    threads.index.commit("Update topic-alpha", author=author)
+
+    # Reset to local and create conflict
+    threads.git.reset("--hard", local_commit)
+    try:
+        threads.git.merge("HEAD@{1}")
+    except GitCommandError:
+        pass
+
+    # Run preflight - should auto-resolve complex graph conflicts
+    result = run_preflight(
+        code_repo_path=code_repo,
+        threads_repo_path=threads_repo,
+        auto_fix=True,
+        fetch_first=False,
+    )
+
+    # Should succeed
+    assert result.success is True, f"Expected success, got: {result.blocking_reason}"
+
+    # Verify manifest has ALL topics (merged)
+    merged_manifest = json.loads(manifest_path.read_text())
+    assert "topic-alpha" in merged_manifest["topics_synced"]
+    assert "topic-beta" in merged_manifest["topics_synced"]
+    assert "topic-gamma" in merged_manifest["topics_synced"]
+    assert merged_manifest["last_updated"] == "2025-01-01T01:15:00Z"  # Newer timestamp
+
+    # Verify nodes were deduplicated and merged
+    nodes_content = nodes_path.read_text()
+    node_uuids = set()
+    for line in nodes_content.strip().split("\n"):
+        if line:
+            node = json.loads(line)
+            node_uuids.add(node["uuid"])
+
+    # Should have all unique nodes: node1, node2, node3, node4, node5
+    assert node_uuids == {"node1", "node2", "node3", "node4", "node5"}
+
+    # Verify edges were deduplicated and merged
+    edges_content = edges_path.read_text()
+    edge_uuids = set()
+    for line in edges_content.strip().split("\n"):
+        if line:
+            edge = json.loads(line)
+            edge_uuids.add(edge["uuid"])
+
+    # Should have all unique edges: edge1, edge2, edge3
+    assert edge_uuids == {"edge1", "edge2", "edge3"}

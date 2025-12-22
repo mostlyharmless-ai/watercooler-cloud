@@ -705,6 +705,219 @@ def _has_conflicts(repo: Repo) -> bool:
         return False
 
 
+def _has_graph_conflicts_only(repo: Repo) -> bool:
+    """Check if all conflicts are confined to graph/baseline/ files.
+
+    Returns True if:
+    - There are conflicts (UU, AA, DD status markers)
+    - ALL conflicted files are under graph/baseline/ directory
+
+    Returns False if:
+    - No conflicts exist
+    - Any conflicts exist outside graph/baseline/
+    """
+    try:
+        status = repo.git.status("--porcelain")
+        conflicted_files = []
+
+        for line in status.split("\n"):
+            if line and len(line) >= 2:
+                xy = line[:2]
+                if "U" in xy or xy == "AA" or xy == "DD":
+                    # Extract file path (skip XY status)
+                    file_path = line[3:].strip()
+                    conflicted_files.append(file_path)
+
+        if not conflicted_files:
+            return False
+
+        # Check if ALL conflicts are in graph/baseline/
+        return all(
+            f.startswith("graph/baseline/")
+            for f in conflicted_files
+        )
+    except GitCommandError:
+        return False
+
+
+def _merge_manifest(file_path: Path) -> bool:
+    """Merge manifest.json by taking newer timestamp and merging topics.
+
+    Merge strategy:
+    - version: Take from ours
+    - last_updated: Take max (newer timestamp)
+    - topics_synced: Merge both dicts (theirs overwrites ours for same keys)
+    - Other fields: Take from ours (generated_at, source_dir, etc.)
+
+    Uses git show :2: and :3: to get clean ours/theirs versions.
+
+    Returns True on success, False on failure.
+    """
+    import json
+
+    try:
+        from git import Repo
+        repo = Repo(file_path.parent.parent.parent, search_parent_directories=False)
+
+        # Get relative path from repo root
+        repo_path = Path(repo.working_dir)
+        rel_path = file_path.relative_to(repo_path)
+
+        # Get ours (:2:) and theirs (:3:) versions
+        try:
+            ours_content = repo.git.show(f":2:{rel_path}")
+            theirs_content = repo.git.show(f":3:{rel_path}")
+        except Exception as e:
+            log_debug(f"[PARITY] Failed to get ours/theirs for {file_path.name}: {e}")
+            return False
+
+        # Parse JSON
+        ours_json = json.loads(ours_content)
+        theirs_json = json.loads(theirs_content)
+
+        # Merge strategy: take base structure from ours, newer timestamp, merged topics
+        merged = {
+            **ours_json,  # Start with ours (includes all base fields)
+            "last_updated": max(
+                ours_json.get("last_updated", ""),
+                theirs_json.get("last_updated", "")
+            ),
+            "topics_synced": {
+                **ours_json.get("topics_synced", {}),
+                **theirs_json.get("topics_synced", {})
+            }
+        }
+
+        # Write merged result
+        file_path.write_text(json.dumps(merged, indent=2) + "\n")
+        log_debug(f"[PARITY] Auto-merged {file_path.name}: newer timestamp, merged topics")
+        return True
+
+    except Exception as e:
+        log_debug(f"[PARITY] Failed to merge manifest: {e}")
+        return False
+
+
+def _merge_jsonl(file_path: Path) -> bool:
+    """Merge .jsonl files by deduplicating entries by UUID.
+
+    Both nodes.jsonl and edges.jsonl are additive - entries from both
+    sides can coexist. We deduplicate by UUID to handle any duplicates.
+
+    Uses git show :2: and :3: to get clean ours/theirs versions.
+
+    Returns True on success, False on failure.
+    """
+    import json
+
+    try:
+        from git import Repo
+        repo = Repo(file_path.parent.parent.parent, search_parent_directories=False)
+
+        # Get relative path from repo root
+        repo_path = Path(repo.working_dir)
+        rel_path = file_path.relative_to(repo_path)
+
+        # Get ours (:2:) and theirs (:3:) versions
+        try:
+            ours_content = repo.git.show(f":2:{rel_path}")
+            theirs_content = repo.git.show(f":3:{rel_path}")
+        except Exception as e:
+            log_debug(f"[PARITY] Failed to get ours/theirs for {file_path.name}: {e}")
+            return False
+
+        # Parse JSON lines from both versions and deduplicate by UUID
+        seen_uuids = set()
+        merged_lines = []
+
+        # Process ours first, then theirs
+        for content in [ours_content, theirs_content]:
+            for line in content.strip().split("\n"):
+                if not line.strip():
+                    continue
+                try:
+                    entry = json.loads(line)
+                    uuid = entry.get("uuid") or entry.get("id")
+                    if uuid and uuid not in seen_uuids:
+                        seen_uuids.add(uuid)
+                        merged_lines.append(json.dumps(entry))
+                except json.JSONDecodeError:
+                    continue
+
+        # Write merged result
+        file_path.write_text("\n".join(merged_lines) + "\n")
+        log_debug(f"[PARITY] Auto-merged {file_path.name}: deduplicated {len(merged_lines)} entries")
+        return True
+
+    except Exception as e:
+        log_debug(f"[PARITY] Failed to merge JSONL: {e}")
+        return False
+
+
+def _auto_resolve_graph_conflicts(repo: Repo) -> bool:
+    """Auto-resolve conflicts in graph files using smart merge strategy.
+
+    Returns True if all conflicts successfully resolved, False otherwise.
+
+    This function should only be called when _has_graph_conflicts_only()
+    returns True, ensuring all conflicts are in graph/baseline/ files.
+
+    After resolving conflicts, completes the merge by committing.
+    """
+    try:
+        repo_path = Path(repo.working_dir)
+
+        # Get conflicted files
+        status = repo.git.status("--porcelain")
+        conflicted = []
+
+        for line in status.split("\n"):
+            if line and len(line) >= 2:
+                xy = line[:2]
+                if "U" in xy or xy == "AA" or xy == "DD":
+                    file_rel = line[3:].strip()
+                    conflicted.append(file_rel)
+
+        if not conflicted:
+            return True  # No conflicts to resolve
+
+        # Resolve each conflicted file
+        for file_rel in conflicted:
+            file_path = repo_path / file_rel
+
+            if not file_path.exists():
+                log_debug(f"[PARITY] Conflicted file doesn't exist: {file_rel}")
+                return False
+
+            if file_path.name == "manifest.json":
+                if not _merge_manifest(file_path):
+                    return False
+            elif file_path.suffix == ".jsonl":
+                if not _merge_jsonl(file_path):
+                    return False
+            else:
+                log_debug(f"[PARITY] Unknown graph file type: {file_path.name}")
+                return False
+
+            # Stage resolved file
+            repo.index.add([file_rel])
+            log_debug(f"[PARITY] Staged resolved file: {file_rel}")
+
+        # Complete the merge by committing
+        try:
+            repo.index.commit("Auto-merge graph conflicts")
+            log_debug("[PARITY] Committed merged graph files")
+        except Exception as e:
+            log_debug(f"[PARITY] Failed to commit merged files: {e}")
+            return False
+
+        return True
+
+    except Exception as e:
+        log_debug(f"[PARITY] Failed to auto-resolve graph conflicts: {e}")
+        return False
+
+
 def _push_with_retry(repo: Repo, branch: str, max_retries: int = MAX_PUSH_RETRIES, set_upstream: bool = False) -> bool:
     """Push to origin with retry. Returns True on success.
 
@@ -815,25 +1028,54 @@ def run_preflight(
             )
 
         if _has_conflicts(threads_repo):
-            state.status = ParityStatus.DIVERGED.value
-            state.last_error = (
-                f"Threads repository has unresolved merge conflicts from a previous operation. "
-                f"Resolve conflicts manually and commit, then retry.\n\n"
-                f"To resolve:\n"
-                f"  cd {threads_repo_path}\n"
-                f"  git status  # See conflicted files\n"
-                f"  # Edit files to resolve <<<< ==== >>>> markers\n"
-                f"  git add <resolved-files>\n"
-                f"  git commit -m 'Resolve merge conflict'\n"
-                f"  # Then retry your watercooler operation"
-            )
-            write_parity_state(threads_repo_path, state)
-            return PreflightResult(
-                success=False,
-                state=state,
-                can_proceed=False,
-                blocking_reason=state.last_error,
-            )
+            # Check if conflicts are graph-only and auto-resolvable
+            if _has_graph_conflicts_only(threads_repo):
+                log_debug("[PARITY] Detected graph-only conflicts, attempting auto-resolution...")
+                if _auto_resolve_graph_conflicts(threads_repo):
+                    log_debug("[PARITY] Successfully auto-resolved graph conflicts")
+                    actions_taken.append("Auto-resolved graph file conflicts")
+                    # Continue with normal preflight flow
+                else:
+                    # Auto-resolution failed
+                    state.status = ParityStatus.DIVERGED.value
+                    state.last_error = (
+                        f"Threads repository has unresolved conflicts in graph files "
+                        f"that could not be auto-merged. Manual resolution required.\n\n"
+                        f"To resolve:\n"
+                        f"  cd {threads_repo_path}\n"
+                        f"  git status  # See conflicted files\n"
+                        f"  # Resolve conflicts and commit\n"
+                        f"  git commit -m 'Resolve graph conflicts'\n"
+                        f"  # Then retry your watercooler operation"
+                    )
+                    write_parity_state(threads_repo_path, state)
+                    return PreflightResult(
+                        success=False,
+                        state=state,
+                        can_proceed=False,
+                        blocking_reason=state.last_error,
+                    )
+            else:
+                # Non-graph conflicts - require manual resolution
+                state.status = ParityStatus.DIVERGED.value
+                state.last_error = (
+                    f"Threads repository has unresolved merge conflicts from a previous operation. "
+                    f"Resolve conflicts manually and commit, then retry.\n\n"
+                    f"To resolve:\n"
+                    f"  cd {threads_repo_path}\n"
+                    f"  git status  # See conflicted files\n"
+                    f"  # Edit files to resolve <<<< ==== >>>> markers\n"
+                    f"  git add <resolved-files>\n"
+                    f"  git commit -m 'Resolve merge conflict'\n"
+                    f"  # Then retry your watercooler operation"
+                )
+                write_parity_state(threads_repo_path, state)
+                return PreflightResult(
+                    success=False,
+                    state=state,
+                    can_proceed=False,
+                    blocking_reason=state.last_error,
+                )
 
         # Check for clean rebase/merge in progress (no conflicts)
         # If we get here, any MERGE_HEAD/rebase state is conflict-free and just needs completion
@@ -1292,20 +1534,63 @@ def run_preflight(
 
             # Step 3: Check for conflicts after pull
             if _has_conflicts(threads_repo):
-                # Conflict → BLOCK (stash preserved)
-                state.status = ParityStatus.DIVERGED.value
-                state.last_error = (
-                    f"Merge conflict after pull. "
-                    f"{f'Stash preserved: {stash_ref}. ' if stash_ref else ''}"
-                    f"Resolve conflicts manually, then run watercooler_reconcile_parity."
-                )
-                write_parity_state(threads_repo_path, state)
-                return PreflightResult(
-                    success=False,
-                    state=state,
-                    can_proceed=False,
-                    blocking_reason=state.last_error,
-                )
+                # Check if conflicts are graph-only and auto-resolvable
+                if _has_graph_conflicts_only(threads_repo):
+                    log_debug("[PARITY] Detected graph-only conflicts after pull, attempting auto-resolution...")
+                    if _auto_resolve_graph_conflicts(threads_repo):
+                        log_debug("[PARITY] Successfully auto-resolved graph conflicts after pull")
+                        actions_taken.append("Auto-resolved graph file conflicts after pull")
+                        # Continue rebase after resolving conflicts
+                        try:
+                            threads_repo.git.rebase("--continue")
+                            log_debug("[PARITY] Rebase continued successfully after resolving conflicts")
+                            actions_taken.append("Continued rebase after resolving conflicts")
+                        except GitCommandError as e:
+                            # Rebase continue failed - this shouldn't happen if we resolved all conflicts
+                            log_debug(f"[PARITY] Rebase continue failed after resolving conflicts: {e}")
+                            state.status = ParityStatus.DIVERGED.value
+                            state.last_error = (
+                                f"Rebase continue failed after auto-resolving graph conflicts. "
+                                f"{f'Stash preserved: {stash_ref}. ' if stash_ref else ''}"
+                                f"Manual intervention required."
+                            )
+                            write_parity_state(threads_repo_path, state)
+                            return PreflightResult(
+                                success=False,
+                                state=state,
+                                can_proceed=False,
+                                blocking_reason=state.last_error,
+                            )
+                    else:
+                        # Auto-resolution failed
+                        state.status = ParityStatus.DIVERGED.value
+                        state.last_error = (
+                            f"Graph conflicts after pull could not be auto-merged. "
+                            f"{f'Stash preserved: {stash_ref}. ' if stash_ref else ''}"
+                            f"Manual resolution required."
+                        )
+                        write_parity_state(threads_repo_path, state)
+                        return PreflightResult(
+                            success=False,
+                            state=state,
+                            can_proceed=False,
+                            blocking_reason=state.last_error,
+                        )
+                else:
+                    # Non-graph conflicts → BLOCK (stash preserved)
+                    state.status = ParityStatus.DIVERGED.value
+                    state.last_error = (
+                        f"Merge conflict after pull. "
+                        f"{f'Stash preserved: {stash_ref}. ' if stash_ref else ''}"
+                        f"Resolve conflicts manually, then run watercooler_reconcile_parity."
+                    )
+                    write_parity_state(threads_repo_path, state)
+                    return PreflightResult(
+                        success=False,
+                        state=state,
+                        can_proceed=False,
+                        blocking_reason=state.last_error,
+                    )
 
             # Step 4: Pop stash if we stashed earlier
             if stash_ref:
