@@ -2109,7 +2109,7 @@ def test_preflight_auto_resolves_graph_only_conflicts(
     status = threads.git.status("--porcelain")
     assert "UU graph/baseline/manifest.json" in status, f"Setup failed: {status}"
 
-    # Debug: verify stages are set correctly
+    # Debug: verify stages are set correctly and test internal functions
     try:
         ours = subprocess.run(
             ["git", "show", ":2:graph/baseline/manifest.json"],
@@ -2121,13 +2121,37 @@ def test_preflight_auto_resolves_graph_only_conflicts(
         )
         print(f"\n=== DEBUG: ours returncode={ours.returncode}, stderr={ours.stderr}")
         print(f"=== DEBUG: theirs returncode={theirs.returncode}, stderr={theirs.stderr}")
-        if ours.returncode != 0 or theirs.returncode != 0:
-            # Stages not set correctly - this is the bug
-            print(f"=== DEBUG: git ls-files output:")
-            ls = subprocess.run(["git", "ls-files", "-s"], capture_output=True, text=True, cwd=threads_repo)
-            print(ls.stdout)
+
+        # Debug: test internal functions directly
+        from watercooler_mcp.branch_parity import (
+            _has_conflicts, _has_graph_conflicts_only, _auto_resolve_graph_conflicts, _merge_manifest
+        )
+        print(f"=== DEBUG: has_conflicts={_has_conflicts(threads)}")
+        print(f"=== DEBUG: has_graph_conflicts_only={_has_graph_conflicts_only(threads)}")
+
+        # Test _merge_manifest directly
+        merge_result = _merge_manifest(manifest_path)
+        print(f"=== DEBUG: _merge_manifest result={merge_result}")
+        if not merge_result:
+            print(f"=== DEBUG: manifest content after failed merge:")
+            print(manifest_path.read_text()[:200])
+
+            # Try to get ours/theirs via GitPython
+            test_repo = Repo(threads_repo)
+            try:
+                gp_ours = test_repo.git.show(":2:graph/baseline/manifest.json")
+                print(f"=== DEBUG: GitPython ours works, len={len(gp_ours)}")
+            except Exception as gpe:
+                print(f"=== DEBUG: GitPython ours failed: {gpe}")
+            try:
+                gp_theirs = test_repo.git.show(":3:graph/baseline/manifest.json")
+                print(f"=== DEBUG: GitPython theirs works, len={len(gp_theirs)}")
+            except Exception as gpe:
+                print(f"=== DEBUG: GitPython theirs failed: {gpe}")
     except Exception as e:
+        import traceback
         print(f"=== DEBUG: error checking stages: {e}")
+        traceback.print_exc()
 
     # Run preflight - should auto-resolve graph conflicts
     result = run_preflight(
