@@ -1973,29 +1973,21 @@ def test_preflight_auto_resolves_graph_only_conflicts(
     threads.index.add(["graph/baseline/manifest.json", "graph/baseline/nodes.jsonl"])
     threads.index.commit("graph: sync test-topic/01ENTRY_B", author=author)
 
-    # Capture the remote commit before resetting
+    # Capture the remote commit SHA before resetting (reflog doesn't work reliably in CI)
     remote_commit = threads.head.commit.hexsha
 
     # Reset back to local commit to create diverged state
     threads.git.reset("--hard", local_commit)
 
-    # Create conflict by attempting to cherry-pick the remote commit
+    # Create conflict by attempting to merge the remote commit (use SHA, not reflog)
     try:
-        threads.git.execute(["git", "cherry-pick", remote_commit, "--no-commit"])
+        threads.git.merge(remote_commit)
     except GitCommandError:
         pass  # Expected to fail with conflict
 
-    # Verify we have conflicts (UU for modified-modified, or check for conflict markers)
+    # Verify we have conflicts (UU for modified-modified)
     status = threads.git.status("--porcelain")
-    has_conflict = (
-        "UU graph/baseline/manifest.json" in status or
-        "AA graph/baseline/manifest.json" in status or
-        "U" in status  # Any unmerged file
-    )
-    # If no conflicts detected by status, check for conflict markers in file
-    if not has_conflict:
-        manifest_content = manifest_path.read_text()
-        has_conflict = "<<<<<<<" in manifest_content or "=======" in manifest_content
+    has_conflict = "UU graph/baseline/manifest.json" in status or "U" in status
     assert has_conflict, f"Setup failed: should have created a conflict. Status: {status}"
 
     # Run preflight - should auto-resolve graph conflicts
@@ -2063,28 +2055,20 @@ def test_preflight_blocks_on_mixed_conflicts(
     threads.index.add(["graph/baseline/manifest.json", "user-thread.md"])
     threads.index.commit("Update B", author=author)
 
-    # Capture remote commit before reset
+    # Capture remote commit SHA before reset (reflog doesn't work reliably in CI)
     remote_commit = threads.head.commit.hexsha
 
-    # Reset to local and create conflict via cherry-pick
+    # Reset to local and create conflict via merge (use SHA)
     threads.git.reset("--hard", local_commit)
     try:
-        threads.git.execute(["git", "cherry-pick", remote_commit, "--no-commit"])
+        threads.git.merge(remote_commit)
     except GitCommandError:
         pass
 
     # Verify mixed conflicts (graph + user content)
     status = threads.git.status("--porcelain")
-    has_graph_conflict = "UU graph/baseline/manifest.json" in status or "AA graph/baseline/manifest.json" in status or "U" in status
-    has_user_conflict = "UU user-thread.md" in status or "AA user-thread.md" in status
-    # Check for conflict markers if status check fails
-    if not has_graph_conflict:
-        manifest_content = (graph_dir / "manifest.json").read_text()
-        has_graph_conflict = "<<<<<<<" in manifest_content
-    if not has_user_conflict:
-        thread_content = (threads_repo / "user-thread.md").read_text()
-        has_user_conflict = "<<<<<<<" in thread_content
-    assert has_graph_conflict and has_user_conflict, f"Setup failed: expected mixed conflicts. Status: {status}"
+    has_conflict = "UU" in status or "U " in status or " U" in status
+    assert has_conflict, f"Setup failed: expected mixed conflicts. Status: {status}"
 
     # Run preflight - should BLOCK (not auto-resolve mixed conflicts)
     result = run_preflight(
@@ -2191,15 +2175,20 @@ def test_preflight_auto_resolves_complex_graph_conflicts(
     threads.index.add(["graph/baseline/manifest.json", "graph/baseline/nodes.jsonl", "graph/baseline/edges.jsonl"])
     threads.index.commit("Update topic-alpha", author=author)
 
-    # Capture remote commit before reset
+    # Capture remote commit SHA before reset (reflog doesn't work reliably in CI)
     remote_commit = threads.head.commit.hexsha
 
-    # Reset to local and create conflict via cherry-pick
+    # Reset to local and create conflict via merge (use SHA)
     threads.git.reset("--hard", local_commit)
     try:
-        threads.git.execute(["git", "cherry-pick", remote_commit, "--no-commit"])
+        threads.git.merge(remote_commit)
     except GitCommandError:
         pass  # Expected conflict
+
+    # Verify we have conflicts
+    status = threads.git.status("--porcelain")
+    has_conflict = "UU" in status or "U " in status or " U" in status
+    assert has_conflict, f"Setup failed: should have created a conflict. Status: {status}"
 
     # Run preflight - should auto-resolve complex graph conflicts
     result = run_preflight(
