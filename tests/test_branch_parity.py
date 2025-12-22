@@ -103,7 +103,8 @@ def threads_repo(tmp_path: Path) -> Path:
 
 
 def _force_conflict_state(
-    repo: Repo, rel_path: str, base_content: str, local_content: str, remote_content: str
+    repo: Repo, rel_path: str, base_content: str, local_content: str, remote_content: str,
+    create_merge_head: bool = False, merge_commit: str = ""
 ) -> None:
     """Force a file into conflicted state using git plumbing.
 
@@ -117,12 +118,15 @@ def _force_conflict_state(
         base_content: Content in the common ancestor
         local_content: Content in the local/ours branch
         remote_content: Content in the remote/theirs branch
+        create_merge_head: If True, create MERGE_HEAD file to simulate proper merge state
+        merge_commit: The commit SHA to write to MERGE_HEAD (required if create_merge_head=True)
     """
     import subprocess
     import tempfile
     import os
 
     work_dir = repo.working_dir
+    git_dir = Path(repo.git_dir)
 
     # Create temp files for the three versions
     with tempfile.NamedTemporaryFile(mode='w', suffix='.base', delete=False) as f:
@@ -199,6 +203,15 @@ def _force_conflict_state(
             cwd=work_dir,
             check=True,
         )
+
+        # Create MERGE_HEAD if requested (needed for git commit to complete merge)
+        if create_merge_head and merge_commit:
+            merge_head_file = git_dir / "MERGE_HEAD"
+            merge_head_file.write_text(merge_commit + "\n")
+            # Also create MERGE_MSG if it doesn't exist
+            merge_msg_file = git_dir / "MERGE_MSG"
+            if not merge_msg_file.exists():
+                merge_msg_file.write_text(f"Merge commit {merge_commit[:7]}\n")
     finally:
         # Clean up temp files
         for f in [base_file, local_file, remote_file]:
@@ -2045,6 +2058,7 @@ def test_preflight_auto_resolves_graph_only_conflicts(
     deterministic conflicts in manifest.json.
     """
     import json
+    import subprocess
 
     threads = Repo(threads_repo)
     author = Actor("Test", "test@example.com")
@@ -2091,9 +2105,29 @@ def test_preflight_auto_resolves_graph_only_conflicts(
         remote_manifest,
     )
 
-    # Verify conflict was created
+    # Verify conflict was created and stages are set correctly
     status = threads.git.status("--porcelain")
     assert "UU graph/baseline/manifest.json" in status, f"Setup failed: {status}"
+
+    # Debug: verify stages are set correctly
+    try:
+        ours = subprocess.run(
+            ["git", "show", ":2:graph/baseline/manifest.json"],
+            capture_output=True, text=True, cwd=threads_repo
+        )
+        theirs = subprocess.run(
+            ["git", "show", ":3:graph/baseline/manifest.json"],
+            capture_output=True, text=True, cwd=threads_repo
+        )
+        print(f"\n=== DEBUG: ours returncode={ours.returncode}, stderr={ours.stderr}")
+        print(f"=== DEBUG: theirs returncode={theirs.returncode}, stderr={theirs.stderr}")
+        if ours.returncode != 0 or theirs.returncode != 0:
+            # Stages not set correctly - this is the bug
+            print(f"=== DEBUG: git ls-files output:")
+            ls = subprocess.run(["git", "ls-files", "-s"], capture_output=True, text=True, cwd=threads_repo)
+            print(ls.stdout)
+    except Exception as e:
+        print(f"=== DEBUG: error checking stages: {e}")
 
     # Run preflight - should auto-resolve graph conflicts
     result = run_preflight(
