@@ -899,16 +899,31 @@ def _auto_resolve_graph_conflicts(repo: Repo) -> bool:
                 log_debug(f"[PARITY] Unknown graph file type: {file_path.name}")
                 return False
 
-            # Stage resolved file
+            # Stage resolved file - must clear conflict stages first
+            # During rebase, index has 3 stages (base/ours/theirs) that prevent normal add
+            try:
+                repo.git.rm("--cached", file_rel)
+            except Exception:
+                pass  # May fail if not in conflict state, that's OK
             repo.index.add([file_rel])
             log_debug(f"[PARITY] Staged resolved file: {file_rel}")
 
-        # Complete the merge by committing
+        # Complete the merge/rebase
+        git_dir = Path(repo.git_dir)
+        is_rebase = (git_dir / "rebase-merge").exists() or (git_dir / "rebase-apply").exists()
+
         try:
-            repo.index.commit("Auto-merge graph conflicts")
-            log_debug("[PARITY] Committed merged graph files")
+            if is_rebase:
+                # During rebase, continue instead of commit
+                repo.git.rebase("--continue")
+                log_debug("[PARITY] Continued rebase after resolving graph conflicts")
+            else:
+                # Regular merge conflict - use git.commit to properly finalize merge
+                # repo.index.commit() doesn't remove MERGE_HEAD, but git commit does
+                repo.git.commit("-m", "Auto-merge graph conflicts")
+                log_debug("[PARITY] Committed merged graph files")
         except Exception as e:
-            log_debug(f"[PARITY] Failed to commit merged files: {e}")
+            log_debug(f"[PARITY] Failed to complete merge/rebase: {e}")
             return False
 
         return True
