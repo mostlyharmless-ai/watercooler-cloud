@@ -4555,10 +4555,108 @@ def _check_first_run() -> None:
         pass
 
 
+def _ensure_ollama_running():
+    """Start Ollama if graph features are enabled and it's not running.
+
+    This reduces friction for new users - if they have Ollama installed
+    and graph features enabled, we'll start it automatically.
+    """
+    import subprocess
+    import urllib.request
+    import urllib.error
+
+    try:
+        from .config import get_watercooler_config
+        config = get_watercooler_config()
+        graph_config = config.mcp.graph
+
+        # Only auto-start if graph features are enabled
+        if not (graph_config.generate_summaries or graph_config.generate_embeddings):
+            return
+
+        # Check if Ollama is already responding
+        try:
+            req = urllib.request.Request(
+                "http://localhost:11434/v1/models",
+                headers={"Content-Type": "application/json"}
+            )
+            with urllib.request.urlopen(req, timeout=2) as resp:
+                if resp.status == 200:
+                    return  # Already running
+        except (urllib.error.URLError, TimeoutError, OSError):
+            pass  # Not running, try to start
+
+        # Try to start Ollama
+        print("Starting Ollama for graph features...", file=sys.stderr)
+
+        # Method 1: Try systemctl (Linux with systemd)
+        try:
+            result = subprocess.run(
+                ["systemctl", "start", "ollama"],
+                capture_output=True,
+                timeout=5
+            )
+            if result.returncode == 0:
+                # Wait for it to be ready
+                for _ in range(10):
+                    time.sleep(0.5)
+                    try:
+                        req = urllib.request.Request("http://localhost:11434/v1/models")
+                        with urllib.request.urlopen(req, timeout=2):
+                            print("Ollama started successfully.", file=sys.stderr)
+                            return
+                    except (urllib.error.URLError, TimeoutError, OSError):
+                        continue
+        except (FileNotFoundError, subprocess.TimeoutExpired):
+            pass
+
+        # Method 2: Try ollama serve directly (macOS, or Linux without systemd)
+        try:
+            # Check if ollama command exists
+            result = subprocess.run(
+                ["which", "ollama"],
+                capture_output=True,
+                timeout=2
+            )
+            if result.returncode == 0:
+                # Start ollama serve in background
+                subprocess.Popen(
+                    ["ollama", "serve"],
+                    stdout=subprocess.DEVNULL,
+                    stderr=subprocess.DEVNULL,
+                    start_new_session=True
+                )
+                # Wait for it to be ready
+                for _ in range(10):
+                    time.sleep(0.5)
+                    try:
+                        req = urllib.request.Request("http://localhost:11434/v1/models")
+                        with urllib.request.urlopen(req, timeout=2):
+                            print("Ollama started successfully.", file=sys.stderr)
+                            return
+                    except (urllib.error.URLError, TimeoutError, OSError):
+                        continue
+        except (FileNotFoundError, subprocess.TimeoutExpired):
+            pass
+
+        # If we get here, couldn't start Ollama
+        print(
+            "Warning: Could not start Ollama. Graph features (summaries/embeddings) "
+            "will be skipped. Install Ollama: https://ollama.ai",
+            file=sys.stderr
+        )
+    except Exception as e:
+        # Don't let auto-start errors break server startup
+        print(f"Warning: Ollama auto-start check failed: {e}", file=sys.stderr)
+
+
 def main():
     """Entry point for watercooler-mcp command."""
     # Check for first-run and suggest config initialization
     _check_first_run()
+
+    # Auto-start Ollama if graph features are enabled
+    _ensure_ollama_running()
 
     # Get transport configuration from unified config system
     from .config import get_mcp_transport_config
