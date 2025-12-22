@@ -425,3 +425,9 @@ class TestNormalization:
         assert "parent" in node["metadata"]
         assert "level" in node["metadata"]
         assert "degree" in node["metadata"]
+
+        # Verify extra fields don't leak core keys
+        core_keys = {"id", "score", "name", "summary", "content", "source", "group_id", "metadata", "backend"}
+        extra_keys = set(node["extra"].keys())
+        leaked_keys = core_keys & extra_keys
+        assert not leaked_keys, f"Core keys leaked into extra: {leaked_keys}"
