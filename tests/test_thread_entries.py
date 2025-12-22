@@ -52,7 +52,7 @@ def test_parse_thread_entries_extracts_metadata() -> None:
     assert first.title == "First Entry"
     assert first.entry_id == "01ABCDEF1234567890ABCDEFGH"
     assert first.start_line == 8
-    assert first.end_line == 16
+    assert first.end_line == 18  # includes trailing blank + separator
     segment = text[first.start_offset:first.end_offset]
     assert "Entry: Codex (caleb)" in segment
     assert "<!-- Entry-ID: 01ABCDEF1234567890ABCDEFGH -->" in segment

@@ -1293,23 +1293,23 @@ def test_preflight_blocks_on_preexisting_conflict(repos_with_remotes: tuple[Path
 
     threads = Repo(threads_path)
 
-    # Local: Create test.md with content A
-    test_file = threads_path / "test.md"
-    test_file.write_text("# Local Content A\n")
-    threads.index.add(["test.md"])
+    # Local: Modify README.md with content A (modifying existing file ensures conflict)
+    readme_file = threads_path / "README.md"
+    readme_file.write_text("# Threads Repo\nLocal change A\n")
+    threads.index.add(["README.md"])
     threads.index.commit("Local commit A")
 
-    # Remote: Create test.md with conflicting content B
+    # Remote: Modify README.md with conflicting content B
     other_threads = Repo.clone_from(str(threads_bare), str(threads_path.parent / "other-conflict"))
     try:
         other_threads.git.checkout("main")
     except Exception:
         other_threads.git.checkout("-b", "main")
 
-    other_test_file = Path(other_threads.working_dir) / "test.md"
-    other_test_file.write_text("# Remote Content B\n")
+    other_readme_file = Path(other_threads.working_dir) / "README.md"
+    other_readme_file.write_text("# Threads Repo\nRemote change B\n")
     author = Actor("Other", "other@example.com")
-    other_threads.index.add(["test.md"])
+    other_threads.index.add(["README.md"])
     other_threads.index.commit("Remote commit B", author=author)
     other_threads.git.push("origin", "main")
 
@@ -1360,10 +1360,10 @@ def test_ensure_readable_skips_sync_on_preexisting_conflict(repos_with_remotes: 
 
     threads = Repo(threads_path)
 
-    # Create a conflict scenario (same as above)
-    test_file = threads_path / "conflict.md"
-    test_file.write_text("# Local Version\n")
-    threads.index.add(["conflict.md"])
+    # Create a conflict scenario by modifying existing README.md (ensures reliable conflict)
+    readme_file = threads_path / "README.md"
+    readme_file.write_text("# Threads Repo\nLocal Version\n")
+    threads.index.add(["README.md"])
     threads.index.commit("Local commit")
 
     other_threads = Repo.clone_from(str(threads_bare), str(threads_path.parent / "other-read-conflict"))
@@ -1372,10 +1372,10 @@ def test_ensure_readable_skips_sync_on_preexisting_conflict(repos_with_remotes: 
     except Exception:
         other_threads.git.checkout("-b", "main")
 
-    other_test_file = Path(other_threads.working_dir) / "conflict.md"
-    other_test_file.write_text("# Remote Version\n")
+    other_readme_file = Path(other_threads.working_dir) / "README.md"
+    other_readme_file.write_text("# Threads Repo\nRemote Version\n")
     author = Actor("Other", "other@example.com")
-    other_threads.index.add(["conflict.md"])
+    other_threads.index.add(["README.md"])
     other_threads.index.commit("Remote commit", author=author)
     other_threads.git.push("origin", "main")
 
