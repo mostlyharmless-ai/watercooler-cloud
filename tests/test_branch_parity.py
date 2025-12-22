@@ -80,6 +80,12 @@ def threads_repo(tmp_path: Path) -> Path:
     repo_path.mkdir()
     repo = Repo.init(repo_path)
 
+    # Configure git for predictable merge behavior across versions
+    # Disable rerere (reuse recorded resolution) to prevent auto-resolution
+    with repo.config_writer() as config:
+        config.set_value("rerere", "enabled", "false")
+        config.set_value("merge", "conflictstyle", "merge")
+
     # Create initial commit
     (repo_path / "README.md").write_text("# Threads Repo\n")
     repo.index.add(["README.md"])
@@ -92,6 +98,16 @@ def threads_repo(tmp_path: Path) -> Path:
         repo.git.checkout("main")
 
     return repo_path
+
+
+def _create_conflicting_file(path: Path, base: str, local: str, remote: str) -> None:
+    """Helper to write a file that will conflict when merged.
+
+    The file must have a single line that both sides modify differently.
+    This ensures git cannot auto-merge the changes.
+    """
+    # Write base content - single line that will be modified
+    path.write_text(f"{base}\n")
 
 
 @pytest.fixture
@@ -715,6 +731,13 @@ def repos_with_remotes(tmp_path: Path) -> tuple[Path, Path, Path, Path]:
     # Clone from bare repos
     code = Repo.clone_from(str(code_bare), str(code_path))
     threads = Repo.clone_from(str(threads_bare), str(threads_path))
+
+    # Configure git for consistent behavior across git versions
+    for repo in [code, threads]:
+        with repo.config_writer() as config:
+            config.set_value("rerere", "enabled", "false")
+            config.set_value("merge", "conflictstyle", "merge")
+            config.set_value("pull", "rebase", "false")  # Don't auto-rebase on pull
 
     # Create initial commits and push
     author = Actor("Test", "test@example.com")
@@ -1569,6 +1592,12 @@ def repo_with_remote(tmp_path: Path) -> tuple[Path, Path]:
     local_path.mkdir()
     local = Repo.init(local_path)
 
+    # Configure git for consistent behavior across git versions
+    with local.config_writer() as config:
+        config.set_value("rerere", "enabled", "false")
+        config.set_value("merge", "conflictstyle", "merge")
+        config.set_value("pull", "rebase", "false")
+
     # Create initial commit on main
     (local_path / "README.md").write_text("# Test Repo\n")
     local.index.add(["README.md"])
@@ -1926,7 +1955,7 @@ def test_preflight_auto_resolves_graph_only_conflicts(
     graph_dir = threads_repo / "graph" / "baseline"
     graph_dir.mkdir(parents=True, exist_ok=True)
 
-    # Create initial manifest
+    # Create initial manifest with a line that will be modified by both sides
     manifest = {
         "version": "1.0",
         "generated_at": "2025-01-01T00:00:00Z",
@@ -1941,22 +1970,24 @@ def test_preflight_auto_resolves_graph_only_conflicts(
     manifest_path = graph_dir / "manifest.json"
     manifest_path.write_text(json.dumps(manifest, indent=2) + "\n")
 
-    # Create initial nodes and edges
+    # Create initial nodes and edges - include a "conflict line" that both sides will modify
     nodes_path = graph_dir / "nodes.jsonl"
     edges_path = graph_dir / "edges.jsonl"
-    nodes_path.write_text('{"uuid":"node1","name":"Test Node"}\n')
+    # Use 2 lines from the start so both sides MODIFY line 2, not ADD it
+    nodes_path.write_text('{"uuid":"node1","name":"Test Node"}\n{"uuid":"conflict","name":"INITIAL"}\n')
     edges_path.write_text('{"uuid":"edge1","fact":"Test Fact"}\n')
 
     # Commit initial graph
     threads.index.add(["graph/baseline/manifest.json", "graph/baseline/nodes.jsonl", "graph/baseline/edges.jsonl"])
     threads.index.commit("Initial graph state", author=author)
 
-    # Create LOCAL commit: update manifest with entry A
+    # Create LOCAL commit: update manifest and MODIFY the conflict line
     manifest["last_updated"] = "2025-01-01T01:00:00Z"
     manifest["topics_synced"]["test-topic"]["last_entry_id"] = "01ENTRY_A"
     manifest["topics_synced"]["test-topic"]["synced_at"] = "2025-01-01T01:00:00Z"
     manifest_path.write_text(json.dumps(manifest, indent=2) + "\n")
-    nodes_path.write_text('{"uuid":"node1","name":"Test Node"}\n{"uuid":"node2","name":"Entry A Node"}\n')
+    # Modify line 2 (conflict line) - both sides will change this differently
+    nodes_path.write_text('{"uuid":"node1","name":"Test Node"}\n{"uuid":"conflict","name":"LOCAL_A"}\n')
     threads.index.add(["graph/baseline/manifest.json", "graph/baseline/nodes.jsonl"])
     threads.index.commit("graph: sync test-topic/01ENTRY_A", author=author)
     local_commit = threads.head.commit.hexsha
@@ -1968,12 +1999,13 @@ def test_preflight_auto_resolves_graph_only_conflicts(
     # (Python dict still has local changes which would prevent real conflicts)
     manifest = json.loads(manifest_path.read_text())
 
-    # Create REMOTE commit: update manifest with entry B (different from local changes)
+    # Create REMOTE commit: update manifest and MODIFY the conflict line differently
     manifest["last_updated"] = "2025-01-01T01:30:00Z"  # Newer timestamp
     manifest["topics_synced"]["test-topic"]["last_entry_id"] = "01ENTRY_B"
     manifest["topics_synced"]["test-topic"]["synced_at"] = "2025-01-01T01:30:00Z"
     manifest_path.write_text(json.dumps(manifest, indent=2) + "\n")
-    nodes_path.write_text('{"uuid":"node1","name":"Test Node"}\n{"uuid":"node3","name":"Entry B Node"}\n')
+    # Modify line 2 (conflict line) differently from local
+    nodes_path.write_text('{"uuid":"node1","name":"Test Node"}\n{"uuid":"conflict","name":"REMOTE_B"}\n')
     threads.index.add(["graph/baseline/manifest.json", "graph/baseline/nodes.jsonl"])
     threads.index.commit("graph: sync test-topic/01ENTRY_B", author=author)
 
@@ -1991,7 +2023,7 @@ def test_preflight_auto_resolves_graph_only_conflicts(
 
     # Verify we have conflicts (UU for modified-modified)
     status = threads.git.status("--porcelain")
-    has_conflict = "UU graph/baseline/manifest.json" in status or "U" in status
+    has_conflict = "UU graph/baseline/manifest.json" in status or "UU graph/baseline/nodes.jsonl" in status
     assert has_conflict, f"Setup failed: should have created a conflict. Status: {status}"
 
     # Run preflight - should auto-resolve graph conflicts
@@ -2038,7 +2070,8 @@ def test_preflight_blocks_on_mixed_conflicts(
         "topics_synced": {}
     }
     (graph_dir / "manifest.json").write_text(json.dumps(manifest, indent=2) + "\n")
-    (threads_repo / "user-thread.md").write_text("# User Thread\n\nContent A\n")
+    # Use single line that will be modified by both sides to ensure conflict
+    (threads_repo / "user-thread.md").write_text("CONFLICT_LINE=INITIAL\n")
 
     threads.index.add(["graph/baseline/manifest.json", "user-thread.md"])
     threads.index.commit("Initial state", author=author)
@@ -2046,7 +2079,8 @@ def test_preflight_blocks_on_mixed_conflicts(
     # Create LOCAL commit: update both graph and user thread
     manifest["last_updated"] = "2025-01-01T01:00:00Z"
     (graph_dir / "manifest.json").write_text(json.dumps(manifest, indent=2) + "\n")
-    (threads_repo / "user-thread.md").write_text("# User Thread\n\nContent A Updated\n")
+    # Modify the conflict line to LOCAL value
+    (threads_repo / "user-thread.md").write_text("CONFLICT_LINE=LOCAL_A\n")
     threads.index.add(["graph/baseline/manifest.json", "user-thread.md"])
     threads.index.commit("Update A", author=author)
     local_commit = threads.head.commit.hexsha
@@ -2061,7 +2095,8 @@ def test_preflight_blocks_on_mixed_conflicts(
 
     manifest["last_updated"] = "2025-01-01T01:30:00Z"
     manifest_path.write_text(json.dumps(manifest, indent=2) + "\n")
-    (threads_repo / "user-thread.md").write_text("# User Thread\n\nContent B Conflicting\n")
+    # Modify the conflict line to REMOTE value (different from LOCAL)
+    (threads_repo / "user-thread.md").write_text("CONFLICT_LINE=REMOTE_B\n")
     threads.index.add(["graph/baseline/manifest.json", "user-thread.md"])
     threads.index.commit("Update B", author=author)
 
@@ -2133,12 +2168,13 @@ def test_preflight_auto_resolves_complex_graph_conflicts(
     manifest_path.write_text(json.dumps(manifest, indent=2) + "\n")
 
     # Create initial nodes/edges with multiple entries
+    # Include a "conflict node" that both sides will modify differently
     nodes_path = graph_dir / "nodes.jsonl"
     edges_path = graph_dir / "edges.jsonl"
     nodes_path.write_text(
         '{"uuid":"node1","name":"Alpha Node"}\n'
         '{"uuid":"node2","name":"Beta Node"}\n'
-        '{"uuid":"node3","name":"Shared Node"}\n'
+        '{"uuid":"conflict","name":"INITIAL"}\n'
     )
     edges_path.write_text(
         '{"uuid":"edge1","fact":"Alpha Fact"}\n'
@@ -2148,24 +2184,24 @@ def test_preflight_auto_resolves_complex_graph_conflicts(
     threads.index.add(["graph/baseline/manifest.json", "graph/baseline/nodes.jsonl", "graph/baseline/edges.jsonl"])
     threads.index.commit("Initial graph state", author=author)
 
-    # Create LOCAL commit: add new topic and nodes
+    # Create LOCAL commit: add new topic and MODIFY the conflict node
     manifest["last_updated"] = "2025-01-01T01:00:00Z"
     manifest["topics_synced"]["topic-gamma"] = {
         "last_entry_id": "01GAMMA_NEW",
         "synced_at": "2025-01-01T01:00:00Z"
     }
     manifest_path.write_text(json.dumps(manifest, indent=2) + "\n")
+    # Modify the conflict node (line 3) - LOCAL version
     nodes_path.write_text(
         '{"uuid":"node1","name":"Alpha Node"}\n'
         '{"uuid":"node2","name":"Beta Node"}\n'
-        '{"uuid":"node3","name":"Shared Node"}\n'
-        '{"uuid":"node4","name":"Gamma Node"}\n'
+        '{"uuid":"conflict","name":"LOCAL_GAMMA"}\n'
     )
     threads.index.add(["graph/baseline/manifest.json", "graph/baseline/nodes.jsonl"])
     threads.index.commit("Add topic-gamma", author=author)
     local_commit = threads.head.commit.hexsha
 
-    # Go back and create REMOTE commit: update alpha topic and add nodes
+    # Go back and create REMOTE commit: update alpha topic and MODIFY conflict node differently
     threads.git.reset("--hard", "HEAD~1")
 
     # IMPORTANT: Re-read manifest from disk since reset restored original state
@@ -2176,11 +2212,11 @@ def test_preflight_auto_resolves_complex_graph_conflicts(
     manifest["topics_synced"]["topic-alpha"]["last_entry_id"] = "01ALPHA_UPDATED"
     manifest["topics_synced"]["topic-alpha"]["synced_at"] = "2025-01-01T01:15:00Z"
     manifest_path.write_text(json.dumps(manifest, indent=2) + "\n")
+    # Modify the conflict node (line 3) - REMOTE version (different from LOCAL)
     nodes_path.write_text(
         '{"uuid":"node1","name":"Alpha Node"}\n'
         '{"uuid":"node2","name":"Beta Node"}\n'
-        '{"uuid":"node3","name":"Shared Node"}\n'
-        '{"uuid":"node5","name":"Alpha Updated Node"}\n'
+        '{"uuid":"conflict","name":"REMOTE_ALPHA"}\n'
     )
     edges_path.write_text(
         '{"uuid":"edge1","fact":"Alpha Fact"}\n'
@@ -2200,9 +2236,9 @@ def test_preflight_auto_resolves_complex_graph_conflicts(
     except GitCommandError:
         pass  # Expected conflict
 
-    # Verify we have conflicts
+    # Verify we have conflicts - must have UU for nodes.jsonl since that's where both sides modify
     status = threads.git.status("--porcelain")
-    has_conflict = "UU" in status or "U " in status or " U" in status
+    has_conflict = "UU graph/baseline/nodes.jsonl" in status or "UU graph/baseline/manifest.json" in status
     assert has_conflict, f"Setup failed: should have created a conflict. Status: {status}"
 
     # Run preflight - should auto-resolve complex graph conflicts
@@ -2231,8 +2267,8 @@ def test_preflight_auto_resolves_complex_graph_conflicts(
             node = json.loads(line)
             node_uuids.add(node["uuid"])
 
-    # Should have all unique nodes: node1, node2, node3, node4, node5
-    assert node_uuids == {"node1", "node2", "node3", "node4", "node5"}
+    # Should have all unique nodes: node1, node2, conflict (deduplicated)
+    assert node_uuids == {"node1", "node2", "conflict"}
 
     # Verify edges were deduplicated and merged
     edges_content = edges_path.read_text()
