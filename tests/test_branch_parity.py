@@ -102,14 +102,110 @@ def threads_repo(tmp_path: Path) -> Path:
     return repo_path
 
 
-def _create_conflicting_file(path: Path, base: str, local: str, remote: str) -> None:
-    """Helper to write a file that will conflict when merged.
+def _force_conflict_state(
+    repo: Repo, rel_path: str, base_content: str, local_content: str, remote_content: str
+) -> None:
+    """Force a file into conflicted state using git plumbing.
 
-    The file must have a single line that both sides modify differently.
-    This ensures git cannot auto-merge the changes.
+    This bypasses git's merge algorithms and directly creates the conflict
+    state in the index. Works reliably across all git versions including
+    2.38+ with the ort merge strategy.
+
+    Args:
+        repo: GitPython Repo object
+        rel_path: Relative path to the file within the repo
+        base_content: Content in the common ancestor
+        local_content: Content in the local/ours branch
+        remote_content: Content in the remote/theirs branch
     """
-    # Write base content - single line that will be modified
-    path.write_text(f"{base}\n")
+    import subprocess
+    import tempfile
+    import os
+
+    work_dir = repo.working_dir
+
+    # Create temp files for the three versions
+    with tempfile.NamedTemporaryFile(mode='w', suffix='.base', delete=False) as f:
+        f.write(base_content)
+        base_file = f.name
+    with tempfile.NamedTemporaryFile(mode='w', suffix='.local', delete=False) as f:
+        f.write(local_content)
+        local_file = f.name
+    with tempfile.NamedTemporaryFile(mode='w', suffix='.remote', delete=False) as f:
+        f.write(remote_content)
+        remote_file = f.name
+
+    try:
+        # Use git merge-file to create conflicted content
+        result = subprocess.run(
+            ["git", "merge-file", "-p", local_file, base_file, remote_file],
+            capture_output=True,
+            text=True,
+            cwd=work_dir,
+        )
+        merged_content = result.stdout
+
+        # Write the conflicted content to the actual file
+        file_path = Path(work_dir) / rel_path
+        file_path.write_text(merged_content)
+
+        # Create blob objects for each version using subprocess (GitPython's input= doesn't work)
+        base_blob = subprocess.run(
+            ["git", "hash-object", "-w", "--stdin"],
+            input=base_content,
+            capture_output=True,
+            text=True,
+            cwd=work_dir,
+        ).stdout.strip()
+        local_blob = subprocess.run(
+            ["git", "hash-object", "-w", "--stdin"],
+            input=local_content,
+            capture_output=True,
+            text=True,
+            cwd=work_dir,
+        ).stdout.strip()
+        remote_blob = subprocess.run(
+            ["git", "hash-object", "-w", "--stdin"],
+            input=remote_content,
+            capture_output=True,
+            text=True,
+            cwd=work_dir,
+        ).stdout.strip()
+
+        # Remove from index and re-add with conflict stages (1=base, 2=ours, 3=theirs)
+        subprocess.run(
+            ["git", "update-index", "--force-remove", rel_path],
+            cwd=work_dir,
+            check=True,
+        )
+        subprocess.run(
+            ["git", "update-index", "--index-info"],
+            input=f"100644 {base_blob} 1\t{rel_path}\n",
+            text=True,
+            cwd=work_dir,
+            check=True,
+        )
+        subprocess.run(
+            ["git", "update-index", "--index-info"],
+            input=f"100644 {local_blob} 2\t{rel_path}\n",
+            text=True,
+            cwd=work_dir,
+            check=True,
+        )
+        subprocess.run(
+            ["git", "update-index", "--index-info"],
+            input=f"100644 {remote_blob} 3\t{rel_path}\n",
+            text=True,
+            cwd=work_dir,
+            check=True,
+        )
+    finally:
+        # Clean up temp files
+        for f in [base_file, local_file, remote_file]:
+            try:
+                os.unlink(f)
+            except OSError:
+                pass
 
 
 @pytest.fixture
@@ -1957,76 +2053,47 @@ def test_preflight_auto_resolves_graph_only_conflicts(
     graph_dir = threads_repo / "graph" / "baseline"
     graph_dir.mkdir(parents=True, exist_ok=True)
 
-    # Create initial manifest with a line that will be modified by both sides
-    manifest = {
-        "version": "1.0",
-        "generated_at": "2025-01-01T00:00:00Z",
-        "last_updated": "2025-01-01T00:00:00Z",
-        "topics_synced": {
-            "test-topic": {
-                "last_entry_id": "01INITIAL",
-                "synced_at": "2025-01-01T00:00:00Z"
-            }
-        }
-    }
+    # Create initial files and commit
     manifest_path = graph_dir / "manifest.json"
-    manifest_path.write_text(json.dumps(manifest, indent=2) + "\n")
-
-    # Create initial nodes and edges - include a "conflict line" that both sides will modify
     nodes_path = graph_dir / "nodes.jsonl"
     edges_path = graph_dir / "edges.jsonl"
-    # Use 2 lines from the start so both sides MODIFY line 2, not ADD it
-    nodes_path.write_text('{"uuid":"node1","name":"Test Node"}\n{"uuid":"conflict","name":"INITIAL"}\n')
-    edges_path.write_text('{"uuid":"edge1","fact":"Test Fact"}\n')
 
-    # Commit initial graph
+    base_manifest = json.dumps({
+        "version": "1.0",
+        "last_updated": "2025-01-01T00:00:00Z",
+        "topics_synced": {"test-topic": {"last_entry_id": "01INITIAL"}}
+    }, indent=2) + "\n"
+    manifest_path.write_text(base_manifest)
+    nodes_path.write_text('{"uuid":"node1","name":"Test"}\n')
+    edges_path.write_text('{"uuid":"edge1","fact":"Test"}\n')
+
     threads.index.add(["graph/baseline/manifest.json", "graph/baseline/nodes.jsonl", "graph/baseline/edges.jsonl"])
     threads.index.commit("Initial graph state", author=author)
 
-    # Create LOCAL commit: update manifest and MODIFY the conflict line
-    manifest["last_updated"] = "2025-01-01T01:00:00Z"
-    manifest["topics_synced"]["test-topic"]["last_entry_id"] = "01ENTRY_A"
-    manifest["topics_synced"]["test-topic"]["synced_at"] = "2025-01-01T01:00:00Z"
-    manifest_path.write_text(json.dumps(manifest, indent=2) + "\n")
-    # Modify line 2 (conflict line) - both sides will change this differently
-    nodes_path.write_text('{"uuid":"node1","name":"Test Node"}\n{"uuid":"conflict","name":"LOCAL_A"}\n')
-    threads.index.add(["graph/baseline/manifest.json", "graph/baseline/nodes.jsonl"])
-    threads.index.commit("graph: sync test-topic/01ENTRY_A", author=author)
-    local_commit = threads.head.commit.hexsha
+    # Define the three versions for conflict
+    local_manifest = json.dumps({
+        "version": "1.0",
+        "last_updated": "2025-01-01T01:00:00Z",
+        "topics_synced": {"test-topic": {"last_entry_id": "01ENTRY_A"}}
+    }, indent=2) + "\n"
+    remote_manifest = json.dumps({
+        "version": "1.0",
+        "last_updated": "2025-01-01T01:30:00Z",
+        "topics_synced": {"test-topic": {"last_entry_id": "01ENTRY_B"}}
+    }, indent=2) + "\n"
 
-    # Go back one commit to diverge
-    threads.git.reset("--hard", "HEAD~1")
+    # Force conflict state using git plumbing (works across all git versions)
+    _force_conflict_state(
+        threads,
+        "graph/baseline/manifest.json",
+        base_manifest,
+        local_manifest,
+        remote_manifest,
+    )
 
-    # IMPORTANT: Re-read manifest from disk since reset restored original state
-    # (Python dict still has local changes which would prevent real conflicts)
-    manifest = json.loads(manifest_path.read_text())
-
-    # Create REMOTE commit: update manifest and MODIFY the conflict line differently
-    manifest["last_updated"] = "2025-01-01T01:30:00Z"  # Newer timestamp
-    manifest["topics_synced"]["test-topic"]["last_entry_id"] = "01ENTRY_B"
-    manifest["topics_synced"]["test-topic"]["synced_at"] = "2025-01-01T01:30:00Z"
-    manifest_path.write_text(json.dumps(manifest, indent=2) + "\n")
-    # Modify line 2 (conflict line) differently from local
-    nodes_path.write_text('{"uuid":"node1","name":"Test Node"}\n{"uuid":"conflict","name":"REMOTE_B"}\n')
-    threads.index.add(["graph/baseline/manifest.json", "graph/baseline/nodes.jsonl"])
-    threads.index.commit("graph: sync test-topic/01ENTRY_B", author=author)
-
-    # Capture the remote commit SHA before resetting (reflog doesn't work reliably in CI)
-    remote_commit = threads.head.commit.hexsha
-
-    # Reset back to local commit to create diverged state
-    threads.git.reset("--hard", local_commit)
-
-    # Create conflict by attempting to merge the remote commit (use SHA, not reflog)
-    try:
-        threads.git.merge("--strategy=recursive", remote_commit)
-    except GitCommandError:
-        pass  # Expected to fail with conflict
-
-    # Verify we have conflicts (UU for modified-modified)
+    # Verify conflict was created
     status = threads.git.status("--porcelain")
-    has_conflict = "UU graph/baseline/manifest.json" in status or "UU graph/baseline/nodes.jsonl" in status
-    assert has_conflict, f"Setup failed: should have created a conflict. Status: {status}"
+    assert "UU graph/baseline/manifest.json" in status, f"Setup failed: {status}"
 
     # Run preflight - should auto-resolve graph conflicts
     result = run_preflight(
@@ -2066,56 +2133,30 @@ def test_preflight_blocks_on_mixed_conflicts(
     graph_dir = threads_repo / "graph" / "baseline"
     graph_dir.mkdir(parents=True, exist_ok=True)
 
-    manifest = {
-        "version": "1.0",
-        "last_updated": "2025-01-01T00:00:00Z",
-        "topics_synced": {}
-    }
-    (graph_dir / "manifest.json").write_text(json.dumps(manifest, indent=2) + "\n")
-    # Use single line that will be modified by both sides to ensure conflict
-    (threads_repo / "user-thread.md").write_text("CONFLICT_LINE=INITIAL\n")
+    base_manifest = json.dumps({"version": "1.0", "last_updated": "2025-01-01T00:00:00Z"}, indent=2) + "\n"
+    (graph_dir / "manifest.json").write_text(base_manifest)
+    (threads_repo / "user-thread.md").write_text("# Thread\nContent: INITIAL\n")
 
     threads.index.add(["graph/baseline/manifest.json", "user-thread.md"])
     threads.index.commit("Initial state", author=author)
 
-    # Create LOCAL commit: update both graph and user thread
-    manifest["last_updated"] = "2025-01-01T01:00:00Z"
-    (graph_dir / "manifest.json").write_text(json.dumps(manifest, indent=2) + "\n")
-    # Modify the conflict line to LOCAL value
-    (threads_repo / "user-thread.md").write_text("CONFLICT_LINE=LOCAL_A\n")
-    threads.index.add(["graph/baseline/manifest.json", "user-thread.md"])
-    threads.index.commit("Update A", author=author)
-    local_commit = threads.head.commit.hexsha
+    # Force conflicts in BOTH graph and user content using plumbing
+    # This test verifies mixed conflicts block, so we need both types
 
-    # Go back and create conflicting REMOTE commit
-    threads.git.reset("--hard", "HEAD~1")
+    # Graph file conflict (would be auto-resolvable alone)
+    local_manifest = json.dumps({"version": "1.0", "last_updated": "2025-01-01T01:00:00Z"}, indent=2) + "\n"
+    remote_manifest = json.dumps({"version": "1.0", "last_updated": "2025-01-01T01:30:00Z"}, indent=2) + "\n"
+    _force_conflict_state(threads, "graph/baseline/manifest.json", base_manifest, local_manifest, remote_manifest)
 
-    # IMPORTANT: Re-read manifest from disk since reset restored original state
-    # (Python dict still has local changes which would prevent real conflicts)
-    manifest_path = graph_dir / "manifest.json"
-    manifest = json.loads(manifest_path.read_text())
+    # User thread conflict (should block auto-resolution)
+    base_thread = "# Thread\nContent: INITIAL\n"
+    local_thread = "# Thread\nContent: LOCAL_A\n"
+    remote_thread = "# Thread\nContent: REMOTE_B\n"
+    _force_conflict_state(threads, "user-thread.md", base_thread, local_thread, remote_thread)
 
-    manifest["last_updated"] = "2025-01-01T01:30:00Z"
-    manifest_path.write_text(json.dumps(manifest, indent=2) + "\n")
-    # Modify the conflict line to REMOTE value (different from LOCAL)
-    (threads_repo / "user-thread.md").write_text("CONFLICT_LINE=REMOTE_B\n")
-    threads.index.add(["graph/baseline/manifest.json", "user-thread.md"])
-    threads.index.commit("Update B", author=author)
-
-    # Capture remote commit SHA before reset (reflog doesn't work reliably in CI)
-    remote_commit = threads.head.commit.hexsha
-
-    # Reset to local and create conflict via merge (use SHA)
-    threads.git.reset("--hard", local_commit)
-    try:
-        threads.git.merge("--strategy=recursive", remote_commit)
-    except GitCommandError:
-        pass
-
-    # Verify mixed conflicts (graph + user content)
+    # Verify mixed conflicts exist
     status = threads.git.status("--porcelain")
-    has_conflict = "UU" in status or "U " in status or " U" in status
-    assert has_conflict, f"Setup failed: expected mixed conflicts. Status: {status}"
+    assert "UU" in status, f"Setup failed: expected conflicts. Status: {status}"
 
     # Run preflight - should BLOCK (not auto-resolve mixed conflicts)
     result = run_preflight(
@@ -2151,8 +2192,9 @@ def test_preflight_auto_resolves_complex_graph_conflicts(
     graph_dir = threads_repo / "graph" / "baseline"
     graph_dir.mkdir(parents=True, exist_ok=True)
 
-    # Create initial manifest with multiple topics
-    manifest = {
+    # Define the three versions for conflict setup
+    # BASE: Initial state with 2 topics
+    base_manifest = {
         "version": "1.0",
         "last_updated": "2025-01-01T00:00:00Z",
         "topics_synced": {
@@ -2166,79 +2208,100 @@ def test_preflight_auto_resolves_complex_graph_conflicts(
             }
         }
     }
-    manifest_path = graph_dir / "manifest.json"
-    manifest_path.write_text(json.dumps(manifest, indent=2) + "\n")
-
-    # Create initial nodes/edges with multiple entries
-    # Include a "conflict node" that both sides will modify differently
-    nodes_path = graph_dir / "nodes.jsonl"
-    edges_path = graph_dir / "edges.jsonl"
-    nodes_path.write_text(
+    base_nodes = (
         '{"uuid":"node1","name":"Alpha Node"}\n'
         '{"uuid":"node2","name":"Beta Node"}\n'
         '{"uuid":"conflict","name":"INITIAL"}\n'
     )
-    edges_path.write_text(
+    base_edges = (
         '{"uuid":"edge1","fact":"Alpha Fact"}\n'
         '{"uuid":"edge2","fact":"Beta Fact"}\n'
     )
 
-    threads.index.add(["graph/baseline/manifest.json", "graph/baseline/nodes.jsonl", "graph/baseline/edges.jsonl"])
-    threads.index.commit("Initial graph state", author=author)
-
-    # Create LOCAL commit: add new topic and MODIFY the conflict node
-    manifest["last_updated"] = "2025-01-01T01:00:00Z"
-    manifest["topics_synced"]["topic-gamma"] = {
-        "last_entry_id": "01GAMMA_NEW",
-        "synced_at": "2025-01-01T01:00:00Z"
+    # LOCAL: Adds topic-gamma, modifies conflict node to LOCAL_GAMMA
+    local_manifest = {
+        "version": "1.0",
+        "last_updated": "2025-01-01T01:00:00Z",
+        "topics_synced": {
+            "topic-alpha": {
+                "last_entry_id": "01ALPHA_INITIAL",
+                "synced_at": "2025-01-01T00:00:00Z"
+            },
+            "topic-beta": {
+                "last_entry_id": "01BETA_INITIAL",
+                "synced_at": "2025-01-01T00:00:00Z"
+            },
+            "topic-gamma": {
+                "last_entry_id": "01GAMMA_NEW",
+                "synced_at": "2025-01-01T01:00:00Z"
+            }
+        }
     }
-    manifest_path.write_text(json.dumps(manifest, indent=2) + "\n")
-    # Modify the conflict node (line 3) - LOCAL version
-    nodes_path.write_text(
+    local_nodes = (
         '{"uuid":"node1","name":"Alpha Node"}\n'
         '{"uuid":"node2","name":"Beta Node"}\n'
         '{"uuid":"conflict","name":"LOCAL_GAMMA"}\n'
     )
-    threads.index.add(["graph/baseline/manifest.json", "graph/baseline/nodes.jsonl"])
-    threads.index.commit("Add topic-gamma", author=author)
-    local_commit = threads.head.commit.hexsha
 
-    # Go back and create REMOTE commit: update alpha topic and MODIFY conflict node differently
-    threads.git.reset("--hard", "HEAD~1")
-
-    # IMPORTANT: Re-read manifest from disk since reset restored original state
-    # (Python dict still has topic-gamma from local commit which would prevent real conflicts)
-    manifest = json.loads(manifest_path.read_text())
-
-    manifest["last_updated"] = "2025-01-01T01:15:00Z"  # Newer timestamp
-    manifest["topics_synced"]["topic-alpha"]["last_entry_id"] = "01ALPHA_UPDATED"
-    manifest["topics_synced"]["topic-alpha"]["synced_at"] = "2025-01-01T01:15:00Z"
-    manifest_path.write_text(json.dumps(manifest, indent=2) + "\n")
-    # Modify the conflict node (line 3) - REMOTE version (different from LOCAL)
-    nodes_path.write_text(
+    # REMOTE: Updates topic-alpha, modifies conflict node to REMOTE_ALPHA, adds edge3
+    remote_manifest = {
+        "version": "1.0",
+        "last_updated": "2025-01-01T01:15:00Z",
+        "topics_synced": {
+            "topic-alpha": {
+                "last_entry_id": "01ALPHA_UPDATED",
+                "synced_at": "2025-01-01T01:15:00Z"
+            },
+            "topic-beta": {
+                "last_entry_id": "01BETA_INITIAL",
+                "synced_at": "2025-01-01T00:00:00Z"
+            }
+        }
+    }
+    remote_nodes = (
         '{"uuid":"node1","name":"Alpha Node"}\n'
         '{"uuid":"node2","name":"Beta Node"}\n'
         '{"uuid":"conflict","name":"REMOTE_ALPHA"}\n'
     )
-    edges_path.write_text(
+    remote_edges = (
         '{"uuid":"edge1","fact":"Alpha Fact"}\n'
         '{"uuid":"edge2","fact":"Beta Fact"}\n'
         '{"uuid":"edge3","fact":"New Alpha Edge"}\n'
     )
-    threads.index.add(["graph/baseline/manifest.json", "graph/baseline/nodes.jsonl", "graph/baseline/edges.jsonl"])
-    threads.index.commit("Update topic-alpha", author=author)
 
-    # Capture remote commit SHA before reset (reflog doesn't work reliably in CI)
-    remote_commit = threads.head.commit.hexsha
+    # Write LOCAL version as the committed state
+    manifest_path = graph_dir / "manifest.json"
+    nodes_path = graph_dir / "nodes.jsonl"
+    edges_path = graph_dir / "edges.jsonl"
 
-    # Reset to local and create conflict via merge (use SHA)
-    threads.git.reset("--hard", local_commit)
-    try:
-        threads.git.merge("--strategy=recursive", remote_commit)
-    except GitCommandError:
-        pass  # Expected conflict
+    manifest_path.write_text(json.dumps(local_manifest, indent=2) + "\n")
+    nodes_path.write_text(local_nodes)
+    edges_path.write_text(remote_edges)  # Use remote edges (has edge3)
 
-    # Verify we have conflicts - must have UU for nodes.jsonl since that's where both sides modify
+    threads.index.add([
+        "graph/baseline/manifest.json",
+        "graph/baseline/nodes.jsonl",
+        "graph/baseline/edges.jsonl"
+    ])
+    threads.index.commit("Local graph state", author=author)
+
+    # Force conflict state using git plumbing for both manifest and nodes
+    _force_conflict_state(
+        threads,
+        "graph/baseline/manifest.json",
+        json.dumps(base_manifest, indent=2) + "\n",
+        json.dumps(local_manifest, indent=2) + "\n",
+        json.dumps(remote_manifest, indent=2) + "\n",
+    )
+    _force_conflict_state(
+        threads,
+        "graph/baseline/nodes.jsonl",
+        base_nodes,
+        local_nodes,
+        remote_nodes,
+    )
+
+    # Verify we have conflicts
     status = threads.git.status("--porcelain")
     has_conflict = "UU graph/baseline/nodes.jsonl" in status or "UU graph/baseline/manifest.json" in status
     assert has_conflict, f"Setup failed: should have created a conflict. Status: {status}"
