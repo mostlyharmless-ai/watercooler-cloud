@@ -35,6 +35,7 @@ from watercooler.baseline_graph.parser import (
 from watercooler.baseline_graph.summarizer import (
     SummarizerConfig,
     create_summarizer_config,
+    is_llm_service_available,
     summarize_entry,
     summarize_thread,
 )
@@ -483,33 +484,58 @@ def sync_entry_to_graph(
             return False
 
         # Generate entry summary if enabled
+        summarizer_config = None
+        llm_available = False
         if generate_summaries and not entry.summary:
             summarizer_config = create_summarizer_config()
-            entry.summary = summarize_entry(
-                entry.body,
-                entry_title=entry.title,
-                entry_type=entry.entry_type,
-                config=summarizer_config,
-            )
-            logger.debug(f"Generated summary for entry {entry.entry_id}")
+            llm_available = is_llm_service_available(summarizer_config)
+            if llm_available:
+                entry.summary = summarize_entry(
+                    entry.body,
+                    entry_title=entry.title,
+                    entry_type=entry.entry_type,
+                    config=summarizer_config,
+                )
+                if entry.summary:
+                    logger.debug(f"Generated summary for entry {entry.entry_id}")
+            else:
+                logger.warning(
+                    f"LLM service unavailable at {summarizer_config.api_base}. "
+                    "Skipping summary generation. To enable summaries: "
+                    "1) Start Ollama: 'ollama serve' "
+                    "2) Or configure a different LLM endpoint in config.toml"
+                )
 
         # Generate entry embedding if enabled
         entry_embedding = None
         if generate_embeddings:
-            # Use summary for embedding if available, otherwise truncated body
-            embed_text = entry.summary if entry.summary else entry.body[:500]
-            entry_embedding = generate_embedding(embed_text)
-            if entry_embedding:
-                logger.debug(f"Generated embedding for entry {entry.entry_id}")
+            embed_config = EmbeddingConfig.from_env()
+            if is_embedding_available(embed_config):
+                # Use summary for embedding if available, otherwise truncated body
+                embed_text = entry.summary if entry.summary else entry.body[:500]
+                entry_embedding = generate_embedding(embed_text)
+                if entry_embedding:
+                    logger.debug(f"Generated embedding for entry {entry.entry_id}")
+            else:
+                logger.warning(
+                    f"Embedding service unavailable at {embed_config.api_base}. "
+                    "Skipping embedding generation. To enable embeddings: "
+                    "1) Start llama.cpp server with embedding model "
+                    "2) Or configure a different embedding endpoint in config.toml"
+                )
 
         # Check if thread summary needs update (arc change detection)
         update_thread_summary = False
         if generate_summaries:
+            # Ensure we have config and availability check
+            if summarizer_config is None:
+                summarizer_config = create_summarizer_config()
+                llm_available = is_llm_service_available(summarizer_config)
+
             update_thread_summary = should_update_thread_summary(
                 parsed, entry, prev_entry_count
             )
-            if update_thread_summary:
-                summarizer_config = create_summarizer_config()
+            if update_thread_summary and llm_available:
                 # Convert entries to dict format for summarize_thread
                 entries_for_summary = [
                     {
@@ -525,7 +551,8 @@ def sync_entry_to_graph(
                     thread_title=parsed.title,
                     config=summarizer_config,
                 )
-                logger.debug(f"Updated thread summary for {topic} (arc change)")
+                if parsed.summary:
+                    logger.debug(f"Updated thread summary for {topic} (arc change)")
             elif prev_thread_summary:
                 # Preserve existing thread summary
                 parsed.summary = prev_thread_summary

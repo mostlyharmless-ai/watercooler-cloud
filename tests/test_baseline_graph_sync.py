@@ -27,6 +27,10 @@ from watercooler.baseline_graph.sync import (
     sync_thread_to_graph,
 )
 from watercooler.baseline_graph.parser import ParsedThread, ParsedEntry
+from watercooler.baseline_graph.summarizer import (
+    SummarizerConfig,
+    is_llm_service_available,
+)
 
 
 # ============================================================================
@@ -652,6 +656,16 @@ def test_is_embedding_available_no_server():
     assert not is_embedding_available(config)
 
 
+def test_is_llm_service_available_no_server():
+    """Test is_llm_service_available returns False when server unavailable.
+
+    Uses an invalid port to guarantee connection failure.
+    """
+    # Use invalid port to ensure no server responds
+    config = SummarizerConfig(api_base="http://localhost:1/v1")
+    assert not is_llm_service_available(config)
+
+
 def test_generate_embedding_no_server():
     """Test generate_embedding returns None when server unavailable.
 
@@ -682,6 +696,11 @@ def test_sync_entry_with_embeddings_flag(threads_dir: Path, sample_thread: Path,
     monkeypatch.setattr(
         "watercooler.baseline_graph.sync.generate_embedding",
         mock_generate_embedding,
+    )
+    # Mock service availability check
+    monkeypatch.setattr(
+        "watercooler.baseline_graph.sync.is_embedding_available",
+        lambda config=None: True,
     )
 
     # Sync with embeddings enabled

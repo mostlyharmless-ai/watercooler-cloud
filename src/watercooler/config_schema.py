@@ -220,6 +220,10 @@ class GraphConfig(BaseModel):
         default=False,
         description="Use extractive summaries (no LLM) when True",
     )
+    auto_detect_services: bool = Field(
+        default=True,
+        description="Check service availability before generation; skip gracefully if unavailable",
+    )
 
 
 class McpConfig(BaseModel):
