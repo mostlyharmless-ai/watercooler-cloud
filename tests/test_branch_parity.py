@@ -1964,7 +1964,11 @@ def test_preflight_auto_resolves_graph_only_conflicts(
     # Go back one commit to diverge
     threads.git.reset("--hard", "HEAD~1")
 
-    # Create REMOTE commit: update manifest with entry B
+    # IMPORTANT: Re-read manifest from disk since reset restored original state
+    # (Python dict still has local changes which would prevent real conflicts)
+    manifest = json.loads(manifest_path.read_text())
+
+    # Create REMOTE commit: update manifest with entry B (different from local changes)
     manifest["last_updated"] = "2025-01-01T01:30:00Z"  # Newer timestamp
     manifest["topics_synced"]["test-topic"]["last_entry_id"] = "01ENTRY_B"
     manifest["topics_synced"]["test-topic"]["synced_at"] = "2025-01-01T01:30:00Z"
@@ -2049,8 +2053,14 @@ def test_preflight_blocks_on_mixed_conflicts(
 
     # Go back and create conflicting REMOTE commit
     threads.git.reset("--hard", "HEAD~1")
+
+    # IMPORTANT: Re-read manifest from disk since reset restored original state
+    # (Python dict still has local changes which would prevent real conflicts)
+    manifest_path = graph_dir / "manifest.json"
+    manifest = json.loads(manifest_path.read_text())
+
     manifest["last_updated"] = "2025-01-01T01:30:00Z"
-    (graph_dir / "manifest.json").write_text(json.dumps(manifest, indent=2) + "\n")
+    manifest_path.write_text(json.dumps(manifest, indent=2) + "\n")
     (threads_repo / "user-thread.md").write_text("# User Thread\n\nContent B Conflicting\n")
     threads.index.add(["graph/baseline/manifest.json", "user-thread.md"])
     threads.index.commit("Update B", author=author)
@@ -2157,6 +2167,11 @@ def test_preflight_auto_resolves_complex_graph_conflicts(
 
     # Go back and create REMOTE commit: update alpha topic and add nodes
     threads.git.reset("--hard", "HEAD~1")
+
+    # IMPORTANT: Re-read manifest from disk since reset restored original state
+    # (Python dict still has topic-gamma from local commit which would prevent real conflicts)
+    manifest = json.loads(manifest_path.read_text())
+
     manifest["last_updated"] = "2025-01-01T01:15:00Z"  # Newer timestamp
     manifest["topics_synced"]["topic-alpha"]["last_entry_id"] = "01ALPHA_UPDATED"
     manifest["topics_synced"]["topic-alpha"]["synced_at"] = "2025-01-01T01:15:00Z"
