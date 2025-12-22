@@ -122,6 +122,56 @@ def generate_embedding(
         return None
 
 
+def _should_auto_start_services() -> bool:
+    """Check if auto-start services is enabled via env var.
+
+    Returns:
+        True if WATERCOOLER_AUTO_START_SERVICES is set to a truthy value
+    """
+    return os.environ.get("WATERCOOLER_AUTO_START_SERVICES", "").lower() in ("1", "true", "yes")
+
+
+def _try_auto_start_service(service_type: str, api_base: str) -> bool:
+    """Attempt to auto-start a service using ServerManager.
+
+    Args:
+        service_type: "llm" or "embedding"
+        api_base: API base URL for the service
+
+    Returns:
+        True if service was started or already running, False otherwise
+    """
+    if not _should_auto_start_services():
+        return False
+
+    try:
+        from watercooler_memory.pipeline.server_manager import ServerManager
+        manager = ServerManager(
+            llm_api_base=api_base if service_type == "llm" else "http://localhost:11434/v1",
+            embedding_api_base=api_base if service_type == "embedding" else "http://localhost:8080/v1",
+            interactive=False,
+            auto_approve=True,
+            verbose=False,
+        )
+        if service_type == "llm":
+            if manager.check_llm_server():
+                return True
+            return manager.start_llm_server()
+        else:
+            if manager.check_embedding_server():
+                return True
+            return manager.start_embedding_server()
+    except ImportError:
+        logger.debug(
+            f"WATERCOOLER_AUTO_START_SERVICES is enabled but ServerManager not available. "
+            f"Cannot auto-start {service_type} service."
+        )
+        return False
+    except Exception as e:
+        logger.debug(f"Failed to auto-start {service_type} service: {e}")
+        return False
+
+
 # ============================================================================
 # Arc Change Detection for Thread Summary Updates
 # ============================================================================
@@ -489,6 +539,11 @@ def sync_entry_to_graph(
         if generate_summaries and not entry.summary:
             summarizer_config = create_summarizer_config()
             llm_available = is_llm_service_available(summarizer_config)
+
+            # Try auto-start if unavailable and enabled
+            if not llm_available and _try_auto_start_service("llm", summarizer_config.api_base):
+                llm_available = is_llm_service_available(summarizer_config)
+
             if llm_available:
                 entry.summary = summarize_entry(
                     entry.body,
@@ -503,14 +558,20 @@ def sync_entry_to_graph(
                     f"LLM service unavailable at {summarizer_config.api_base}. "
                     "Skipping summary generation. To enable summaries: "
                     "1) Start Ollama: 'ollama serve' "
-                    "2) Or configure a different LLM endpoint in config.toml"
+                    "2) Or set WATERCOOLER_AUTO_START_SERVICES=true"
                 )
 
         # Generate entry embedding if enabled
         entry_embedding = None
         if generate_embeddings:
             embed_config = EmbeddingConfig.from_env()
-            if is_embedding_available(embed_config):
+            embed_available = is_embedding_available(embed_config)
+
+            # Try auto-start if unavailable and enabled
+            if not embed_available and _try_auto_start_service("embedding", embed_config.api_base):
+                embed_available = is_embedding_available(embed_config)
+
+            if embed_available:
                 # Use summary for embedding if available, otherwise truncated body
                 embed_text = entry.summary if entry.summary else entry.body[:500]
                 entry_embedding = generate_embedding(embed_text)
@@ -521,7 +582,7 @@ def sync_entry_to_graph(
                     f"Embedding service unavailable at {embed_config.api_base}. "
                     "Skipping embedding generation. To enable embeddings: "
                     "1) Start llama.cpp server with embedding model "
-                    "2) Or configure a different embedding endpoint in config.toml"
+                    "2) Or set WATERCOOLER_AUTO_START_SERVICES=true"
                 )
 
         # Check if thread summary needs update (arc change detection)

@@ -224,6 +224,10 @@ class GraphConfig(BaseModel):
         default=True,
         description="Check service availability before generation; skip gracefully if unavailable",
     )
+    auto_start_services: bool = Field(
+        default=False,
+        description="Auto-start LLM/embedding services if unavailable (requires ServerManager)",
+    )
 
 
 class McpConfig(BaseModel):

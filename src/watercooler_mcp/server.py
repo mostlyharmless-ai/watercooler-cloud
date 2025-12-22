@@ -1102,6 +1102,40 @@ def health(ctx: Context, code_path: str = "") -> str:
             f"fastmcp: {fm_ver}",
         ]
 
+        # Add graph service status
+        try:
+            from watercooler_mcp.config import get_watercooler_config
+            from watercooler.baseline_graph.summarizer import (
+                SummarizerConfig,
+                is_llm_service_available,
+                create_summarizer_config,
+            )
+            from watercooler.baseline_graph.sync import (
+                EmbeddingConfig,
+                is_embedding_available,
+            )
+
+            wc_config = get_watercooler_config()
+            graph_config = wc_config.mcp.graph
+
+            # Check service availability
+            summarizer_cfg = create_summarizer_config()
+            llm_available = is_llm_service_available(summarizer_cfg)
+            embed_cfg = EmbeddingConfig.from_env()
+            embed_available = is_embedding_available(embed_cfg)
+
+            status_lines.extend([
+                "",
+                "Graph Services:",
+                f"  Summaries Enabled: {graph_config.generate_summaries}",
+                f"  LLM Service: {'available' if llm_available else 'unavailable'} ({summarizer_cfg.api_base})",
+                f"  Embeddings Enabled: {graph_config.generate_embeddings}",
+                f"  Embedding Service: {'available' if embed_available else 'unavailable'} ({embed_cfg.api_base})",
+                f"  Auto-Detect Services: {graph_config.auto_detect_services}",
+            ])
+        except Exception as e:
+            status_lines.append(f"\nGraph Services: Error - {e}")
+
         # Add branch parity health if code and threads repos are available
         if context.code_root and context.threads_dir:
             try:
