@@ -314,6 +314,11 @@ auto_detect_services = true
 # SERVER SETTINGS (RECOMMENDED)
 # Unified configuration for LLM and embedding servers
 # Used by baseline_graph pipeline and other watercooler tools
+#
+# RECOMMENDED: Use Ollama for both LLM and embeddings - simplest setup!
+#   1. Install Ollama: https://ollama.ai
+#   2. Pull models: ollama pull llama3.2:3b && ollama pull nomic-embed-text
+#   3. Ollama runs automatically on localhost:11434
 # =============================================================================
 
 # -----------------------------------------------------------------------------
@@ -324,34 +329,35 @@ auto_detect_services = true
 
 # API endpoint - any OpenAI-compatible API
 # Env: LLM_API_BASE
-api_base = "http://localhost:11434/v1"  # Ollama default
+api_base = "http://localhost:11434/v1"  # Ollama (recommended)
 
-# Model name
+# Model name - use any Ollama model: llama3.2, qwen3, mistral, etc.
 # Env: LLM_MODEL
 model = "llama3.2:3b"
 
-# Request timeout (seconds)
+# Request timeout (seconds) - increase for larger models or slower hardware
 # Env: LLM_TIMEOUT
 timeout = 120.0
 
-# Max tokens for generation
+# Max tokens for generation - 512-1024 recommended for summaries
 # Env: LLM_MAX_TOKENS
-max_tokens = 256
+max_tokens = 512
 
 
 # -----------------------------------------------------------------------------
 # Embedding Server
 # For vector embeddings (semantic search, RAG)
+# Using Ollama for embeddings is simplest - only one server needed!
 # -----------------------------------------------------------------------------
 [servers.embedding]
 
-# API endpoint - any OpenAI-compatible embedding API
+# API endpoint - Ollama supports embeddings via the same endpoint
 # Env: EMBEDDING_API_BASE
-api_base = "http://localhost:8080/v1"  # llama.cpp default
+api_base = "http://localhost:11434/v1"  # Ollama (recommended - same server!)
 
-# Model name
+# Model name - nomic-embed-text is excellent and available in Ollama
 # Env: EMBEDDING_MODEL
-model = "bge-m3"
+model = "nomic-embed-text"
 
 # Batch size for embedding requests
 # Env: EMBEDDING_BATCH_SIZE
@@ -360,6 +366,15 @@ batch_size = 32
 # Request timeout (seconds)
 # Env: EMBEDDING_TIMEOUT
 timeout = 60.0
+
+
+# -----------------------------------------------------------------------------
+# Alternative: Separate embedding server (advanced)
+# If you prefer llama.cpp or other dedicated embedding servers:
+# -----------------------------------------------------------------------------
+# [servers.embedding]
+# api_base = "http://localhost:8080/v1"  # llama.cpp server
+# model = "bge-m3"                        # or any GGUF embedding model
 
 
 # =============================================================================
@@ -414,12 +429,12 @@ timeout = 60.0
 
 # API endpoint - supports any OpenAI-compatible embedding API
 # Env: EMBEDDING_API_BASE
-# Default: Local server (no API key needed)
-# api_base = "http://localhost:8081/v1"
+# Ollama recommended (same server as LLM):
+# api_base = "http://localhost:11434/v1"
 
 # Model name
 # Env: EMBEDDING_MODEL
-# model = "bge-m3"
+# model = "nomic-embed-text"
 
 # Batch size for embedding requests
 # Env: EMBEDDING_BATCH_SIZE
