@@ -10,7 +10,7 @@ import sys
 import tempfile
 from dataclasses import dataclass
 from pathlib import Path
-from typing import Any
+from typing import Any, Sequence
 
 from . import (
     BackendError,
@@ -441,9 +441,383 @@ class LeanRAGBackend(MemoryBackend):
         except Exception as exc:
             return HealthStatus(ok=False, details=f"Health check failed: {exc}")
 
+    def search_nodes(
+        self,
+        query: str,
+        group_ids: Sequence[str] | None = None,
+        max_results: int = 10,
+        entity_types: list[str] | None = None,
+    ) -> list[dict[str, Any]]:
+        """Search for entity nodes using vector similarity search.
+
+        Args:
+            query: Search query string
+            group_ids: Optional list of group IDs to filter by (ignored - LeanRAG uses separate databases)
+            max_results: Maximum number of results to return
+            entity_types: Optional list of entity types to filter by (not implemented in LeanRAG)
+
+        Returns:
+            List of normalized CoreResult dictionaries with node data
+
+        Raises:
+            ConfigError: If work_dir not set or database not indexed
+            BackendError: If search fails
+            TransientError: If database connection fails
+        """
+        work_dir = self.config.work_dir
+        if not work_dir:
+            raise ConfigError("work_dir must be set before searching")
+
+        work_dir = work_dir.resolve()
+        if not (work_dir / "threads_chunk.json").exists():
+            raise ConfigError(
+                f"Database not indexed. threads_chunk.json not found in {work_dir}"
+            )
+
+        try:
+            # Add LeanRAG to path
+            leanrag_abspath = self.config.leanrag_path.resolve()
+            if str(leanrag_abspath) not in sys.path:
+                sys.path.insert(0, str(leanrag_abspath))
+
+            original_cwd = os.getcwd()
+            try:
+                os.chdir(str(self.config.leanrag_path))
+
+                # Import LeanRAG search function
+                from leanrag.database.adapter import search_vector_search
+
+                # Execute vector search (level_mode=2 means all levels: base + clusters)
+                results = search_vector_search(
+                    str(work_dir),
+                    query,
+                    topk=max_results,
+                    level_mode=2
+                )
+
+                # Normalize to CoreResult format
+                normalized_results = []
+                for entity_name, parent, description, source_id in results:
+                    normalized_results.append({
+                        "id": entity_name,  # Required by CoreResult
+                        "name": entity_name,
+                        "summary": description,
+                        "score": 0.0,  # Milvus doesn't return scores in current API
+                        "backend": "leanrag",  # Required by CoreResult
+                        "content": None,  # Entities don't have content
+                        "source": source_id,  # Chunk hash where entity was found
+                        "metadata": {
+                            "parent": parent,  # Hierarchical parent (for clusters)
+                        },
+                        "extra": {
+                            "corpus": str(work_dir),
+                        },
+                    })
+
+                return normalized_results
+
+            finally:
+                os.chdir(original_cwd)
+
+        except ImportError as e:
+            raise TransientError(f"Failed to import LeanRAG modules: {e}") from e
+        except Exception as e:
+            raise BackendError(f"Entity search failed: {e}") from e
+
+    def search_facts(
+        self,
+        query: str,
+        group_ids: Sequence[str] | None = None,
+        max_results: int = 10,
+        center_node_id: str | None = None,
+    ) -> list[dict[str, Any]]:
+        """Search for facts/relationships via entity search + edge traversal.
+
+        Args:
+            query: Search query string
+            group_ids: Optional list of group IDs to filter by (ignored - LeanRAG uses separate databases)
+            max_results: Maximum number of results to return
+            center_node_id: Optional entity name to center search around
+
+        Returns:
+            List of normalized CoreResult dictionaries with fact/edge data
+
+        Raises:
+            ConfigError: If work_dir not set or database not indexed
+            BackendError: If search fails
+            TransientError: If database connection fails
+        """
+        work_dir = self.config.work_dir
+        if not work_dir:
+            raise ConfigError("work_dir must be set before searching")
+
+        work_dir = work_dir.resolve()
+        if not (work_dir / "threads_chunk.json").exists():
+            raise ConfigError(
+                f"Database not indexed. threads_chunk.json not found in {work_dir}"
+            )
+
+        try:
+            # Add LeanRAG to path
+            leanrag_abspath = self.config.leanrag_path.resolve()
+            if str(leanrag_abspath) not in sys.path:
+                sys.path.insert(0, str(leanrag_abspath))
+
+            original_cwd = os.getcwd()
+            try:
+                os.chdir(str(self.config.leanrag_path))
+
+                # Import LeanRAG functions
+                from leanrag.database.adapter import search_nodes_link
+
+                # Strategy: Find relevant entities via vector search, then traverse relationships
+                # 1. Find relevant entities (more than requested to increase relationship discovery)
+                entities = self.search_nodes(query, max_results=max_results * 2)
+
+                # 2. Traverse relationships between found entities
+                facts = []
+                for i, e1 in enumerate(entities):
+                    for e2 in entities[i+1:]:
+                        try:
+                            # search_nodes_link returns (src, tgt, description, weight, level)
+                            link = search_nodes_link(
+                                e1["id"], 
+                                e2["id"], 
+                                str(work_dir),
+                                level=None
+                            )
+                            if link:
+                                src, tgt, description, weight, level = link
+                                facts.append({
+                                    "id": f"{src}||{tgt}",  # Synthetic ID format
+                                    "source_node_id": src,
+                                    "target_node_id": tgt,
+                                    "summary": description,  # Relationship description
+                                    "score": float(weight) if weight else 0.0,
+                                    "backend": "leanrag",
+                                    "content": None,  # Facts don't have content
+                                    "source": None,  # Not applicable to edges
+                                    "metadata": {
+                                        "level": level,  # Hierarchy level
+                                    },
+                                    "extra": {
+                                        "corpus": str(work_dir),
+                                    },
+                                })
+                        except Exception:
+                            # If link lookup fails, continue to next pair
+                            continue
+
+                # Return top N facts by score
+                facts.sort(key=lambda x: x["score"], reverse=True)
+                return facts[:max_results]
+
+            finally:
+                os.chdir(original_cwd)
+
+        except ImportError as e:
+            raise TransientError(f"Failed to import LeanRAG modules: {e}") from e
+        except Exception as e:
+            raise BackendError(f"Fact search failed: {e}") from e
+
+    def search_episodes(
+        self,
+        query: str,
+        group_ids: Sequence[str] | None = None,
+        max_results: int = 10,
+    ) -> list[dict[str, Any]]:
+        """Episodes are not supported by LeanRAG.
+
+        LeanRAG chunks are static document segments without provenance information
+        (who created/modified content, when changes occurred). Episodes require this
+        temporal and actor context which LeanRAG doesn't provide.
+
+        Args:
+            query: Search query string (unused)
+            group_ids: Optional group IDs (unused)
+            max_results: Maximum results (unused)
+
+        Returns:
+            Never returns - always raises UnsupportedOperationError
+
+        Raises:
+            UnsupportedOperationError: Always raised - LeanRAG doesn't support episodes
+        """
+        from . import UnsupportedOperationError
+        raise UnsupportedOperationError(
+            "LeanRAG backend does not support episode search. "
+            "Episodes require provenance (who/when) which LeanRAG chunks lack. "
+            "LeanRAG chunks are static document segments without actor/time context."
+        )
+
+    def get_node(
+        self,
+        node_id: str,
+        group_id: str | None = None,
+    ) -> dict[str, Any] | None:
+        """Get entity node by name (LeanRAG uses names, not UUIDs).
+
+        Args:
+            node_id: Entity name to retrieve (e.g., "OAUTH2", "JWT_TOKENS")
+            group_id: Optional group ID (ignored - LeanRAG uses separate databases)
+
+        Returns:
+            Normalized CoreResult dictionary with node data, or None if not found
+
+        Raises:
+            ConfigError: If work_dir not set or database not indexed
+            BackendError: If retrieval fails
+            TransientError: If database connection fails
+        """
+        work_dir = self.config.work_dir
+        if not work_dir:
+            raise ConfigError("work_dir must be set before retrieving nodes")
+
+        work_dir = work_dir.resolve()
+        if not (work_dir / "threads_chunk.json").exists():
+            raise ConfigError(
+                f"Database not indexed. threads_chunk.json not found in {work_dir}"
+            )
+
+        try:
+            # Add LeanRAG to path
+            leanrag_abspath = self.config.leanrag_path.resolve()
+            if str(leanrag_abspath) not in sys.path:
+                sys.path.insert(0, str(leanrag_abspath))
+
+            original_cwd = os.getcwd()
+            try:
+                os.chdir(str(self.config.leanrag_path))
+
+                # Import LeanRAG function
+                from leanrag.database.adapter import search_nodes
+
+                # Retrieve specific entity by name
+                # search_nodes returns [(entity_name, description, source_id, degree, parent, level), ...]
+                results = search_nodes([node_id], str(work_dir))
+                
+                if not results:
+                    return None
+
+                row = results[0]
+                entity_name, description, source_id, degree, parent, level = row
+
+                return {
+                    "id": entity_name,  # Required by CoreResult
+                    "name": entity_name,
+                    "summary": description,
+                    "score": None,  # Not applicable for direct retrieval
+                    "backend": "leanrag",
+                    "content": None,  # Entities don't have content
+                    "source": source_id,  # Chunk hash where entity was found
+                    "metadata": {
+                        "parent": parent,  # Hierarchical parent
+                        "degree": degree,  # Graph connectivity
+                        "level": level,  # Hierarchy level
+                    },
+                    "extra": {
+                        "corpus": str(work_dir),
+                    },
+                }
+
+            finally:
+                os.chdir(original_cwd)
+
+        except ImportError as e:
+            raise TransientError(f"Failed to import LeanRAG modules: {e}") from e
+        except Exception as e:
+            raise BackendError(f"Node retrieval failed: {e}") from e
+
+    def get_edge(
+        self,
+        edge_id: str,
+        group_id: str | None = None,
+    ) -> dict[str, Any] | None:
+        """Get edge/relationship by synthetic ID (SOURCE||TARGET format).
+
+        LeanRAG doesn't have native edge IDs. This method expects edge_id
+        in the format "SOURCE||TARGET" where SOURCE and TARGET are entity names.
+
+        Args:
+            edge_id: Synthetic edge ID in format "SOURCE||TARGET"
+            group_id: Optional group ID (ignored - LeanRAG uses separate databases)
+
+        Returns:
+            Normalized CoreResult dictionary with edge data, or None if not found
+
+        Raises:
+            ConfigError: If work_dir not set or database not indexed
+            BackendError: If retrieval fails
+            TransientError: If database connection fails
+        """
+        # Validate edge_id format
+        if "||" not in edge_id:
+            return None
+
+        work_dir = self.config.work_dir
+        if not work_dir:
+            raise ConfigError("work_dir must be set before retrieving edges")
+
+        work_dir = work_dir.resolve()
+        if not (work_dir / "threads_chunk.json").exists():
+            raise ConfigError(
+                f"Database not indexed. threads_chunk.json not found in {work_dir}"
+            )
+
+        try:
+            # Add LeanRAG to path
+            leanrag_abspath = self.config.leanrag_path.resolve()
+            if str(leanrag_abspath) not in sys.path:
+                sys.path.insert(0, str(leanrag_abspath))
+
+            original_cwd = os.getcwd()
+            try:
+                os.chdir(str(self.config.leanrag_path))
+
+                # Import LeanRAG function
+                from leanrag.database.adapter import search_nodes_link
+
+                # Parse synthetic ID
+                source, target = edge_id.split("||", 1)
+
+                # Retrieve relationship
+                # search_nodes_link returns (src, tgt, description, weight, level)
+                result = search_nodes_link(source, target, str(work_dir), level=None)
+                
+                if not result:
+                    return None
+
+                src, tgt, description, weight, level = result
+
+                return {
+                    "id": edge_id,  # Required by CoreResult
+                    "source_node_id": src,
+                    "target_node_id": tgt,
+                    "summary": description,
+                    "score": float(weight) if weight else 0.0,
+                    "backend": "leanrag",
+                    "content": None,  # Edges don't have content
+                    "source": None,  # Not applicable to edges
+                    "metadata": {
+                        "level": level,
+                    },
+                    "extra": {
+                        "corpus": str(work_dir),
+                    },
+                }
+
+            finally:
+                os.chdir(original_cwd)
+
+        except ImportError as e:
+            raise TransientError(f"Failed to import LeanRAG modules: {e}") from e
+        except Exception as e:
+            raise BackendError(f"Edge retrieval failed: {e}") from e
+
     def get_capabilities(self) -> Capabilities:
-        """Return LeanRAG capabilities."""
+        """Return LeanRAG capabilities with Phase 1 protocol extensions."""
         return Capabilities(
+            # Existing capabilities
             embeddings=bool(self.config.embedding_api_base),
             entity_extraction=True,
             graph_query=True,
@@ -453,4 +827,15 @@ class LeanRAGBackend(MemoryBackend):
             supports_milvus=bool(self.config.embedding_api_base),
             supports_neo4j=False,
             max_tokens=1024,
+            
+            # Phase 1 protocol extensions
+            supports_nodes=True,       # ✅ Via Milvus vector search on entity embeddings
+            supports_facts=True,       # ✅ Via entity search + relationship traversal
+            supports_episodes=False,   # ❌ No provenance (chunks are static segments)
+            supports_chunks=False,     # Not implemented in Phase 2
+            supports_edges=True,       # ✅ Via synthetic SOURCE||TARGET ID format
+            
+            # ID modality (how LeanRAG identifies entities/edges)
+            node_id_type="name",       # Entity names (e.g., "OAUTH2", "JWT_TOKENS")
+            edge_id_type="synthetic",  # SOURCE||TARGET format (no native edge IDs)
         )
