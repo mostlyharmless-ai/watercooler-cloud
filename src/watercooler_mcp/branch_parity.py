@@ -740,8 +740,8 @@ def _has_graph_conflicts_only(repo: Repo) -> bool:
         return False
 
 
-def _merge_manifest(file_path: Path) -> bool:
-    """Merge manifest.json by taking newer timestamp and merging topics.
+def merge_manifest_content(ours_content: str, theirs_content: str) -> str:
+    """Pure function to merge manifest.json content.
 
     Merge strategy:
     - version: Take from ours
@@ -749,12 +749,76 @@ def _merge_manifest(file_path: Path) -> bool:
     - topics_synced: Merge both dicts (theirs overwrites ours for same keys)
     - Other fields: Take from ours (generated_at, source_dir, etc.)
 
+    Args:
+        ours_content: JSON string of our version
+        theirs_content: JSON string of their version
+
+    Returns:
+        Merged JSON string with pretty formatting
+    """
+    import json
+
+    ours_json = json.loads(ours_content)
+    theirs_json = json.loads(theirs_content)
+
+    # Merge strategy: take base structure from ours, newer timestamp, merged topics
+    merged = {
+        **ours_json,  # Start with ours (includes all base fields)
+        "last_updated": max(
+            ours_json.get("last_updated", ""),
+            theirs_json.get("last_updated", "")
+        ),
+        "topics_synced": {
+            **ours_json.get("topics_synced", {}),
+            **theirs_json.get("topics_synced", {})
+        }
+    }
+
+    return json.dumps(merged, indent=2) + "\n"
+
+
+def merge_jsonl_content(ours_content: str, theirs_content: str) -> str:
+    """Pure function to merge JSONL content by deduplicating entries by UUID.
+
+    Both nodes.jsonl and edges.jsonl are additive - entries from both
+    sides can coexist. We deduplicate by UUID to handle any duplicates.
+
+    Args:
+        ours_content: JSONL string of our version
+        theirs_content: JSONL string of their version
+
+    Returns:
+        Merged JSONL string with deduplicated entries
+    """
+    import json
+
+    seen_uuids: set[str] = set()
+    merged_lines = []
+
+    # Process ours first, then theirs
+    for content in [ours_content, theirs_content]:
+        for line in content.strip().split("\n"):
+            if not line.strip():
+                continue
+            try:
+                entry = json.loads(line)
+                uuid = entry.get("uuid") or entry.get("id")
+                if uuid and uuid not in seen_uuids:
+                    seen_uuids.add(uuid)
+                    merged_lines.append(json.dumps(entry))
+            except json.JSONDecodeError:
+                continue
+
+    return "\n".join(merged_lines) + "\n"
+
+
+def _merge_manifest(file_path: Path) -> bool:
+    """Merge manifest.json by taking newer timestamp and merging topics.
+
     Uses git show :2: and :3: to get clean ours/theirs versions.
 
     Returns True on success, False on failure.
     """
-    import json
-
     try:
         from git import Repo
         repo = Repo(file_path.parent.parent.parent, search_parent_directories=False)
@@ -771,25 +835,9 @@ def _merge_manifest(file_path: Path) -> bool:
             log_debug(f"[PARITY] Failed to get ours/theirs for {file_path.name}: {e}")
             return False
 
-        # Parse JSON
-        ours_json = json.loads(ours_content)
-        theirs_json = json.loads(theirs_content)
-
-        # Merge strategy: take base structure from ours, newer timestamp, merged topics
-        merged = {
-            **ours_json,  # Start with ours (includes all base fields)
-            "last_updated": max(
-                ours_json.get("last_updated", ""),
-                theirs_json.get("last_updated", "")
-            ),
-            "topics_synced": {
-                **ours_json.get("topics_synced", {}),
-                **theirs_json.get("topics_synced", {})
-            }
-        }
-
-        # Write merged result
-        file_path.write_text(json.dumps(merged, indent=2) + "\n")
+        # Use pure merge function
+        merged_content = merge_manifest_content(ours_content, theirs_content)
+        file_path.write_text(merged_content)
         log_debug(f"[PARITY] Auto-merged {file_path.name}: newer timestamp, merged topics")
         return True
 
@@ -801,15 +849,10 @@ def _merge_manifest(file_path: Path) -> bool:
 def _merge_jsonl(file_path: Path) -> bool:
     """Merge .jsonl files by deduplicating entries by UUID.
 
-    Both nodes.jsonl and edges.jsonl are additive - entries from both
-    sides can coexist. We deduplicate by UUID to handle any duplicates.
-
     Uses git show :2: and :3: to get clean ours/theirs versions.
 
     Returns True on success, False on failure.
     """
-    import json
-
     try:
         from git import Repo
         repo = Repo(file_path.parent.parent.parent, search_parent_directories=False)
@@ -826,27 +869,10 @@ def _merge_jsonl(file_path: Path) -> bool:
             log_debug(f"[PARITY] Failed to get ours/theirs for {file_path.name}: {e}")
             return False
 
-        # Parse JSON lines from both versions and deduplicate by UUID
-        seen_uuids = set()
-        merged_lines = []
-
-        # Process ours first, then theirs
-        for content in [ours_content, theirs_content]:
-            for line in content.strip().split("\n"):
-                if not line.strip():
-                    continue
-                try:
-                    entry = json.loads(line)
-                    uuid = entry.get("uuid") or entry.get("id")
-                    if uuid and uuid not in seen_uuids:
-                        seen_uuids.add(uuid)
-                        merged_lines.append(json.dumps(entry))
-                except json.JSONDecodeError:
-                    continue
-
-        # Write merged result
-        file_path.write_text("\n".join(merged_lines) + "\n")
-        log_debug(f"[PARITY] Auto-merged {file_path.name}: deduplicated {len(merged_lines)} entries")
+        # Use pure merge function
+        merged_content = merge_jsonl_content(ours_content, theirs_content)
+        file_path.write_text(merged_content)
+        log_debug(f"[PARITY] Auto-merged {file_path.name}: deduplicated entries")
         return True
 
     except Exception as e:
