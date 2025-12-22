@@ -146,6 +146,48 @@ except Exception:
 
 T = TypeVar("T")
 
+# ============================================================================
+# Startup Warnings System
+# ============================================================================
+# Store warnings at startup (missing config, unavailable services, etc.)
+# These are surfaced in tool responses on first invocation, not stderr.
+
+_startup_warnings: List[str] = []
+_warnings_shown: bool = False
+
+
+def _add_startup_warning(msg: str) -> None:
+    """Add a warning message to be shown on first tool invocation."""
+    global _startup_warnings
+    if msg and msg not in _startup_warnings:
+        _startup_warnings.append(msg)
+
+
+def _get_startup_warnings() -> List[str]:
+    """Get pending startup warnings and mark them as shown."""
+    global _warnings_shown, _startup_warnings
+    if _warnings_shown:
+        return []
+    _warnings_shown = True
+    return list(_startup_warnings)
+
+
+def _format_warnings_for_response(response: str) -> str:
+    """Append any pending startup warnings to a tool response."""
+    warnings = _get_startup_warnings()
+    if not warnings:
+        return response
+
+    warning_block = "\n\n" + "─" * 60 + "\n"
+    warning_block += "⚠️  Setup Notices:\n"
+    for warning in warnings:
+        # Indent each line of the warning
+        indented = "\n".join("   " + line for line in warning.strip().split("\n"))
+        warning_block += f"\n{indented}\n"
+    warning_block += "─" * 60
+
+    return response + warning_block
+
 
 def _should_auto_branch() -> bool:
     return os.getenv("WATERCOOLER_AUTO_BRANCH", "1") != "0"
@@ -1159,9 +1201,9 @@ def health(ctx: Context, code_path: str = "") -> str:
             except Exception as e:
                 status_lines.append(f"\nBranch Parity: Error - {e}")
 
-        return "\n".join(status_lines)
+        return _format_warnings_for_response("\n".join(status_lines))
     except Exception as e:
-        return f"Watercooler MCP Server\nStatus: Error\nError: {str(e)}"
+        return _format_warnings_for_response(f"Watercooler MCP Server\nStatus: Error\nError: {str(e)}")
 
 
 @mcp.tool(name="watercooler_whoami")
@@ -1519,7 +1561,7 @@ def list_threads(
             f"chars={len(response)})"
         )
         log_debug("list_threads returning response")
-        return ToolResult(content=[TextContent(type="text", text=response)])
+        return ToolResult(content=[TextContent(type="text", text=_format_warnings_for_response(response))])
 
     except Exception as e:
         log_error(f"list_threads error: {e}")
@@ -1595,7 +1637,7 @@ def read_thread(
         # Read full thread content
         content = fs.read_body(thread_path)
         if resolved_format == "markdown":
-            return content
+            return _format_warnings_for_response(content)
 
         # For JSON format, use graph-first loading
         load_error, entries = _load_thread_entries_graph_first(topic, context)
@@ -1619,6 +1661,10 @@ def read_thread(
             },
             "entries": [_entry_full_payload(entry) for entry in entries],
         }
+        # For JSON, add warnings as a separate field if present
+        warnings = _get_startup_warnings()
+        if warnings:
+            payload["_warnings"] = warnings
         return json.dumps(payload, indent=2)
 
     except Exception as e:
@@ -1934,7 +1980,7 @@ def say(
         from watercooler.metadata import thread_meta
         _, status, ball, _ = thread_meta(thread_path)
 
-        return (
+        return _format_warnings_for_response(
             f"✅ Entry added to '{topic}'\n"
             f"Title: {title}\n"
             f"Role: {role} | Type: {entry_type}\n"
@@ -4535,21 +4581,10 @@ def _check_first_run() -> None:
         )
 
         if not has_config:
-            print(
-                "\n"
-                "━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━\n"
-                "ℹ️  No watercooler config found.\n"
-                "\n"
-                "   Create a config file to customize settings:\n"
-                "\n"
-                "     uvx watercooler-cloud config init --user\n"
-                "\n"
-                "   This creates ~/.watercooler/config.toml with sensible defaults.\n"
-                "\n"
-                "   Using built-in defaults for now. This message won't appear\n"
-                "   once a config file exists.\n"
-                "━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━\n",
-                file=sys.stderr
+            _add_startup_warning(
+                "No config file found. Create one to customize settings:\n"
+                "  uvx watercooler-cloud config init --user\n"
+                "Using built-in defaults for now."
             )
     except Exception:
         # Don't let config check errors break server startup
@@ -4588,7 +4623,7 @@ def _ensure_ollama_running():
             pass  # Not running, try to start
 
         # Try to start Ollama
-        print("Starting Ollama for graph features...", file=sys.stderr)
+        log_debug("Starting Ollama for graph features...")
 
         # Method 1: Try systemctl (Linux with systemd)
         try:
@@ -4604,7 +4639,7 @@ def _ensure_ollama_running():
                     try:
                         req = urllib.request.Request("http://localhost:11434/v1/models")
                         with urllib.request.urlopen(req, timeout=2):
-                            print("Ollama started successfully.", file=sys.stderr)
+                            log_debug("Ollama started successfully via systemctl.")
                             return
                     except (urllib.error.URLError, TimeoutError, OSError):
                         continue
@@ -4633,7 +4668,7 @@ def _ensure_ollama_running():
                     try:
                         req = urllib.request.Request("http://localhost:11434/v1/models")
                         with urllib.request.urlopen(req, timeout=2):
-                            print("Ollama started successfully.", file=sys.stderr)
+                            log_debug("Ollama started successfully via ollama serve.")
                             return
                     except (urllib.error.URLError, TimeoutError, OSError):
                         continue
@@ -4646,39 +4681,31 @@ def _ensure_ollama_running():
 
         if system == "windows":
             install_cmd = "winget install Ollama.Ollama"
-            alt_install = "Or download from: https://ollama.com/download/windows"
+            alt_msg = "Or download from: https://ollama.com/download/windows\n"
         elif system == "darwin":
-            install_cmd = "brew install ollama  # or: curl -fsSL https://ollama.com/install.sh | sh"
-            alt_install = ""
+            install_cmd = "brew install ollama"
+            alt_msg = "Or: curl -fsSL https://ollama.com/install.sh | sh\n"
         else:  # Linux
             install_cmd = "curl -fsSL https://ollama.com/install.sh | sh"
-            alt_install = ""
+            alt_msg = ""
 
         msg = (
-            "\n"
-            "━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━\n"
-            "⚠️  Ollama not found - graph features (summaries/embeddings) disabled\n"
-            "\n"
-            "   To enable AI-powered summaries and semantic search, run:\n"
-            "\n"
-            f"     {install_cmd}\n"
+            "Ollama not available - graph features (summaries/embeddings) disabled.\n"
+            "To enable AI-powered summaries and semantic search:\n"
+            f"  {install_cmd}\n"
         )
-        if alt_install:
-            msg += f"     {alt_install}\n"
+        if alt_msg:
+            msg += f"  {alt_msg}"
         msg += (
-            "\n"
-            "   Then pull the required models:\n"
-            "\n"
-            "     ollama pull llama3.2:3b\n"
-            "     ollama pull nomic-embed-text\n"
-            "\n"
-            "   Finally, restart your IDE to reload the MCP server.\n"
-            "━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━\n"
+            "Then pull models:\n"
+            "  ollama pull llama3.2:3b\n"
+            "  ollama pull nomic-embed-text\n"
+            "Restart your IDE to reload the MCP server."
         )
-        print(msg, file=sys.stderr)
+        _add_startup_warning(msg)
     except Exception as e:
         # Don't let auto-start errors break server startup
-        print(f"Warning: Ollama auto-start check failed: {e}", file=sys.stderr)
+        log_debug(f"Ollama auto-start check failed: {e}")
 
 
 def main():
