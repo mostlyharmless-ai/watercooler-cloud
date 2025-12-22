@@ -665,10 +665,19 @@ class LeanRAGBackend(MemoryBackend):
             Normalized CoreResult dictionary with node data, or None if not found
 
         Raises:
+            IdNotSupportedError: If node_id is UUID-style (LeanRAG uses entity names)
             ConfigError: If work_dir not set or database not indexed
             BackendError: If retrieval fails
             TransientError: If database connection fails
         """
+        # Validate ID format - LeanRAG uses entity names, not UUIDs
+        if self._looks_like_uuid(node_id):
+            from . import IdNotSupportedError
+            raise IdNotSupportedError(
+                f"LeanRAG get_node() requires entity names, not UUIDs. "
+                f"Received: {node_id[:20]}..."
+            )
+
         work_dir = self.config.work_dir
         if not work_dir:
             raise ConfigError("work_dir must be set before retrieving nodes")
@@ -728,6 +737,30 @@ class LeanRAGBackend(MemoryBackend):
         except Exception as e:
             raise BackendError(f"Node retrieval failed: {e}") from e
 
+    def _looks_like_uuid(self, value: str) -> bool:
+        """Check if a string looks like a UUID or ULID.
+        
+        Args:
+            value: String to check
+            
+        Returns:
+            True if value resembles a UUID/ULID format
+        """
+        if not value:
+            return False
+        
+        # UUID: 8-4-4-4-12 hex digits with hyphens
+        # ULID: 26 alphanumeric characters (base32)
+        # Check length and character patterns
+        if len(value) == 36 and value.count('-') == 4:
+            # Looks like UUID
+            return True
+        elif len(value) == 26 and value.isalnum() and value.isupper():
+            # Looks like ULID
+            return True
+        
+        return False
+
     def get_edge(
         self,
         edge_id: str,
@@ -746,13 +779,27 @@ class LeanRAGBackend(MemoryBackend):
             Normalized CoreResult dictionary with edge data, or None if not found
 
         Raises:
+            IdNotSupportedError: If edge_id format is invalid (must be SOURCE||TARGET)
             ConfigError: If work_dir not set or database not indexed
             BackendError: If retrieval fails
             TransientError: If database connection fails
         """
         # Validate edge_id format
-        if "||" not in edge_id:
-            return None
+        if "||" not in edge_id or not edge_id.strip():
+            from . import IdNotSupportedError
+            raise IdNotSupportedError(
+                f"LeanRAG get_edge() requires synthetic edge IDs in format SOURCE||TARGET. "
+                f"Received: {edge_id[:50]}"
+            )
+
+        # Validate that split produces non-empty entity names
+        parts = edge_id.split("||", 1)
+        if len(parts) != 2 or not parts[0].strip() or not parts[1].strip():
+            from . import IdNotSupportedError
+            raise IdNotSupportedError(
+                f"LeanRAG get_edge() requires synthetic edge IDs in format SOURCE||TARGET. "
+                f"Received: {edge_id[:50]}"
+            )
 
         work_dir = self.config.work_dir
         if not work_dir:
@@ -777,8 +824,8 @@ class LeanRAGBackend(MemoryBackend):
                 # Import LeanRAG function
                 from leanrag.database.adapter import search_nodes_link
 
-                # Parse synthetic ID
-                source, target = edge_id.split("||", 1)
+                # Parse synthetic ID (already validated above)
+                source, target = parts
 
                 # Retrieve relationship
                 # search_nodes_link returns (src, tgt, description, weight, level)
@@ -832,7 +879,7 @@ class LeanRAGBackend(MemoryBackend):
             supports_nodes=True,       # ✅ Via Milvus vector search on entity embeddings
             supports_facts=True,       # ✅ Via entity search + relationship traversal
             supports_episodes=False,   # ❌ No provenance (chunks are static segments)
-            supports_chunks=False,     # Not implemented in Phase 2
+            supports_chunks=False,     # ❌ Not yet implemented (will be added in future phase)
             supports_edges=True,       # ✅ Via synthetic SOURCE||TARGET ID format
             
             # ID modality (how LeanRAG identifies entities/edges)
