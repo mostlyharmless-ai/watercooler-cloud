@@ -81,10 +81,12 @@ def threads_repo(tmp_path: Path) -> Path:
     repo = Repo.init(repo_path)
 
     # Configure git for predictable merge behavior across versions
-    # Disable rerere (reuse recorded resolution) to prevent auto-resolution
+    # Git 2.38+ uses "ort" strategy by default which may auto-merge differently
+    # Force "recursive" strategy for consistent conflict detection
     with repo.config_writer() as config:
         config.set_value("rerere", "enabled", "false")
         config.set_value("merge", "conflictstyle", "merge")
+        config.set_value("pull", "rebase", "false")
 
     # Create initial commit
     (repo_path / "README.md").write_text("# Threads Repo\n")
@@ -2017,7 +2019,7 @@ def test_preflight_auto_resolves_graph_only_conflicts(
 
     # Create conflict by attempting to merge the remote commit (use SHA, not reflog)
     try:
-        threads.git.merge(remote_commit)
+        threads.git.merge("--strategy=recursive", remote_commit)
     except GitCommandError:
         pass  # Expected to fail with conflict
 
@@ -2106,7 +2108,7 @@ def test_preflight_blocks_on_mixed_conflicts(
     # Reset to local and create conflict via merge (use SHA)
     threads.git.reset("--hard", local_commit)
     try:
-        threads.git.merge(remote_commit)
+        threads.git.merge("--strategy=recursive", remote_commit)
     except GitCommandError:
         pass
 
@@ -2232,7 +2234,7 @@ def test_preflight_auto_resolves_complex_graph_conflicts(
     # Reset to local and create conflict via merge (use SHA)
     threads.git.reset("--hard", local_commit)
     try:
-        threads.git.merge(remote_commit)
+        threads.git.merge("--strategy=recursive", remote_commit)
     except GitCommandError:
         pass  # Expected conflict
 
