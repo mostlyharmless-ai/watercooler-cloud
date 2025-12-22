@@ -220,6 +220,16 @@ generate_embeddings = true
 # Env: EMBEDDING_MODEL
 # embedding_model = "bge-m3"
 
+# Check service availability before generation (skip gracefully if unavailable)
+# When true, summary/embedding generation will only proceed if services respond
+# Env: WATERCOOLER_GRAPH_AUTO_DETECT
+auto_detect_services = true
+
+# Auto-start LLM/embedding services if unavailable (requires ServerManager)
+# When true, will attempt to start local servers via watercooler_memory
+# Env: WATERCOOLER_AUTO_START_SERVICES
+# auto_start_services = false
+
 
 # =============================================================================
 # DASHBOARD SETTINGS
@@ -467,6 +477,10 @@ timeout = 60.0
 # mcp.logging.max_bytes          WATERCOOLER_LOG_MAX_BYTES
 # mcp.logging.backup_count       WATERCOOLER_LOG_BACKUP_COUNT
 # mcp.logging.disable_file       WATERCOOLER_LOG_DISABLE_FILE
+# mcp.graph.generate_summaries   WATERCOOLER_GRAPH_SUMMARIES
+# mcp.graph.generate_embeddings  WATERCOOLER_GRAPH_EMBEDDINGS
+# mcp.graph.auto_detect_services WATERCOOLER_GRAPH_AUTO_DETECT
+# mcp.graph.auto_start_services  WATERCOOLER_AUTO_START_SERVICES
 # validation.on_write            WATERCOOLER_VALIDATE_ON_WRITE
 # validation.fail_on_violation   WATERCOOLER_FAIL_ON_VIOLATION
 #

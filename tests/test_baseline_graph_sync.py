@@ -754,3 +754,147 @@ def test_reconcile_graph_with_embeddings(threads_dir: Path, sample_thread: Path,
 
     assert results.get("test-topic") is True
     assert len(embedding_called) > 0
+
+
+# ============================================================================
+# Auto-Start Service Tests
+# ============================================================================
+
+
+def test_should_auto_start_services_disabled_by_default(monkeypatch):
+    """Test _should_auto_start_services returns False by default."""
+    from watercooler.baseline_graph.sync import _should_auto_start_services
+
+    # Ensure env var is not set
+    monkeypatch.delenv("WATERCOOLER_AUTO_START_SERVICES", raising=False)
+    assert not _should_auto_start_services()
+
+
+def test_should_auto_start_services_enabled_via_env(monkeypatch):
+    """Test _should_auto_start_services returns True when env var set."""
+    from watercooler.baseline_graph.sync import _should_auto_start_services
+
+    for value in ["1", "true", "True", "TRUE", "yes", "YES"]:
+        monkeypatch.setenv("WATERCOOLER_AUTO_START_SERVICES", value)
+        assert _should_auto_start_services(), f"Expected True for {value}"
+
+
+def test_should_auto_start_services_disabled_for_other_values(monkeypatch):
+    """Test _should_auto_start_services returns False for non-truthy values."""
+    from watercooler.baseline_graph.sync import _should_auto_start_services
+
+    for value in ["0", "false", "no", "maybe", ""]:
+        monkeypatch.setenv("WATERCOOLER_AUTO_START_SERVICES", value)
+        assert not _should_auto_start_services(), f"Expected False for {value}"
+
+
+def test_try_auto_start_service_disabled_returns_false(monkeypatch):
+    """Test _try_auto_start_service returns False when auto-start disabled."""
+    from watercooler.baseline_graph.sync import _try_auto_start_service
+
+    monkeypatch.delenv("WATERCOOLER_AUTO_START_SERVICES", raising=False)
+    assert not _try_auto_start_service("llm", "http://localhost:11434/v1")
+    assert not _try_auto_start_service("embedding", "http://localhost:8080/v1")
+
+
+def test_try_auto_start_service_no_server_manager(monkeypatch):
+    """Test _try_auto_start_service returns False when ServerManager unavailable."""
+    from watercooler.baseline_graph.sync import _try_auto_start_service
+
+    monkeypatch.setenv("WATERCOOLER_AUTO_START_SERVICES", "true")
+
+    # ServerManager import will fail (not installed in test env)
+    # Should return False gracefully
+    result = _try_auto_start_service("llm", "http://localhost:11434/v1")
+    assert not result
+
+
+def test_sync_skips_llm_when_unavailable(threads_dir: Path, sample_thread: Path, monkeypatch):
+    """Test sync_entry_to_graph skips LLM summary when service unavailable."""
+    llm_called = []
+
+    def mock_summarize_entry(*args, **kwargs):
+        llm_called.append(True)
+        return "mock summary"
+
+    monkeypatch.setattr(
+        "watercooler.baseline_graph.sync.summarize_entry",
+        mock_summarize_entry,
+    )
+    # LLM service is unavailable
+    monkeypatch.setattr(
+        "watercooler.baseline_graph.sync.is_llm_service_available",
+        lambda config=None: False,
+    )
+    # Don't try auto-start
+    monkeypatch.setattr(
+        "watercooler.baseline_graph.sync._try_auto_start_service",
+        lambda *args: False,
+    )
+
+    # Sync with summaries enabled but service unavailable
+    success = sync_entry_to_graph(
+        threads_dir, "test-topic", generate_summaries=True
+    )
+
+    assert success
+    assert len(llm_called) == 0  # LLM was NOT called because service unavailable
+
+
+def test_sync_calls_llm_when_available(threads_dir: Path, sample_thread: Path, monkeypatch):
+    """Test sync_entry_to_graph calls LLM when service is available."""
+    llm_called = []
+
+    def mock_summarize_entry(*args, **kwargs):
+        llm_called.append(True)
+        return "mock summary"
+
+    monkeypatch.setattr(
+        "watercooler.baseline_graph.sync.summarize_entry",
+        mock_summarize_entry,
+    )
+    # LLM service is available
+    monkeypatch.setattr(
+        "watercooler.baseline_graph.sync.is_llm_service_available",
+        lambda config=None: True,
+    )
+
+    # Sync with summaries enabled
+    success = sync_entry_to_graph(
+        threads_dir, "test-topic", generate_summaries=True
+    )
+
+    assert success
+    assert len(llm_called) > 0  # LLM was called
+
+
+def test_sync_skips_embedding_when_unavailable(threads_dir: Path, sample_thread: Path, monkeypatch):
+    """Test sync_entry_to_graph skips embedding when service unavailable."""
+    embed_called = []
+
+    def mock_generate_embedding(*args, **kwargs):
+        embed_called.append(True)
+        return [0.1, 0.2, 0.3]
+
+    monkeypatch.setattr(
+        "watercooler.baseline_graph.sync.generate_embedding",
+        mock_generate_embedding,
+    )
+    # Embedding service is unavailable
+    monkeypatch.setattr(
+        "watercooler.baseline_graph.sync.is_embedding_available",
+        lambda config=None: False,
+    )
+    # Don't try auto-start
+    monkeypatch.setattr(
+        "watercooler.baseline_graph.sync._try_auto_start_service",
+        lambda *args: False,
+    )
+
+    # Sync with embeddings enabled but service unavailable
+    success = sync_entry_to_graph(
+        threads_dir, "test-topic", generate_embeddings=True
+    )
+
+    assert success
+    assert len(embed_called) == 0  # Embedding was NOT called
