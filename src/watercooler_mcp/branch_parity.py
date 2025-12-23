@@ -23,7 +23,7 @@ import unicodedata
 from dataclasses import asdict, dataclass, field
 from enum import Enum
 from pathlib import Path
-from typing import List, Optional
+from typing import Any, Dict, List, Optional, Tuple
 
 import git
 from git import Repo
@@ -740,6 +740,40 @@ def _has_graph_conflicts_only(repo: Repo) -> bool:
         return False
 
 
+def _has_thread_conflicts_only(repo: Repo) -> bool:
+    """Check if all conflicts are in thread markdown files (not in graph/).
+
+    Returns True if:
+    - There are conflicts (UU, AA, DD status markers)
+    - ALL conflicted files are .md files in root (not in graph/ or subdirs)
+
+    Returns False if:
+    - No conflicts exist
+    - Any conflicts exist in graph/ or non-.md files
+    """
+    try:
+        status = repo.git.status("--porcelain")
+        conflicted_files = []
+
+        for line in status.split("\n"):
+            if line and len(line) >= 2:
+                xy = line[:2]
+                if "U" in xy or xy == "AA" or xy == "DD":
+                    file_path = line[3:].strip()
+                    conflicted_files.append(file_path)
+
+        if not conflicted_files:
+            return False
+
+        # Check if ALL conflicts are .md files not in graph/
+        return all(
+            f.endswith(".md") and not f.startswith("graph/")
+            for f in conflicted_files
+        )
+    except GitCommandError:
+        return False
+
+
 def merge_manifest_content(ours_content: str, theirs_content: str) -> str:
     """Pure function to merge manifest.json content.
 
@@ -810,6 +844,121 @@ def merge_jsonl_content(ours_content: str, theirs_content: str) -> str:
                 continue
 
     return "\n".join(merged_lines) + "\n"
+
+
+def merge_thread_content(ours_content: str, theirs_content: str) -> Tuple[str, bool]:
+    """Pure function to merge two thread file versions at entry level.
+
+    Entries are identified by their Entry-ID (ULID in HTML comment).
+    This allows merging non-overlapping entries without conflict.
+
+    Strategy:
+    - Parse both versions into header + entries
+    - Header: take theirs (metadata is more recent)
+    - Entries identified by Entry-ID
+    - Non-overlapping entries: merge (union of unique entries)
+    - Same Entry-ID with different content: TRUE CONFLICT
+
+    Args:
+        ours_content: Our version of the thread file
+        theirs_content: Their version of the thread file
+
+    Returns:
+        Tuple of (merged_content, had_true_conflicts)
+        - merged_content: The merged thread file if successful, empty if conflicts
+        - had_true_conflicts: True if same Entry-ID has different content
+    """
+    from watercooler.thread_entries import parse_thread_entries
+
+    # Parse both versions
+    ours_entries = parse_thread_entries(ours_content)
+    theirs_entries = parse_thread_entries(theirs_content)
+
+    # Build maps by Entry-ID
+    ours_by_id: Dict[str, Any] = {}
+    theirs_by_id: Dict[str, Any] = {}
+
+    for entry in ours_entries:
+        if entry.entry_id:
+            ours_by_id[entry.entry_id] = entry
+
+    for entry in theirs_entries:
+        if entry.entry_id:
+            theirs_by_id[entry.entry_id] = entry
+
+    # Check for true conflicts (same ID, different content)
+    for entry_id, ours_entry in ours_by_id.items():
+        if entry_id in theirs_by_id:
+            theirs_entry = theirs_by_id[entry_id]
+            # Compare body content (normalized)
+            if ours_entry.body.strip() != theirs_entry.body.strip():
+                log_debug(f"[THREAD-MERGE] True conflict: Entry-ID {entry_id} has different content")
+                return "", True
+
+    # No true conflicts - merge entries
+    # Use theirs' header (more recent metadata)
+    header_end = _find_header_end(theirs_content)
+    merged_header = theirs_content[:header_end] if header_end > 0 else ""
+
+    # Collect all unique entries by ID
+    all_entries: Dict[str, Any] = {}
+
+    # Add ours first
+    for entry in ours_entries:
+        key = entry.entry_id or f"_no_id_{entry.index}"
+        all_entries[key] = entry
+
+    # Add theirs (overwriting duplicates is fine since content matches)
+    for entry in theirs_entries:
+        key = entry.entry_id or f"_no_id_{entry.index}"
+        all_entries[key] = entry
+
+    # Sort entries by timestamp
+    def sort_key(entry: Any) -> Tuple[int, str]:
+        has_timestamp = 0 if entry.timestamp else 1
+        timestamp = entry.timestamp or ""
+        return (has_timestamp, timestamp)
+
+    sorted_entries = sorted(all_entries.values(), key=sort_key)
+
+    # Reconstruct thread file
+    lines = [merged_header] if merged_header else []
+
+    for entry in sorted_entries:
+        # Add separator
+        lines.append("\n---\n")
+
+        # Reconstruct entry header
+        entry_line = f"Entry: {entry.agent}"
+        if entry.timestamp:
+            entry_line += f" {entry.timestamp}"
+        lines.append(entry_line + "\n")
+
+        if entry.role:
+            lines.append(f"Role: {entry.role}\n")
+        if entry.entry_type:
+            lines.append(f"Type: {entry.entry_type}\n")
+        if entry.title:
+            lines.append(f"Title: {entry.title}\n")
+
+        # Add body
+        if entry.body:
+            lines.append("\n" + entry.body.strip() + "\n")
+
+    merged = "".join(lines)
+    log_debug(f"[THREAD-MERGE] Successfully merged {len(sorted_entries)} entries")
+    return merged, False
+
+
+def _find_header_end(content: str) -> int:
+    """Find the byte offset where the thread header ends (first ---)."""
+    lines = content.split("\n")
+    offset = 0
+    for line in lines:
+        if line.strip() == "---":
+            return offset
+        offset += len(line) + 1  # +1 for newline
+    return 0
 
 
 def _merge_manifest(file_path: Path) -> bool:
@@ -959,6 +1108,117 @@ def _auto_resolve_graph_conflicts(repo: Repo) -> bool:
         return False
 
 
+def _merge_thread(file_path: Path) -> bool:
+    """Merge a thread markdown file by parsing entries and merging.
+
+    Uses git show :2: and :3: to get clean ours/theirs versions.
+
+    Returns True on success, False on failure or true conflict.
+    """
+    try:
+        from git import Repo
+        repo = Repo(file_path.parent, search_parent_directories=True)
+
+        # Get relative path from repo root
+        repo_path = Path(repo.working_dir)
+        rel_path = file_path.relative_to(repo_path)
+
+        # Get ours (:2:) and theirs (:3:) versions
+        try:
+            ours_content = repo.git.show(f":2:{rel_path}")
+            theirs_content = repo.git.show(f":3:{rel_path}")
+        except Exception as e:
+            log_debug(f"[PARITY] Failed to get ours/theirs for {file_path.name}: {e}")
+            return False
+
+        # Use pure merge function
+        merged_content, had_conflicts = merge_thread_content(ours_content, theirs_content)
+
+        if had_conflicts:
+            log_debug(f"[PARITY] Thread {file_path.name} has true conflicts (same Entry-ID, different content)")
+            return False
+
+        file_path.write_text(merged_content)
+        log_debug(f"[PARITY] Auto-merged thread {file_path.name}")
+        return True
+
+    except Exception as e:
+        log_debug(f"[PARITY] Failed to merge thread: {e}")
+        return False
+
+
+def _auto_resolve_thread_conflicts(repo: Repo) -> bool:
+    """Auto-resolve conflicts in thread markdown files using entry-level merge.
+
+    Returns True if all conflicts successfully resolved, False otherwise.
+
+    This function should only be called when _has_thread_conflicts_only()
+    returns True, ensuring all conflicts are in .md thread files.
+
+    After resolving conflicts, completes the merge by committing.
+    """
+    try:
+        repo_path = Path(repo.working_dir)
+
+        # Get conflicted files
+        status = repo.git.status("--porcelain")
+        conflicted = []
+
+        for line in status.split("\n"):
+            if line and len(line) >= 2:
+                xy = line[:2]
+                if "U" in xy or xy == "AA" or xy == "DD":
+                    file_rel = line[3:].strip()
+                    conflicted.append(file_rel)
+
+        if not conflicted:
+            return True  # No conflicts to resolve
+
+        # Resolve each conflicted file
+        for file_rel in conflicted:
+            file_path = repo_path / file_rel
+
+            if not file_path.exists():
+                log_debug(f"[PARITY] Conflicted file doesn't exist: {file_rel}")
+                return False
+
+            if not file_rel.endswith(".md"):
+                log_debug(f"[PARITY] Non-.md file in thread conflicts: {file_rel}")
+                return False
+
+            if not _merge_thread(file_path):
+                return False
+
+            # Stage resolved file - must clear conflict stages first
+            try:
+                repo.git.rm("--cached", file_rel)
+            except Exception:
+                pass  # May fail if not in conflict state
+            repo.index.add([file_rel])
+            log_debug(f"[PARITY] Staged resolved thread file: {file_rel}")
+
+        # Complete the merge/rebase
+        git_dir = Path(repo.git_dir)
+        is_rebase = (git_dir / "rebase-merge").exists() or (git_dir / "rebase-apply").exists()
+
+        try:
+            if is_rebase:
+                repo.git.rebase("--continue")
+                log_debug("[PARITY] Continued rebase after resolving thread conflicts")
+            else:
+                repo.git.commit("-m", "Auto-merge thread conflicts")
+                log_debug("[PARITY] Committed merged thread files")
+        except Exception as e:
+            log_debug(f"[PARITY] Failed to complete merge/rebase: {e}")
+            return False
+
+        return True
+
+    except Exception as e:
+        log_debug(f"[PARITY] Failed to auto-resolve thread conflicts: {e}")
+        return False
+
+
 def _push_with_retry(repo: Repo, branch: str, max_retries: int = MAX_PUSH_RETRIES, set_upstream: bool = False) -> bool:
     """Push to origin with retry. Returns True on success.
 
@@ -1096,8 +1356,36 @@ def run_preflight(
                         can_proceed=False,
                         blocking_reason=state.last_error,
                     )
+            elif _has_thread_conflicts_only(threads_repo):
+                # Thread-only conflicts - try entry-level auto-merge
+                log_debug("[PARITY] Detected thread-only conflicts, attempting auto-resolution...")
+                if _auto_resolve_thread_conflicts(threads_repo):
+                    log_debug("[PARITY] Successfully auto-resolved thread conflicts")
+                    actions_taken.append("Auto-resolved thread file conflicts")
+                    # Continue with normal preflight flow
+                else:
+                    # Auto-resolution failed (true conflict - same Entry-ID, different content)
+                    state.status = ParityStatus.DIVERGED.value
+                    state.last_error = (
+                        f"Threads repository has conflicting entries (same Entry-ID, different content). "
+                        f"Manual resolution required.\n\n"
+                        f"To resolve:\n"
+                        f"  cd {threads_repo_path}\n"
+                        f"  git status  # See conflicted files\n"
+                        f"  # Edit files to resolve conflicts\n"
+                        f"  git add <resolved-files>\n"
+                        f"  git commit -m 'Resolve thread conflicts'\n"
+                        f"  # Then retry your watercooler operation"
+                    )
+                    write_parity_state(threads_repo_path, state)
+                    return PreflightResult(
+                        success=False,
+                        state=state,
+                        can_proceed=False,
+                        blocking_reason=state.last_error,
+                    )
             else:
-                # Non-graph conflicts - require manual resolution
+                # Mixed or other conflicts - require manual resolution
                 state.status = ParityStatus.DIVERGED.value
                 state.last_error = (
                     f"Threads repository has unresolved merge conflicts from a previous operation. "
@@ -1315,24 +1603,16 @@ def run_preflight(
                         blocking_reason=state.last_error,
                     )
 
-            # Inverse main protection: block if code=main and threads=feature
-            # This prevents writing entries with wrong Code-Branch metadata.
-            # Unlike the forward case, we do NOT auto-fix - the user must explicitly
-            # decide whether to checkout code to the feature branch or merge threads.
+            # Inverse main protection: code=main and threads=feature
+            # Threads ALWAYS follows code. Auto-checkout threads to main.
+            # (Merge only happens on explicit PR merge event, not during preflight.)
             if code_branch == main_branch and threads_branch != main_branch:
-                state.status = ParityStatus.MAIN_PROTECTION.value
-                state.last_error = (
-                    f"Code repo is on '{main_branch}' but threads is on '{threads_branch}'. "
-                    f"This would create entries with incorrect Code-Branch metadata. "
-                    f"Either checkout code to '{threads_branch}' or merge threads to '{main_branch}'."
+                log_debug(
+                    f"[PARITY] Code on {main_branch}, threads on {threads_branch}. "
+                    f"Auto-checkout threads to follow code."
                 )
-                write_parity_state(threads_repo_path, state)
-                return PreflightResult(
-                    success=False,
-                    state=state,
-                    can_proceed=False,
-                    blocking_reason=state.last_error,
-                )
+                # Fall through to general branch mismatch handler below,
+                # which will auto-checkout threads to code_branch (main)
 
         # Branch name parity check
         if code_branch != threads_branch:
@@ -1617,8 +1897,49 @@ def run_preflight(
                             can_proceed=False,
                             blocking_reason=state.last_error,
                         )
+                elif _has_thread_conflicts_only(threads_repo):
+                    # Thread-only conflicts after pull - try entry-level auto-merge
+                    log_debug("[PARITY] Detected thread-only conflicts after pull, attempting auto-resolution...")
+                    if _auto_resolve_thread_conflicts(threads_repo):
+                        log_debug("[PARITY] Successfully auto-resolved thread conflicts after pull")
+                        actions_taken.append("Auto-resolved thread file conflicts after pull")
+                        # Continue rebase after resolving conflicts
+                        try:
+                            threads_repo.git.rebase("--continue")
+                            log_debug("[PARITY] Rebase continued successfully after resolving thread conflicts")
+                            actions_taken.append("Continued rebase after resolving thread conflicts")
+                        except GitCommandError as e:
+                            log_debug(f"[PARITY] Rebase continue failed after resolving thread conflicts: {e}")
+                            state.status = ParityStatus.DIVERGED.value
+                            state.last_error = (
+                                f"Rebase continue failed after auto-resolving thread conflicts. "
+                                f"{f'Stash preserved: {stash_ref}. ' if stash_ref else ''}"
+                                f"Manual intervention required."
+                            )
+                            write_parity_state(threads_repo_path, state)
+                            return PreflightResult(
+                                success=False,
+                                state=state,
+                                can_proceed=False,
+                                blocking_reason=state.last_error,
+                            )
+                    else:
+                        # Auto-resolution failed (true conflict)
+                        state.status = ParityStatus.DIVERGED.value
+                        state.last_error = (
+                            f"Thread conflicts after pull could not be auto-merged (same Entry-ID, different content). "
+                            f"{f'Stash preserved: {stash_ref}. ' if stash_ref else ''}"
+                            f"Manual resolution required."
+                        )
+                        write_parity_state(threads_repo_path, state)
+                        return PreflightResult(
+                            success=False,
+                            state=state,
+                            can_proceed=False,
+                            blocking_reason=state.last_error,
+                        )
                 else:
-                    # Non-graph conflicts → BLOCK (stash preserved)
+                    # Mixed or other conflicts → BLOCK (stash preserved)
                     state.status = ParityStatus.DIVERGED.value
                     state.last_error = (
                         f"Merge conflict after pull. "

@@ -992,6 +992,47 @@ def run_with_sync(
             log_debug(f"[PARITY] Released lock for topic '{topic}'")
 
 
+def run_with_graph_sync(
+    context: ThreadContext,
+    operation: Callable[[], T],
+    commit_msg: str,
+) -> T:
+    """Execute graph operation with full parity protocol.
+
+    Flow: preflight → operation → commit graph files → push with retry
+
+    Unlike run_with_sync, this is simpler:
+    - No topic lock (graph operations are idempotent)
+    - No entry footers (graph files, not thread entries)
+    - Commits only graph/baseline/* files
+    """
+    sync = get_git_sync_manager_from_context(context)
+
+    # 1. Preflight (Factor 1 + Factor 2 pre-check)
+    if context.code_root and context.threads_dir:
+        preflight_result = run_preflight(
+            code_repo_path=context.code_root,
+            threads_repo_path=context.threads_dir,
+            auto_fix=True,
+            fetch_first=True,
+        )
+        if not preflight_result.can_proceed:
+            raise BranchPairingError(
+                preflight_result.blocking_reason or "Branch parity preflight failed"
+            )
+        if preflight_result.auto_fixed:
+            log_debug(f"[GRAPH-SYNC] Preflight auto-fixed: {preflight_result.state.actions_taken}")
+
+    # 2. Execute operation
+    result = operation()
+
+    # 3. Commit and push graph files (blocking)
+    if sync and context.threads_dir:
+        sync.commit_graph_changes_sync(commit_msg)
+
+    return result
+
+
 # ============================================================================
 # Resources (Instructions & Documentation)
 # ============================================================================
@@ -2547,16 +2588,27 @@ def baseline_graph_build(
 
         config = SummarizerConfig(prefer_extractive=extractive_only)
 
-        manifest = export_all_threads(
-            threads_dir,
-            out_path,
-            config,
-            skip_closed=skip_closed,
-            generate_embeddings=generate_embeddings,
+        # Define the build operation
+        def _do_build() -> dict:
+            return export_all_threads(
+                threads_dir,
+                out_path,
+                config,
+                skip_closed=skip_closed,
+                generate_embeddings=generate_embeddings,
+            )
+
+        # Run with full parity protocol (preflight + commit + push)
+        manifest = run_with_graph_sync(
+            context,
+            _do_build,
+            "graph: build baseline",
         )
 
         return json.dumps(manifest, indent=2)
 
+    except BranchPairingError as e:
+        return f"Branch parity error: {str(e)}"
     except Exception as e:
         return f"Error building baseline graph: {str(e)}"
 
@@ -2900,12 +2952,20 @@ def reconcile_graph_tool(
         if topics:
             topic_list = [t.strip() for t in topics.split(",") if t.strip()]
 
-        # Run reconciliation
-        results = reconcile_graph(
-            threads_dir=threads_dir,
-            topics=topic_list,
-            generate_summaries=generate_summaries,
-            generate_embeddings=generate_embeddings,
+        # Define the reconcile operation
+        def _do_reconcile() -> dict:
+            return reconcile_graph(
+                threads_dir=threads_dir,
+                topics=topic_list,
+                generate_summaries=generate_summaries,
+                generate_embeddings=generate_embeddings,
+            )
+
+        # Run with full parity protocol (preflight + commit + push)
+        results = run_with_graph_sync(
+            context,
+            _do_reconcile,
+            f"graph: reconcile {topics or 'all'}",
         )
 
         # Build output
@@ -2922,6 +2982,8 @@ def reconcile_graph_tool(
 
         return json.dumps(output, indent=2)
 
+    except BranchPairingError as e:
+        return f"Branch parity error: {str(e)}"
     except Exception as e:
         return f"Error reconciling graph: {str(e)}"
 

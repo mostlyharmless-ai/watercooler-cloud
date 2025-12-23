@@ -1225,6 +1225,81 @@ class GitSyncManager:
             log_warning(f"[GRAPH-COMMIT] Unexpected error: {e}")
             return False
 
+    def commit_graph_changes_sync(
+        self,
+        commit_msg: str,
+        max_retries: int = 5,
+    ) -> None:
+        """Commit and push graph files, blocking until confirmed.
+
+        Unlike commit_graph_changes(), this method raises on failure instead
+        of returning False. Use this when graph operations need reliable
+        confirmation that changes are pushed.
+
+        Args:
+            commit_msg: Commit message for graph changes
+            max_retries: Max push retry attempts
+
+        Raises:
+            GitSyncError: If commit or push fails after retries
+        """
+        try:
+            repo = self._repo
+            graph_path = Path(self.local_path) / "graph" / "baseline"
+
+            # Check if graph directory exists
+            if not graph_path.exists():
+                log_debug("[GRAPH-COMMIT-SYNC] No graph/baseline directory, skipping")
+                return
+
+            # Check for changes in graph files
+            with git.Git().custom_environment(**self._env):
+                status_output = repo.git.status("--porcelain", "graph/baseline/")
+
+            if not status_output.strip():
+                log_debug("[GRAPH-COMMIT-SYNC] No graph changes to commit")
+                return
+
+            # Stage only graph files
+            with git.Git().custom_environment(**self._env):
+                repo.git.add("graph/baseline/")
+
+            # Commit
+            log_debug(f"[GRAPH-COMMIT-SYNC] Committing: {commit_msg}")
+            with git.Git().custom_environment(**self._env):
+                repo.git.commit("-m", commit_msg, env=self._env)
+            self._log(f"[GRAPH-COMMIT-SYNC] Committed: {commit_msg}")
+
+            # Push with retry (BLOCKING)
+            from watercooler_mcp.branch_parity import push_after_commit
+
+            try:
+                branch_name = repo.active_branch.name
+            except (TypeError, AttributeError):
+                branch_name = "main"
+
+            push_success, push_error = push_after_commit(
+                self.local_path, branch_name, max_retries=max_retries
+            )
+
+            if not push_success:
+                raise GitSyncError(
+                    f"Graph push failed after {max_retries} retries: {push_error}"
+                )
+
+            self._log("[GRAPH-COMMIT-SYNC] Graph changes pushed successfully")
+
+        except GitCommandError as e:
+            # No changes to commit is not an error
+            if "nothing to commit" in str(e).lower():
+                log_debug("[GRAPH-COMMIT-SYNC] Nothing to commit")
+                return
+            raise GitSyncError(f"Graph commit failed: {e}") from e
+        except GitSyncError:
+            raise  # Re-raise our own errors
+        except Exception as e:
+            raise GitSyncError(f"Graph commit failed: {e}") from e
+
     def push_pending(self, max_retries: int = 5) -> bool:
         """Push local commits to the remote with retry logic."""
         self._last_push_error = None

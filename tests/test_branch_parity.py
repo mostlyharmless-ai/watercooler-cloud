@@ -30,11 +30,13 @@ from watercooler_mcp.branch_parity import (
     get_branch_health,
     merge_manifest_content,
     merge_jsonl_content,
+    merge_thread_content,
     ensure_readable,
     _detect_stash,
     _preserve_stash,
     _restore_stash,
     _has_conflicts,
+    _has_thread_conflicts_only,
     STATE_FILE_NAME,
     LOCKS_DIR_NAME,
     LOCK_TIMEOUT_SECONDS,
@@ -942,11 +944,11 @@ def test_preflight_threads_ahead_no_auto_fix(repos_with_remotes: tuple[Path, Pat
 
 
 def test_preflight_inverse_main_protection(code_repo: Path, threads_repo: Path) -> None:
-    """Test preflight blocks when code=main but threads=feature.
+    """Test preflight auto-fixes when code=main but threads=feature.
 
-    This is the inverse of main protection. When code is on main but threads
-    is on a feature branch, we block because entries would have incorrect
-    Code-Branch metadata.
+    With the "threads always follows code" principle, when code is on main
+    but threads is on a feature branch, we auto-checkout threads to main
+    (if auto_fix=True).
     """
     # Code stays on main
     # Put threads on a feature branch
@@ -956,40 +958,42 @@ def test_preflight_inverse_main_protection(code_repo: Path, threads_repo: Path) 
     result = run_preflight(
         code_repo_path=code_repo,
         threads_repo_path=threads_repo,
-        auto_fix=False,  # No auto-fix for this case
+        auto_fix=True,  # With auto-fix, threads follows code
         fetch_first=False,
     )
 
-    assert result.success is False
-    assert result.can_proceed is False
-    assert result.state.status == ParityStatus.MAIN_PROTECTION.value
-    assert "main" in result.blocking_reason
-    assert "feature-orphan" in result.blocking_reason
-    assert "incorrect Code-Branch metadata" in result.blocking_reason
+    # Should auto-fix by checking out threads to main
+    assert result.success is True
+    assert result.can_proceed is True
+    assert result.auto_fixed is True
+    # Verify threads is now on main
+    assert threads.active_branch.name == "main"
 
 
 def test_preflight_inverse_main_protection_not_auto_fixed(code_repo: Path, threads_repo: Path) -> None:
-    """Test that inverse main protection is NOT auto-fixed even with auto_fix=True.
+    """Test that inverse main protection blocks when auto_fix=False.
 
-    Unlike the forward case (threads=main, code=feature), the inverse case
-    (code=main, threads=feature) should NOT be auto-fixed. The user must
-    explicitly decide whether to checkout code to the feature branch or
-    merge the threads branch.
+    Without auto_fix, even though threads should follow code, we can't
+    checkout threads to main automatically. This triggers a branch mismatch
+    block (general case, not special main protection).
     """
     threads = Repo(threads_repo)
     threads.git.checkout("-b", "stale-feature")
 
-    # Even with auto_fix=True, should block
+    # Without auto_fix, should block due to branch mismatch
     result = run_preflight(
         code_repo_path=code_repo,
         threads_repo_path=threads_repo,
-        auto_fix=True,  # Even with auto-fix, this case blocks
+        auto_fix=False,  # Without auto-fix, cannot checkout
         fetch_first=False,
     )
 
     assert result.success is False
     assert result.can_proceed is False
-    assert result.state.status == ParityStatus.MAIN_PROTECTION.value
+    # Should be branch mismatch, not main protection
+    assert result.state.status == ParityStatus.BRANCH_MISMATCH.value
+    assert "main" in result.blocking_reason
+    assert "stale-feature" in result.blocking_reason
 
 
 # =============================================================================
@@ -2146,3 +2150,181 @@ def test_merge_jsonl_content_handles_empty_lines() -> None:
 
     assert len(lines) == 2
     assert {e["uuid"] for e in lines} == {"node1", "node2"}
+
+
+# =============================================================================
+# Thread Merge Tests
+# =============================================================================
+
+def test_merge_thread_content_non_overlapping_entries() -> None:
+    """Test merge_thread_content merges non-overlapping entries."""
+    # Entry-ID must be within the entry body (after Entry: line, not before)
+    ours = """# topic — Thread
+Status: OPEN
+Ball: Agent
+Topic: topic
+Created: 2025-01-01T00:00:00Z
+
+---
+Entry: Agent A 2025-01-01T00:00:00Z
+Role: implementer
+Type: Note
+Title: First entry
+
+Body of first entry.
+<!-- Entry-ID: 01ABC123 -->
+"""
+
+    theirs = """# topic — Thread
+Status: OPEN
+Ball: Agent
+Topic: topic
+Created: 2025-01-01T00:00:00Z
+
+---
+Entry: Agent B 2025-01-01T01:00:00Z
+Role: implementer
+Type: Note
+Title: Second entry
+
+Body of second entry.
+<!-- Entry-ID: 01DEF456 -->
+"""
+
+    merged, had_conflicts = merge_thread_content(ours, theirs)
+
+    assert had_conflicts is False
+    assert "First entry" in merged
+    assert "Second entry" in merged
+
+
+def test_merge_thread_content_same_entry_same_content() -> None:
+    """Test merge_thread_content handles same entry in both versions."""
+    entry = """# topic — Thread
+Status: OPEN
+Ball: Agent
+Topic: topic
+Created: 2025-01-01T00:00:00Z
+
+---
+Entry: Agent A 2025-01-01T00:00:00Z
+Role: implementer
+Type: Note
+Title: Same entry
+
+Identical content.
+<!-- Entry-ID: 01ABC123 -->
+"""
+
+    merged, had_conflicts = merge_thread_content(entry, entry)
+
+    assert had_conflicts is False
+    # Should have exactly one entry (deduplicated)
+    assert merged.count("Entry:") == 1
+
+
+def test_merge_thread_content_true_conflict() -> None:
+    """Test merge_thread_content detects true conflicts (same ID, different content)."""
+    ours = """# topic — Thread
+Status: OPEN
+Ball: Agent
+Topic: topic
+Created: 2025-01-01T00:00:00Z
+
+---
+Entry: Agent A 2025-01-01T00:00:00Z
+Role: implementer
+Type: Note
+Title: Entry
+
+Ours body content.
+<!-- Entry-ID: 01ABC123 -->
+"""
+
+    theirs = """# topic — Thread
+Status: OPEN
+Ball: Agent
+Topic: topic
+Created: 2025-01-01T00:00:00Z
+
+---
+Entry: Agent A 2025-01-01T00:00:00Z
+Role: implementer
+Type: Note
+Title: Entry
+
+Theirs body content - DIFFERENT.
+<!-- Entry-ID: 01ABC123 -->
+"""
+
+    merged, had_conflicts = merge_thread_content(ours, theirs)
+
+    assert had_conflicts is True
+    assert merged == ""
+
+
+def test_merge_thread_content_takes_theirs_header() -> None:
+    """Test merge_thread_content takes theirs header (more recent metadata)."""
+    ours = """# topic — Thread
+Status: OPEN
+Ball: Agent A
+Topic: topic
+Created: 2025-01-01T00:00:00Z
+
+---
+Entry: Agent A 2025-01-01T00:00:00Z
+Role: implementer
+Type: Note
+Title: Entry
+
+Body.
+<!-- Entry-ID: 01ABC123 -->
+"""
+
+    theirs = """# topic — Thread
+Status: OPEN
+Ball: Agent B
+Topic: topic
+Created: 2025-01-01T00:00:00Z
+
+---
+Entry: Agent A 2025-01-01T00:00:00Z
+Role: implementer
+Type: Note
+Title: Entry
+
+Body.
+<!-- Entry-ID: 01ABC123 -->
+"""
+
+    merged, had_conflicts = merge_thread_content(ours, theirs)
+
+    assert had_conflicts is False
+    # Should take theirs header (Ball: Agent B)
+    assert "Ball: Agent B" in merged
+
+
+def test_has_thread_conflicts_only_returns_false_for_no_conflicts(
+    threads_repo: Path,
+) -> None:
+    """Test _has_thread_conflicts_only returns False when no conflicts."""
+    repo = Repo(threads_repo)
+    assert _has_thread_conflicts_only(repo) is False
+
+
+def test_has_thread_conflicts_only_returns_false_for_graph_conflicts(
+    threads_repo: Path,
+) -> None:
+    """Test _has_thread_conflicts_only returns False for graph-only conflicts."""
+    repo = Repo(threads_repo)
+
+    # Create graph directory and simulate conflict markers
+    graph_dir = threads_repo / "graph" / "baseline"
+    graph_dir.mkdir(parents=True)
+    manifest = graph_dir / "manifest.json"
+    manifest.write_text("{}")
+    repo.index.add(["graph/baseline/manifest.json"])
+    repo.index.commit("Add graph files")
+
+    # No actual conflicts, so both should be False
+    assert _has_thread_conflicts_only(repo) is False
