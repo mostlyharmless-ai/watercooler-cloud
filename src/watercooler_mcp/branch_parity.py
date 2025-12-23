@@ -980,8 +980,8 @@ def _merge_manifest(file_path: Path) -> bool:
         try:
             ours_content = repo.git.show(f":2:{rel_path}")
             theirs_content = repo.git.show(f":3:{rel_path}")
-        except Exception as e:
-            log_debug(f"[PARITY] Failed to get ours/theirs for {file_path.name}: {e}")
+        except GitCommandError as e:
+            log_debug(f"[PARITY] Git error getting ours/theirs for {file_path.name}: {e}")
             return False
 
         # Use pure merge function
@@ -990,8 +990,14 @@ def _merge_manifest(file_path: Path) -> bool:
         log_debug(f"[PARITY] Auto-merged {file_path.name}: newer timestamp, merged topics")
         return True
 
-    except Exception as e:
-        log_debug(f"[PARITY] Failed to merge manifest: {e}")
+    except GitCommandError as e:
+        log_debug(f"[PARITY] Git error in manifest merge: {e}")
+        return False
+    except (json.JSONDecodeError, KeyError, TypeError) as e:
+        log_debug(f"[PARITY] Parse error in manifest merge: {e}")
+        return False
+    except OSError as e:
+        log_debug(f"[PARITY] IO error in manifest merge: {e}")
         return False
 
 
@@ -1014,8 +1020,8 @@ def _merge_jsonl(file_path: Path) -> bool:
         try:
             ours_content = repo.git.show(f":2:{rel_path}")
             theirs_content = repo.git.show(f":3:{rel_path}")
-        except Exception as e:
-            log_debug(f"[PARITY] Failed to get ours/theirs for {file_path.name}: {e}")
+        except GitCommandError as e:
+            log_debug(f"[PARITY] Git error getting ours/theirs for {file_path.name}: {e}")
             return False
 
         # Use pure merge function
@@ -1024,8 +1030,14 @@ def _merge_jsonl(file_path: Path) -> bool:
         log_debug(f"[PARITY] Auto-merged {file_path.name}: deduplicated entries")
         return True
 
-    except Exception as e:
-        log_debug(f"[PARITY] Failed to merge JSONL: {e}")
+    except GitCommandError as e:
+        log_debug(f"[PARITY] Git error in JSONL merge: {e}")
+        return False
+    except (json.JSONDecodeError, KeyError, TypeError) as e:
+        log_debug(f"[PARITY] Parse error in JSONL merge: {e}")
+        return False
+    except OSError as e:
+        log_debug(f"[PARITY] IO error in JSONL merge: {e}")
         return False
 
 
@@ -1127,8 +1139,8 @@ def _merge_thread(file_path: Path) -> bool:
         try:
             ours_content = repo.git.show(f":2:{rel_path}")
             theirs_content = repo.git.show(f":3:{rel_path}")
-        except Exception as e:
-            log_debug(f"[PARITY] Failed to get ours/theirs for {file_path.name}: {e}")
+        except GitCommandError as e:
+            log_debug(f"[PARITY] Git error getting ours/theirs for {file_path.name}: {e}")
             return False
 
         # Use pure merge function
@@ -1142,8 +1154,14 @@ def _merge_thread(file_path: Path) -> bool:
         log_debug(f"[PARITY] Auto-merged thread {file_path.name}")
         return True
 
-    except Exception as e:
-        log_debug(f"[PARITY] Failed to merge thread: {e}")
+    except GitCommandError as e:
+        log_debug(f"[PARITY] Git error in thread merge: {e}")
+        return False
+    except (ValueError, AttributeError) as e:
+        log_debug(f"[PARITY] Parse error in thread merge: {e}")
+        return False
+    except OSError as e:
+        log_debug(f"[PARITY] IO error in thread merge: {e}")
         return False
 
 

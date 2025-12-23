@@ -9,6 +9,30 @@ Key functions:
 - sync_thread_to_graph(): Full thread sync (for rebuilds)
 - record_graph_sync_error(): Track sync failures for later reconciliation
 - get_graph_sync_state(): Check current sync state
+
+Feature Configuration:
+    The following features are configurable and may be disabled by default:
+
+    LLM Summaries (generate_summaries):
+        - When enabled: Generates semantic summaries via LLM for entries/threads
+        - When disabled: Falls back to extractive summaries (truncated body text)
+        - Requires: LLM server at [servers.llm] endpoint (e.g., Ollama)
+        - Config: mcp.graph.generate_summaries (default: false)
+        - Env: WATERCOOLER_GRAPH_SUMMARIES
+
+    Embedding Vectors (generate_embeddings):
+        - When enabled: Generates embedding vectors for semantic search
+        - When disabled: Semantic search falls back to keyword matching
+        - Requires: Embedding server at [servers.embedding] endpoint
+        - Config: mcp.graph.generate_embeddings (default: false)
+        - Env: WATERCOOLER_GRAPH_EMBEDDINGS
+
+    Service Auto-Detection (auto_detect_services):
+        - When enabled: Checks service availability before generation
+        - Gracefully skips generation if services are unavailable
+        - Config: mcp.graph.auto_detect_services (default: true)
+
+    See config.example.toml for full configuration options.
 """
 
 from __future__ import annotations
@@ -647,15 +671,23 @@ def sync_entry_to_graph(
         })
 
         # Find previous entry for followed_by edge
-        if entry.index > 0 and len(parsed.entries) > entry.index:
-            prev_entry = parsed.entries[entry.index - 1] if entry.index > 0 else None
-            if not prev_entry and entry.index > 0:
-                # Try to find by index
+        # Note: entry.index is the position in the thread (0-based)
+        # We look for the entry at index-1 to create a followed_by edge
+        if entry.index > 0:
+            prev_entry: Optional[ParsedEntry] = None
+            prev_idx = entry.index - 1
+            # First try direct list access if entries are in order
+            if prev_idx < len(parsed.entries):
+                candidate = parsed.entries[prev_idx]
+                if candidate.index == prev_idx:
+                    prev_entry = candidate
+            # Fallback: search by index attribute (handles sparse/reordered lists)
+            if prev_entry is None:
                 for e in parsed.entries:
-                    if e.index == entry.index - 1:
+                    if e.index == prev_idx:
                         prev_entry = e
                         break
-            if prev_entry:
+            if prev_entry and prev_entry.entry_id:
                 edges.append({
                     "source": f"entry:{prev_entry.entry_id}",
                     "target": entry_node_id,
