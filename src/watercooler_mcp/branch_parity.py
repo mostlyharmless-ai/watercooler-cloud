@@ -887,12 +887,25 @@ def merge_thread_content(ours_content: str, theirs_content: str) -> Tuple[str, b
             theirs_by_id[entry.entry_id] = entry
 
     # Check for true conflicts (same ID, different content)
+    # Compare all meaningful fields: body, title, entry_type, role
     for entry_id, ours_entry in ours_by_id.items():
         if entry_id in theirs_by_id:
             theirs_entry = theirs_by_id[entry_id]
             # Compare body content (normalized)
             if ours_entry.body.strip() != theirs_entry.body.strip():
-                log_debug(f"[THREAD-MERGE] True conflict: Entry-ID {entry_id} has different content")
+                log_debug(f"[THREAD-MERGE] True conflict: Entry-ID {entry_id} has different body")
+                return "", True
+            # Compare title
+            if (ours_entry.title or "").strip() != (theirs_entry.title or "").strip():
+                log_debug(f"[THREAD-MERGE] True conflict: Entry-ID {entry_id} has different title")
+                return "", True
+            # Compare entry type
+            if (ours_entry.entry_type or "").strip() != (theirs_entry.entry_type or "").strip():
+                log_debug(f"[THREAD-MERGE] True conflict: Entry-ID {entry_id} has different entry_type")
+                return "", True
+            # Compare role
+            if (ours_entry.role or "").strip() != (theirs_entry.role or "").strip():
+                log_debug(f"[THREAD-MERGE] True conflict: Entry-ID {entry_id} has different role")
                 return "", True
 
     # No true conflicts - merge entries

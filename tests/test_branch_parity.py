@@ -2263,6 +2263,126 @@ Theirs body content - DIFFERENT.
     assert merged == ""
 
 
+def test_merge_thread_content_title_conflict() -> None:
+    """Test merge_thread_content detects title differences as conflicts."""
+    ours = """# topic — Thread
+Status: OPEN
+Ball: Agent
+Topic: topic
+Created: 2025-01-01T00:00:00Z
+
+---
+Entry: Agent A 2025-01-01T00:00:00Z
+Role: implementer
+Type: Note
+Title: Original Title
+
+Same body content.
+<!-- Entry-ID: 01ABC123 -->
+"""
+
+    theirs = """# topic — Thread
+Status: OPEN
+Ball: Agent
+Topic: topic
+Created: 2025-01-01T00:00:00Z
+
+---
+Entry: Agent A 2025-01-01T00:00:00Z
+Role: implementer
+Type: Note
+Title: Modified Title
+
+Same body content.
+<!-- Entry-ID: 01ABC123 -->
+"""
+
+    merged, had_conflicts = merge_thread_content(ours, theirs)
+
+    assert had_conflicts is True
+    assert merged == ""
+
+
+def test_merge_thread_content_entry_type_conflict() -> None:
+    """Test merge_thread_content detects entry_type differences as conflicts."""
+    ours = """# topic — Thread
+Status: OPEN
+Ball: Agent
+Topic: topic
+Created: 2025-01-01T00:00:00Z
+
+---
+Entry: Agent A 2025-01-01T00:00:00Z
+Role: implementer
+Type: Note
+Title: Entry
+
+Same body content.
+<!-- Entry-ID: 01ABC123 -->
+"""
+
+    theirs = """# topic — Thread
+Status: OPEN
+Ball: Agent
+Topic: topic
+Created: 2025-01-01T00:00:00Z
+
+---
+Entry: Agent A 2025-01-01T00:00:00Z
+Role: implementer
+Type: Decision
+Title: Entry
+
+Same body content.
+<!-- Entry-ID: 01ABC123 -->
+"""
+
+    merged, had_conflicts = merge_thread_content(ours, theirs)
+
+    assert had_conflicts is True
+    assert merged == ""
+
+
+def test_merge_thread_content_role_conflict() -> None:
+    """Test merge_thread_content detects role differences as conflicts."""
+    ours = """# topic — Thread
+Status: OPEN
+Ball: Agent
+Topic: topic
+Created: 2025-01-01T00:00:00Z
+
+---
+Entry: Agent A 2025-01-01T00:00:00Z
+Role: implementer
+Type: Note
+Title: Entry
+
+Same body content.
+<!-- Entry-ID: 01ABC123 -->
+"""
+
+    theirs = """# topic — Thread
+Status: OPEN
+Ball: Agent
+Topic: topic
+Created: 2025-01-01T00:00:00Z
+
+---
+Entry: Agent A 2025-01-01T00:00:00Z
+Role: planner
+Type: Note
+Title: Entry
+
+Same body content.
+<!-- Entry-ID: 01ABC123 -->
+"""
+
+    merged, had_conflicts = merge_thread_content(ours, theirs)
+
+    assert had_conflicts is True
+    assert merged == ""
+
+
 def test_merge_thread_content_takes_theirs_header() -> None:
     """Test merge_thread_content takes theirs header (more recent metadata)."""
     ours = """# topic — Thread

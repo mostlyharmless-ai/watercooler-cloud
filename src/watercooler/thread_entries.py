@@ -93,7 +93,10 @@ def _find_entry_line_indexes(lines: List[str]) -> List[Tuple[int, str, str]]:
     """
     entry_positions: List[Tuple[int, str, str]] = []
     in_code_block = False
+    # Store opening fence char and minimum length for proper matching
+    # Per CommonMark spec: closing fence must use same char and be at least as long
     code_fence_char: Optional[str] = None
+    code_fence_len: int = 0
 
     for idx, line in enumerate(lines):
         stripped = line.strip()
@@ -103,11 +106,16 @@ def _find_entry_line_indexes(lines: List[str]) -> List[Tuple[int, str, str]]:
         if fence_match:
             fence = fence_match.group(1)
             if not in_code_block:
+                # Opening fence: record char and length
                 in_code_block = True
                 code_fence_char = fence[0]
-            elif fence[0] == code_fence_char:
+                code_fence_len = len(fence)
+            elif fence[0] == code_fence_char and len(fence) >= code_fence_len:
+                # Closing fence: same char and at least as long
                 in_code_block = False
                 code_fence_char = None
+                code_fence_len = 0
+            # If fence doesn't match (different char or too short), stay in code block
             continue
 
         # Skip lines inside code blocks

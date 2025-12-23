@@ -215,6 +215,56 @@ Graph sync is safe under concurrent writes:
 2. **Use extractive summaries** when needed (faster than LLM)
 3. **Batch reconciliation** during low-activity periods
 
+## Known Limitations
+
+### LLM Summaries and Embeddings Disabled by Default
+
+⚠️ **Current Status**: LLM summaries and embedding vector generation are **disabled by default**.
+
+| Feature | Default | Impact When Disabled |
+|---------|---------|---------------------|
+| `generate_summaries` | `false` | Summaries are truncated body text (~200 chars) |
+| `generate_embeddings` | `false` | Semantic search falls back to keyword matching |
+
+**Why disabled?** These features require external services (Ollama, llama.cpp, etc.) that may not be available in all environments. Enabling them without the services running would cause errors.
+
+**To enable LLM features:**
+
+1. Install and start Ollama: `ollama serve`
+2. Pull required models:
+   ```bash
+   ollama pull llama3.2:3b          # For summaries
+   ollama pull nomic-embed-text     # For embeddings
+   ```
+3. Update your config (`~/.watercooler/config.toml`):
+   ```toml
+   [mcp.graph]
+   generate_summaries = true
+   generate_embeddings = true
+   auto_detect_services = true  # Gracefully skip if unavailable
+
+   [servers.llm]
+   api_base = "http://localhost:11434/v1"
+   model = "llama3.2:3b"
+
+   [servers.embedding]
+   api_base = "http://localhost:11434/v1"
+   model = "nomic-embed-text"
+   ```
+
+**With `auto_detect_services = true`** (default), the system will:
+- Check service availability before each generation attempt
+- Gracefully skip generation if services are unavailable
+- Log a debug message instead of raising an error
+
+### Access Counters Disabled
+
+The odometer/access counter feature is currently disabled because counter writes dirty the working tree and block auto-sync. This will be re-enabled with a chosen sync strategy in a future release.
+
+### O(n) Node Scanning
+
+Graph reads scan the entire `nodes.jsonl` linearly. For graphs with 1000+ threads, lookups may take 100ms+. Node indexing is planned for future releases.
+
 ## Future Enhancements
 
 1. **Graph read operations** - Query graph instead of parsing markdown
