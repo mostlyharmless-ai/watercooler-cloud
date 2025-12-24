@@ -187,6 +187,7 @@ class BranchMismatch:
     threads: Optional[str]
     severity: str  # "error", "warning"
     recovery: str  # Suggested recovery command or action
+    needs_merge_to_main: bool = False  # True if threads branch should be merged to main
 
 
 @dataclass
@@ -1774,6 +1775,7 @@ class BranchDivergenceInfo:
     needs_rebase: bool  # True if threads branch needs to be rebased
     needs_fetch: bool  # True if remote fetch might help
     details: str  # Human-readable explanation
+    needs_merge_to_main: bool = False  # True if threads branch should be merged to main (after code PR merge)
 
 
 def _find_main_branch(repo: Repo) -> Optional[str]:
@@ -1914,13 +1916,12 @@ def _detect_behind_main_divergence(
 
         # Ahead-of-main disparity: code has parity but threads/staging is ahead of threads/main
         # This happens when code/staging was merged to code/main but threads/staging wasn't
-        # NOTE: We do NOT auto-merge to threads/main - that violates "neutral origin" principle
+        # Per branch pairing contract: threads follows code. Auto-merge threads to main.
         if code_synced and len(threads_ahead_main) > 0 and len(threads_behind_main) == 0:
             sync_reason = "content-equivalent" if code_content_synced else "0 commits behind"
             log_debug(f"[PARITY] *** AHEAD-OF-MAIN DISPARITY *** threads_ahead={len(threads_ahead_main)}, "
-                  f"reason={sync_reason} - returning info-only (no auto-merge)")
+                  f"reason={sync_reason} - signaling merge to main needed")
 
-            # Return info-only - no automatic merge to avoid polluting threads/main
             return BranchDivergenceInfo(
                 diverged=True,
                 commits_ahead=len(threads_ahead_main),
@@ -1931,9 +1932,10 @@ def _detect_behind_main_divergence(
                 details=(
                     f"Threads branch '{threads_branch}' is {len(threads_ahead_main)} commits ahead of "
                     f"'{threads_main}', but code branch '{code_branch}' is synced with "
-                    f"'{code_main}' ({sync_reason}). If this is after a PR merge, run: "
-                    f"watercooler merge-threads {threads_branch}"
-                )
+                    f"'{code_main}' ({sync_reason}). Code PR was merged; threads branch will be "
+                    f"merged to main to maintain parity."
+                ),
+                needs_merge_to_main=True,
             )
 
         log_debug(f"[PARITY] No disparity detected - returning None")
@@ -2740,23 +2742,40 @@ def validate_branch_pairing(
             warnings.append(divergence.details)
 
         # Also check for behind-main divergence (threads behind main, code not)
+        # or ahead-of-main divergence (threads ahead, code synced with main)
         # This is a separate check from local vs origin divergence
         behind_main = _detect_behind_main_divergence(
             code_repo_obj, threads_repo_obj, code_branch, threads_branch
         )
         if behind_main:
-            mismatches.append(BranchMismatch(
-                type="branch_history_diverged",
-                code=code_branch,
-                threads=threads_branch,
-                severity="error",
-                recovery=(
-                    f"Threads branch is {behind_main.commits_behind} commits behind main "
-                    f"but code branch is up-to-date. "
-                    f"Run: watercooler_sync_branch_state with operation='recover' to rebase "
-                    f"threads branch onto main."
-                )
-            ))
+            if behind_main.needs_merge_to_main:
+                # Ahead-of-main case: code PR merged, threads needs to merge to main
+                mismatches.append(BranchMismatch(
+                    type="branch_history_diverged",
+                    code=code_branch,
+                    threads=threads_branch,
+                    severity="error",
+                    recovery=(
+                        f"Threads branch is {behind_main.commits_ahead} commits ahead of main "
+                        f"but code branch is synced with main (PR merged). "
+                        f"Will auto-merge threads branch to main."
+                    ),
+                    needs_merge_to_main=True,
+                ))
+            else:
+                # Behind-main case: threads needs to rebase onto main
+                mismatches.append(BranchMismatch(
+                    type="branch_history_diverged",
+                    code=code_branch,
+                    threads=threads_branch,
+                    severity="error",
+                    recovery=(
+                        f"Threads branch is {behind_main.commits_behind} commits behind main "
+                        f"but code branch is up-to-date. "
+                        f"Run: watercooler_sync_branch_state with operation='recover' to rebase "
+                        f"threads branch onto main."
+                    )
+                ))
             warnings.append(behind_main.details)
 
     # Determine validity

@@ -73,6 +73,7 @@ from .branch_parity import (
     ensure_readable,
     PreflightResult,
     ParityStatus,
+    auto_merge_to_main,
 )
 from .observability import log_debug, log_action, log_warning, log_error, timeit
 
@@ -243,7 +244,7 @@ def _attempt_auto_fix_divergence(
     context: ThreadContext,
     validation_result: BranchPairingResult,
 ) -> Optional[BranchPairingResult]:
-    """Attempt to auto-fix branch history divergence via rebase.
+    """Attempt to auto-fix branch history divergence via rebase or merge.
 
     Args:
         context: Thread context with code and threads repo info
@@ -256,7 +257,54 @@ def _attempt_auto_fix_divergence(
     Raises:
         BranchPairingError: If auto-fix fails and requires manual intervention
     """
-    log_debug("Detected branch history divergence, attempting auto-fix via rebase")
+    log_debug("Detected branch history divergence, attempting auto-fix")
+
+    # Check if this is a "merge to main" case (code PR merged, threads needs to follow)
+    merge_to_main_mismatch = None
+    for mismatch in validation_result.mismatches:
+        if mismatch.type == "branch_history_diverged" and mismatch.needs_merge_to_main:
+            merge_to_main_mismatch = mismatch
+            break
+
+    # Handle merge-to-main case: code branch merged to main, threads should follow
+    if merge_to_main_mismatch:
+        log_debug("Ahead-of-main divergence detected, will merge threads to main")
+        try:
+            threads_repo = Repo(context.threads_dir, search_parent_directories=True)
+            main_branch = _find_main_branch(threads_repo)
+            if not main_branch:
+                raise BranchPairingError(
+                    "Cannot auto-merge: main branch not found in threads repo"
+                )
+
+            feature_branch = validation_result.threads_branch or context.code_branch
+            success, message = auto_merge_to_main(threads_repo, feature_branch, main_branch)
+
+            if success:
+                log_debug(f"Auto-merged threads to main: {message}")
+                # Re-validate to confirm fix worked
+                revalidation = validate_branch_pairing(
+                    code_repo=context.code_root,
+                    threads_repo=context.threads_dir,
+                    strict=True,
+                    check_history=True,
+                )
+                if revalidation.valid:
+                    log_debug("Branch pairing now valid after auto-merge to main")
+                    return revalidation
+                else:
+                    log_debug(f"Auto-merge completed but validation still failing: {revalidation.warnings}")
+                    return revalidation
+            else:
+                raise BranchPairingError(
+                    f"Auto-merge to main failed: {message}\n"
+                    f"Manual recovery: cd <threads-repo> && git checkout main && "
+                    f"git merge {feature_branch} && git push origin main"
+                )
+        except BranchPairingError:
+            raise
+        except Exception as e:
+            raise BranchPairingError(f"Auto-merge to main failed: {e}")
 
     # Check if this is a "behind-main" divergence (threads behind main but code not)
     # vs a local-vs-origin divergence. They require different fix strategies.

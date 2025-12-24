@@ -250,7 +250,11 @@ def _compose_local_threads_path(base: Path, slug: str) -> Path:
 
 
 def _infer_threads_repo_from_code(ctx: ThreadContext) -> Optional[str]:
-    """Infer a threads repo URL from the code repo remote when explicit config is missing."""
+    """Infer a threads repo URL from the code repo remote when explicit config is missing.
+    
+    Always uses HTTPS to avoid SSH passphrase prompts and ensure compatibility with
+    credential helpers and tokens.
+    """
 
     if ctx.threads_slug is None:
         return None
@@ -264,19 +268,24 @@ def _infer_threads_repo_from_code(ctx: ThreadContext) -> Optional[str]:
     if not slug:
         return None
 
+    # Extract host from any remote format and construct HTTPS URL
+    # The slug already contains the full path (e.g., "org/repo-threads")
+    # Handle SSH format: git@github.com:org/repo.git
     if remote.startswith("git@"):
-        host = remote.split(":", 1)[0]
-        return f"{host}:{slug}.git"
+        # Extract host: git@github.com:org/repo.git -> github.com
+        host = remote.split("@", 1)[-1].split(":", 1)[0]
+        return f"https://{host}/{slug}.git"
 
+    # Handle HTTPS format: https://github.com/org/repo.git
     if "://" in remote:
         scheme, rest = remote.split("://", 1)
         host = rest.split("/", 1)[0]
-        return f"{scheme}://{host}/{slug}.git"
+        return f"https://{host}/{slug}.git"
 
-    # Fallback: append slug directly for cases like 'github.com/org/repo'
+    # Fallback: construct HTTPS URL for cases like 'github.com/org/repo'
     if "/" in remote:
         host = remote.split("/", 1)[0]
-        return f"git@{host}:{slug}.git"
+        return f"https://{host}/{slug}.git"
 
     return None
 
@@ -321,16 +330,9 @@ def resolve_thread_context(code_root: Optional[Path] = None) -> ThreadContext:
             if config_pattern:
                 pattern = config_pattern
             else:
-                # Fallback: infer pattern from code remote protocol
-                # But only use SSH if SSH_AUTH_SOCK is available (prevents Codex hangs)
-                remote = code_remote or ""
-                ssh_agent_available = bool(os.environ.get("SSH_AUTH_SOCK"))
-                if (remote.startswith("git@") or remote.startswith("ssh://")) and ssh_agent_available:
-                    pattern = "git@github.com:{org}/{repo}-threads.git"
-                else:
-                    # Default to HTTPS - works with credential helpers/tokens
-                    # and doesn't hang when SSH agent is unavailable
-                    pattern = "https://github.com/{org}/{repo}-threads.git"
+                # Always default to HTTPS - works with credential helpers/tokens
+                # and prevents SSH passphrase prompts that hang Codex/AI tools
+                pattern = "https://github.com/{org}/{repo}-threads.git"
         format_kwargs = {
             "repo": repo,
             "namespace": namespace or "",
@@ -456,12 +458,14 @@ def _build_sync_manager(ctx: ThreadContext) -> Optional[GitSyncManager]:
             return manager
 
         provision_requested = is_auto_provision_requested()
+        # Enable provisioning for both HTTPS and SSH URLs
+        # HTTPS URLs are preferred and work with credential helpers/tokens
         enable_provision = bool(
             provision_requested
             and not ctx.explicit_dir
             and repo_url
             and ctx.threads_slug
-            and repo_url.startswith("git@")
+            and (repo_url.startswith("https://") or repo_url.startswith("git@"))
         )
 
         # Clear any stale cache entry for this directory (repo URL changed)

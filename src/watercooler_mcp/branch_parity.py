@@ -1290,6 +1290,125 @@ def _push_with_retry(repo: Repo, branch: str, max_retries: int = MAX_PUSH_RETRIE
     return False
 
 
+def auto_merge_to_main(
+    threads_repo: Repo,
+    feature_branch: str,
+    main_branch: str,
+) -> tuple[bool, str]:
+    """Merge threads feature branch to main after code PR merge.
+
+    This is called when the code branch has been merged to main but the
+    threads branch hasn't. Per the branch pairing contract, threads follows
+    code, so we auto-merge the threads branch to main.
+
+    Args:
+        threads_repo: GitPython Repo object for threads repository
+        feature_branch: Name of the feature branch to merge (e.g., 'feature/add-blog')
+        main_branch: Name of the main branch (e.g., 'main')
+
+    Returns:
+        Tuple of (success: bool, message: str describing what happened)
+    """
+    try:
+        _validate_branch_name(feature_branch)
+        _validate_branch_name(main_branch)
+    except ValueError as e:
+        return (False, f"Invalid branch name: {e}")
+
+    original_branch = _get_branch_name(threads_repo)
+    actions = []
+
+    try:
+        # 1. Fetch latest from origin
+        if not _fetch_with_timeout(threads_repo):
+            log_debug("[PARITY] auto_merge_to_main: fetch failed, proceeding anyway")
+
+        # 2. Checkout main branch
+        if not _checkout_branch(threads_repo, main_branch):
+            return (False, f"Failed to checkout {main_branch}")
+        actions.append(f"Checked out {main_branch}")
+
+        # 3. Pull latest main (ff-only to ensure we're up to date)
+        if _pull_ff_only(threads_repo, main_branch):
+            actions.append(f"Pulled latest {main_branch}")
+        else:
+            # Try rebase if ff-only fails
+            if _pull_rebase(threads_repo, main_branch):
+                actions.append(f"Pulled {main_branch} (rebase)")
+            else:
+                log_debug("[PARITY] auto_merge_to_main: pull main failed, proceeding anyway")
+
+        # 4. Merge the feature branch into main
+        try:
+            threads_repo.git.merge(feature_branch, "--no-edit")
+            actions.append(f"Merged {feature_branch} into {main_branch}")
+        except GitCommandError as e:
+            # Check if it's a conflict
+            if _has_conflicts(threads_repo):
+                # Try auto-resolve if it's thread-only conflicts
+                if _has_thread_conflicts_only(threads_repo):
+                    if _auto_resolve_thread_conflicts(threads_repo):
+                        actions.append("Auto-resolved thread conflicts during merge")
+                    else:
+                        # Abort and return to original branch
+                        try:
+                            threads_repo.git.merge("--abort")
+                        except Exception:
+                            pass
+                        if original_branch:
+                            _checkout_branch(threads_repo, original_branch)
+                        return (False, f"Merge conflict in thread files that could not be auto-resolved: {e}")
+                elif _has_graph_conflicts_only(threads_repo):
+                    if _auto_resolve_graph_conflicts(threads_repo):
+                        actions.append("Auto-resolved graph conflicts during merge")
+                    else:
+                        try:
+                            threads_repo.git.merge("--abort")
+                        except Exception:
+                            pass
+                        if original_branch:
+                            _checkout_branch(threads_repo, original_branch)
+                        return (False, f"Merge conflict in graph files that could not be auto-resolved: {e}")
+                else:
+                    # Mixed conflicts - abort
+                    try:
+                        threads_repo.git.merge("--abort")
+                    except Exception:
+                        pass
+                    if original_branch:
+                        _checkout_branch(threads_repo, original_branch)
+                    return (False, f"Merge conflict requiring manual resolution: {e}")
+            else:
+                return (False, f"Merge failed: {e}")
+
+        # 5. Push main to origin
+        if _push_with_retry(threads_repo, main_branch):
+            actions.append(f"Pushed {main_branch} to origin")
+        else:
+            return (False, f"Merge succeeded locally but push failed. Run: git push origin {main_branch}")
+
+        # 6. Optionally delete the feature branch (local and remote)
+        # For now, we leave the feature branch - user can clean up manually
+        # This avoids data loss if they want to reference it
+
+        # 7. Stay on main (don't checkout back to feature branch)
+        # The feature branch work is complete since code was merged
+
+        message = f"Auto-merged threads branch to main: {'; '.join(actions)}"
+        log_debug(f"[PARITY] {message}")
+        return (True, message)
+
+    except Exception as e:
+        log_debug(f"[PARITY] auto_merge_to_main failed: {e}")
+        # Try to return to original branch
+        if original_branch:
+            try:
+                _checkout_branch(threads_repo, original_branch)
+            except Exception:
+                pass
+        return (False, f"Auto-merge failed: {e}")
+
+
 def run_preflight(
     code_repo_path: Path,
     threads_repo_path: Path,

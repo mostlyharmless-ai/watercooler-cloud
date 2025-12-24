@@ -53,6 +53,7 @@ from watercooler_mcp.branch_parity import (
     _pull_ff_only,
     _pull_rebase,
     _checkout_branch,
+    auto_merge_to_main,
 )
 
 
@@ -2448,3 +2449,62 @@ def test_has_thread_conflicts_only_returns_false_for_graph_conflicts(
 
     # No actual conflicts, so both should be False
     assert _has_thread_conflicts_only(repo) is False
+
+
+def test_auto_merge_to_main_success(tmp_path: Path) -> None:
+    """Test auto_merge_to_main successfully merges feature branch to main."""
+    # Create threads repo with origin
+    threads_path = tmp_path / "threads"
+    origin_path = tmp_path / "threads-origin"
+
+    # Setup origin repo
+    origin_path.mkdir()
+    Repo.init(origin_path, bare=True)
+
+    # Clone as threads repo
+    threads_repo = Repo.clone_from(str(origin_path), str(threads_path))
+
+    # Create initial commit on main
+    readme = threads_path / "README.md"
+    readme.write_text("# Threads\n")
+    threads_repo.index.add(["README.md"])
+    threads_repo.index.commit("Initial commit", author=Actor("Test", "test@example.com"))
+    threads_repo.git.branch("-M", "main")  # Ensure branch is named 'main'
+    threads_repo.git.push("-u", "origin", "main")
+
+    # Create feature branch with commits
+    threads_repo.git.checkout("-b", "feature/add-blog")
+    thread_file = threads_path / "blog-review.md"
+    thread_file.write_text("# blog-review — Thread\nStatus: OPEN\n\n---\nEntry: Claude 2025-01-01T00:00:00Z\n")
+    threads_repo.index.add(["blog-review.md"])
+    threads_repo.index.commit("Add blog review thread", author=Actor("Test", "test@example.com"))
+    threads_repo.git.push("-u", "origin", "feature/add-blog")
+
+    # Run auto-merge
+    success, message = auto_merge_to_main(threads_repo, "feature/add-blog", "main")
+
+    assert success is True
+    assert "Merged feature/add-blog into main" in message
+    assert "Pushed main to origin" in message
+
+    # Verify we're on main branch now
+    assert threads_repo.active_branch.name == "main"
+
+    # Verify the thread file exists on main
+    assert (threads_path / "blog-review.md").exists()
+
+
+def test_auto_merge_to_main_invalid_branch_name() -> None:
+    """Test auto_merge_to_main rejects invalid branch names."""
+    from unittest.mock import MagicMock
+
+    mock_repo = MagicMock()
+
+    # Test flag injection attempt
+    success, message = auto_merge_to_main(mock_repo, "--delete", "main")
+    assert success is False
+    assert "Invalid branch name" in message
+
+    success, message = auto_merge_to_main(mock_repo, "feature", "-D")
+    assert success is False
+    assert "Invalid branch name" in message
