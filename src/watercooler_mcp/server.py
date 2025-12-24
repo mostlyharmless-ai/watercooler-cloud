@@ -2545,9 +2545,9 @@ def baseline_graph_build(
     ctx: Context,
     code_path: str = "",
     output_dir: str = "",
-    extractive_only: bool = True,
+    extractive_only: Optional[bool] = None,
     skip_closed: bool = False,
-    generate_embeddings: bool = False,
+    generate_embeddings: Optional[bool] = None,
 ) -> str:
     """Build baseline graph from threads.
 
@@ -2559,9 +2559,11 @@ def baseline_graph_build(
     Args:
         code_path: Path to code repository (for resolving threads dir).
         output_dir: Output directory for graph files (optional).
-        extractive_only: Use extractive summaries only (no LLM). Default: True.
+        extractive_only: Use extractive summaries only (no LLM).
+            Defaults to inverse of config generate_summaries from ~/.watercooler/config.toml.
         skip_closed: Skip closed threads. Default: False.
-        generate_embeddings: Generate embedding vectors for entries. Default: False.
+        generate_embeddings: Generate embedding vectors for entries.
+            Defaults to config value from ~/.watercooler/config.toml.
 
     Returns:
         JSON manifest with export statistics.
@@ -2569,6 +2571,7 @@ def baseline_graph_build(
     try:
         from pathlib import Path
         from watercooler.baseline_graph import export_all_threads, SummarizerConfig
+        from watercooler_mcp.config import get_watercooler_config
 
         error, context = _require_context(code_path)
         if error:
@@ -2580,13 +2583,22 @@ def baseline_graph_build(
         if not threads_dir.exists():
             return f"Threads directory not found: {threads_dir}"
 
+        # Get config defaults for summary/embedding generation
+        wc_config = get_watercooler_config()
+        graph_config = wc_config.mcp.graph
+
+        # Use config values if not explicitly provided
+        # extractive_only is inverse of generate_summaries
+        do_extractive = extractive_only if extractive_only is not None else not graph_config.generate_summaries
+        do_embeddings = generate_embeddings if generate_embeddings is not None else graph_config.generate_embeddings
+
         # Default output to threads_dir/graph/baseline
         if output_dir:
             out_path = Path(output_dir)
         else:
             out_path = threads_dir / "graph" / "baseline"
 
-        config = SummarizerConfig(prefer_extractive=extractive_only)
+        config = SummarizerConfig(prefer_extractive=do_extractive)
 
         # Define the build operation
         def _do_build() -> dict:
@@ -2595,7 +2607,7 @@ def baseline_graph_build(
                 out_path,
                 config,
                 skip_closed=skip_closed,
-                generate_embeddings=generate_embeddings,
+                generate_embeddings=do_embeddings,
             )
 
         # Run with full parity protocol (preflight + commit + push)
@@ -2915,8 +2927,8 @@ def reconcile_graph_tool(
     ctx: Context,
     code_path: str = "",
     topics: str = "",
-    generate_summaries: bool = False,
-    generate_embeddings: bool = False,
+    generate_summaries: Optional[bool] = None,
+    generate_embeddings: Optional[bool] = None,
 ) -> str:
     """Reconcile graph with markdown files to fix sync issues.
 
@@ -2929,13 +2941,16 @@ def reconcile_graph_tool(
         topics: Comma-separated list of topics to reconcile. If empty,
                 reconciles all stale/error topics.
         generate_summaries: Whether to generate LLM summaries (slower).
+            Defaults to config value from ~/.watercooler/config.toml.
         generate_embeddings: Whether to generate embedding vectors (slower).
+            Defaults to config value from ~/.watercooler/config.toml.
 
     Returns:
         JSON report with reconciliation results per topic.
     """
     try:
         from watercooler.baseline_graph.sync import reconcile_graph
+        from watercooler_mcp.config import get_watercooler_config
 
         error, context = _require_context(code_path)
         if error:
@@ -2947,6 +2962,14 @@ def reconcile_graph_tool(
         if not threads_dir.exists():
             return f"Threads directory not found: {threads_dir}"
 
+        # Get config defaults for summary/embedding generation
+        wc_config = get_watercooler_config()
+        graph_config = wc_config.mcp.graph
+
+        # Use config values if not explicitly provided
+        do_summaries = generate_summaries if generate_summaries is not None else graph_config.generate_summaries
+        do_embeddings = generate_embeddings if generate_embeddings is not None else graph_config.generate_embeddings
+
         # Parse topics list
         topic_list = None
         if topics:
@@ -2957,8 +2980,8 @@ def reconcile_graph_tool(
             return reconcile_graph(
                 threads_dir=threads_dir,
                 topics=topic_list,
-                generate_summaries=generate_summaries,
-                generate_embeddings=generate_embeddings,
+                generate_summaries=do_summaries,
+                generate_embeddings=do_embeddings,
             )
 
         # Run with full parity protocol (preflight + commit + push)
