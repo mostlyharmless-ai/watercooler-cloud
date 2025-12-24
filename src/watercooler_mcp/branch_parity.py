@@ -1317,14 +1317,23 @@ def auto_merge_to_main(
 
     original_branch = _get_branch_name(threads_repo)
     actions = []
+    stash_ref = None
 
     try:
+        # 0. Stash any uncommitted changes to allow checkout
+        stash_ref = _preserve_stash(threads_repo, prefix="watercooler-merge")
+        if stash_ref:
+            actions.append("Stashed uncommitted changes")
+
         # 1. Fetch latest from origin
         if not _fetch_with_timeout(threads_repo):
             log_debug("[PARITY] auto_merge_to_main: fetch failed, proceeding anyway")
 
         # 2. Checkout main branch
         if not _checkout_branch(threads_repo, main_branch):
+            # Restore stash before failing
+            if stash_ref:
+                _restore_stash(threads_repo, stash_ref)
             return (False, f"Failed to checkout {main_branch}")
         actions.append(f"Checked out {main_branch}")
 
@@ -1357,6 +1366,8 @@ def auto_merge_to_main(
                             pass
                         if original_branch:
                             _checkout_branch(threads_repo, original_branch)
+                        if stash_ref:
+                            _restore_stash(threads_repo, stash_ref)
                         return (False, f"Merge conflict in thread files that could not be auto-resolved: {e}")
                 elif _has_graph_conflicts_only(threads_repo):
                     if _auto_resolve_graph_conflicts(threads_repo):
@@ -1368,6 +1379,8 @@ def auto_merge_to_main(
                             pass
                         if original_branch:
                             _checkout_branch(threads_repo, original_branch)
+                        if stash_ref:
+                            _restore_stash(threads_repo, stash_ref)
                         return (False, f"Merge conflict in graph files that could not be auto-resolved: {e}")
                 else:
                     # Mixed conflicts - abort
@@ -1377,14 +1390,20 @@ def auto_merge_to_main(
                         pass
                     if original_branch:
                         _checkout_branch(threads_repo, original_branch)
+                    if stash_ref:
+                        _restore_stash(threads_repo, stash_ref)
                     return (False, f"Merge conflict requiring manual resolution: {e}")
             else:
+                if stash_ref:
+                    _restore_stash(threads_repo, stash_ref)
                 return (False, f"Merge failed: {e}")
 
         # 5. Push main to origin
         if _push_with_retry(threads_repo, main_branch):
             actions.append(f"Pushed {main_branch} to origin")
         else:
+            if stash_ref:
+                _restore_stash(threads_repo, stash_ref)
             return (False, f"Merge succeeded locally but push failed. Run: git push origin {main_branch}")
 
         # 6. Optionally delete the feature branch (local and remote)
@@ -1393,6 +1412,13 @@ def auto_merge_to_main(
 
         # 7. Stay on main (don't checkout back to feature branch)
         # The feature branch work is complete since code was merged
+
+        # 8. Restore any stashed changes (now on main branch)
+        if stash_ref:
+            if _restore_stash(threads_repo, stash_ref):
+                actions.append("Restored stashed changes")
+            else:
+                actions.append("Warning: stash restore failed, run 'git stash pop' manually")
 
         message = f"Auto-merged threads branch to main: {'; '.join(actions)}"
         log_debug(f"[PARITY] {message}")
@@ -1404,6 +1430,12 @@ def auto_merge_to_main(
         if original_branch:
             try:
                 _checkout_branch(threads_repo, original_branch)
+            except Exception:
+                pass
+        # Restore stash if we created one
+        if stash_ref:
+            try:
+                _restore_stash(threads_repo, stash_ref)
             except Exception:
                 pass
         return (False, f"Auto-merge failed: {e}")

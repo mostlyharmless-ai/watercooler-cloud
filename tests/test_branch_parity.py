@@ -2508,3 +2508,54 @@ def test_auto_merge_to_main_invalid_branch_name() -> None:
     success, message = auto_merge_to_main(mock_repo, "feature", "-D")
     assert success is False
     assert "Invalid branch name" in message
+
+
+def test_auto_merge_to_main_with_dirty_tree(tmp_path: Path) -> None:
+    """Test auto_merge_to_main stashes and restores uncommitted changes."""
+    # Create threads repo with origin
+    threads_path = tmp_path / "threads"
+    origin_path = tmp_path / "threads-origin"
+
+    # Setup origin repo
+    origin_path.mkdir()
+    Repo.init(origin_path, bare=True)
+
+    # Clone as threads repo
+    threads_repo = Repo.clone_from(str(origin_path), str(threads_path))
+
+    # Create initial commit on main
+    readme = threads_path / "README.md"
+    readme.write_text("# Threads\n")
+    threads_repo.index.add(["README.md"])
+    threads_repo.index.commit("Initial commit", author=Actor("Test", "test@example.com"))
+    threads_repo.git.branch("-M", "main")
+    threads_repo.git.push("-u", "origin", "main")
+
+    # Create feature branch with commits
+    threads_repo.git.checkout("-b", "feature/dirty-test")
+    thread_file = threads_path / "test-thread.md"
+    thread_file.write_text("# test-thread — Thread\nStatus: OPEN\n")
+    threads_repo.index.add(["test-thread.md"])
+    threads_repo.index.commit("Add test thread", author=Actor("Test", "test@example.com"))
+    threads_repo.git.push("-u", "origin", "feature/dirty-test")
+
+    # Create uncommitted changes (dirty tree)
+    dirty_file = threads_path / "uncommitted.txt"
+    dirty_file.write_text("This is uncommitted content\n")
+
+    # Verify tree is dirty
+    assert threads_repo.is_dirty(untracked_files=True)
+
+    # Run auto-merge - should stash, merge, and restore
+    success, message = auto_merge_to_main(threads_repo, "feature/dirty-test", "main")
+
+    assert success is True
+    assert "Stashed uncommitted changes" in message
+    assert "Merged feature/dirty-test into main" in message
+
+    # Verify we're on main
+    assert threads_repo.active_branch.name == "main"
+
+    # Verify the uncommitted file still exists (restored from stash)
+    assert dirty_file.exists()
+    assert dirty_file.read_text() == "This is uncommitted content\n"
