@@ -601,43 +601,60 @@ class LeanRAGBackend(MemoryBackend):
                     if path:
                         entity_paths.append(path)
 
+                # Performance cap: Limit entity paths to prevent combinatorial explosion
+                # For max_results=10, limit to top 10 paths to keep combinations manageable
+                MAX_ENTITY_PATHS = max(10, max_results)
+                entity_paths = entity_paths[:MAX_ENTITY_PATHS]
+
                 # 3. For each pair of entity paths, search for relationships
                 # between all entities in those paths
                 facts = []
-                seen_edges = set()  # Deduplicate edges
-                
+                seen_edges = set()  # Deduplicate edges (bidirectional)
+
+                # Performance cap: Limit entities per path pair
+                MAX_ENTITIES_PER_PAIR = 20
+
                 for path1, path2 in combinations(entity_paths, 2):
                     # Get all unique entities from both paths
                     all_entities = list(set(path1 + path2))
-                    
+
+                    # Cap entities per pair to prevent explosion
+                    all_entities = all_entities[:MAX_ENTITIES_PER_PAIR]
+
                     # Search for relationships between all pairs of entities
                     for e1, e2 in combinations(all_entities, 2):
                         if e1 == e2:
                             continue
-                            
-                        # Create canonical edge ID (bidirectional)
-                        edge_key = tuple(sorted([e1, e2]))
+
+                        # Early exit if we have enough results
+                        # Collect extra to allow for scoring/ranking
+                        if len(facts) >= max_results * 3:
+                            break
+
+                        # Deduplicate using bidirectional key (frozenset treats {A,B} == {B,A})
+                        edge_key = frozenset([e1, e2])
                         if edge_key in seen_edges:
                             continue
-                        
+
                         try:
                             # search_nodes_link returns (src, tgt, description, weight, level)
                             link = search_nodes_link(e1, e2, str(work_dir), level=None)
-                            
+
                             if link:
                                 seen_edges.add(edge_key)
+                                # Preserve original directionality from search_nodes_link
                                 src, tgt, description, weight, level = link
                                 facts.append({
-                                    "id": f"{src}||{tgt}",  # Synthetic ID format
-                                    "source_node_id": src,
-                                    "target_node_id": tgt,
+                                    "id": f"{src}||{tgt}",  # Synthetic ID with original direction
+                                    "source_node_id": src,  # Original source
+                                    "target_node_id": tgt,  # Original target
                                     "summary": description,  # Relationship description
                                     "score": float(weight) if weight else 0.0,
                                     "backend": "leanrag",
                                     "content": None,  # Facts don't have content
                                     "source": None,  # Not applicable to edges
                                     "metadata": {
-                                        "level": level,  # Hierarchy level
+                                        "level": level,  # Hierarchy level for downstream ranking
                                     },
                                     "extra": {
                                         "corpus": str(work_dir),
@@ -647,7 +664,11 @@ class LeanRAGBackend(MemoryBackend):
                             # If link lookup fails, continue to next pair
                             continue
 
-                # Return top N facts by score
+                    # Early exit at path pair level too
+                    if len(facts) >= max_results * 3:
+                        break
+
+                # Sort by score (descending) BEFORE truncating to max_results
                 facts.sort(key=lambda x: x["score"], reverse=True)
                 return facts[:max_results]
 
