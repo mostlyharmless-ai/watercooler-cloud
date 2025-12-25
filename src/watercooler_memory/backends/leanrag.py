@@ -295,7 +295,7 @@ class LeanRAGBackend(MemoryBackend):
                 os.chdir(original_cwd)
 
             build_cmd = [
-                "python3",
+                sys.executable,
                 "leanrag/pipelines/build.py",
                 "--path",
                 str(work_dir),
@@ -484,13 +484,17 @@ class LeanRAGBackend(MemoryBackend):
             try:
                 os.chdir(str(self.config.leanrag_path))
 
-                # Import LeanRAG search function
-                from leanrag.database.adapter import search_vector_search
+                # Import LeanRAG functions
+                from leanrag.core.llm import embedding
+                from leanrag.database.vector import search_vector_search
+
+                # Convert text query to embedding vector
+                query_embedding = embedding(query)
 
                 # Execute vector search (level_mode=2 means all levels: base + clusters)
                 results = search_vector_search(
                     str(work_dir),
-                    query,
+                    query_embedding,
                     topk=max_results,
                     level_mode=2
                 )
@@ -498,16 +502,21 @@ class LeanRAGBackend(MemoryBackend):
                 # Normalize to CoreResult format
                 normalized_results = []
                 for entity_name, parent, description, source_id in results:
+                    # Strip quotes to match FalkorDB normalization (see falkordb.py:161)
+                    # Milvus stores raw names with quotes, but FalkorDB strips them
+                    normalized_name = entity_name.strip().strip('"').strip()
+                    normalized_parent = parent.strip().strip('"').strip() if parent else parent
+
                     normalized_results.append({
-                        "id": entity_name,  # Required by CoreResult
-                        "name": entity_name,
+                        "id": normalized_name,  # Required by CoreResult
+                        "name": normalized_name,
                         "summary": description,
                         "score": 0.0,  # Milvus doesn't return scores in current API
                         "backend": "leanrag",  # Required by CoreResult
                         "content": None,  # Entities don't have content
                         "source": source_id,  # Chunk hash where entity was found
                         "metadata": {
-                            "parent": parent,  # Hierarchical parent (for clusters)
+                            "parent": normalized_parent,  # Hierarchical parent (for clusters)
                         },
                         "extra": {
                             "corpus": str(work_dir),
@@ -531,7 +540,12 @@ class LeanRAGBackend(MemoryBackend):
         max_results: int = 10,
         center_node_id: str | None = None,
     ) -> list[dict[str, Any]]:
-        """Search for facts/relationships via entity search + edge traversal.
+        """Search for facts/relationships via entity search + hierarchical edge traversal.
+
+        This implements LeanRAG's reasoning chain pattern from query.py:
+        1. Find relevant entities via vector search
+        2. Get hierarchical paths for each entity (entity → parent → grandparent → root)
+        3. Search for relationships between all entities in those hierarchical paths
 
         Args:
             query: Search query string
@@ -568,25 +582,50 @@ class LeanRAGBackend(MemoryBackend):
                 os.chdir(str(self.config.leanrag_path))
 
                 # Import LeanRAG functions
-                from leanrag.database.adapter import search_nodes_link
+                from leanrag.database.adapter import search_nodes_link, find_tree_root
+                from itertools import combinations
 
-                # Strategy: Find relevant entities via vector search, then traverse relationships
+                # Strategy: Find relevant entities via vector search, then traverse
+                # hierarchical relationships (matches LeanRAG query.py get_reasoning_chain)
+                
                 # 1. Find relevant entities (more than requested to increase relationship discovery)
                 entities = self.search_nodes(query, max_results=max_results * 2)
+                
+                # 2. Get hierarchical paths for each entity
+                # find_tree_root returns [entity, parent, grandparent, ..., root]
+                db_name = work_dir.name
+                entity_paths = []
+                for entity in entities:
+                    entity_name = entity["id"]
+                    path = find_tree_root(db_name, entity_name)
+                    if path:
+                        entity_paths.append(path)
 
-                # 2. Traverse relationships between found entities
+                # 3. For each pair of entity paths, search for relationships
+                # between all entities in those paths
                 facts = []
-                for i, e1 in enumerate(entities):
-                    for e2 in entities[i+1:]:
+                seen_edges = set()  # Deduplicate edges
+                
+                for path1, path2 in combinations(entity_paths, 2):
+                    # Get all unique entities from both paths
+                    all_entities = list(set(path1 + path2))
+                    
+                    # Search for relationships between all pairs of entities
+                    for e1, e2 in combinations(all_entities, 2):
+                        if e1 == e2:
+                            continue
+                            
+                        # Create canonical edge ID (bidirectional)
+                        edge_key = tuple(sorted([e1, e2]))
+                        if edge_key in seen_edges:
+                            continue
+                        
                         try:
                             # search_nodes_link returns (src, tgt, description, weight, level)
-                            link = search_nodes_link(
-                                e1["id"], 
-                                e2["id"], 
-                                str(work_dir),
-                                level=None
-                            )
+                            link = search_nodes_link(e1, e2, str(work_dir), level=None)
+                            
                             if link:
+                                seen_edges.add(edge_key)
                                 src, tgt, description, weight, level = link
                                 facts.append({
                                     "id": f"{src}||{tgt}",  # Synthetic ID format
@@ -698,17 +737,26 @@ class LeanRAGBackend(MemoryBackend):
             try:
                 os.chdir(str(self.config.leanrag_path))
 
-                # Import LeanRAG function
-                from leanrag.database.adapter import search_nodes
+                # Import FalkorDB connection function
+                from leanrag.database.falkordb import get_falkordb_connection
 
-                # Retrieve specific entity by name
-                # search_nodes returns [(entity_name, description, source_id, degree, parent, level), ...]
-                results = search_nodes([node_id], str(work_dir))
-                
-                if not results:
+                # Query entity at ANY level (not just level=0)
+                graph_name = work_dir.name
+                db, graph = get_falkordb_connection(graph_name)
+
+                # Query for entity at any level
+                query = """
+                MATCH (n:Entity {entity_name: $entity_name})
+                RETURN n.entity_name, n.description, n.source_id, n.degree, n.parent, n.level
+                LIMIT 1
+                """
+
+                result = graph.query(query, params={'entity_name': node_id})
+
+                if not result.result_set:
                     return None
 
-                row = results[0]
+                row = result.result_set[0]
                 entity_name, description, source_id, degree, parent, level = row
 
                 return {
