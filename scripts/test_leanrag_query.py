@@ -34,7 +34,11 @@ def main():
             print(f"\n  Node {i}:")
             print(f"    ID: {node.get('id')}")
             print(f"    Name: {node.get('name')}")
-            print(f"    Score: {node.get('score'):.3f}")
+            score = node.get('score')
+            if score is not None:
+                print(f"    Score: {score:.3f}")
+            else:
+                print(f"    Score: N/A")
             summary = node.get('summary', '')
             if summary:
                 print(f"    Summary: {summary[:100]}...")
@@ -51,7 +55,11 @@ def main():
             print(f"\n  Node {i}:")
             print(f"    ID: {node.get('id')}")
             print(f"    Name: {node.get('name')}")
-            print(f"    Score: {node.get('score'):.3f}")
+            score = node.get('score')
+            if score is not None:
+                print(f"    Score: {score:.3f}")
+            else:
+                print(f"    Score: N/A")
     except Exception as e:
         print(f"  ❌ Error: {e}")
 
@@ -66,8 +74,12 @@ def main():
             print(f"    ID: {fact.get('id')}")
             print(f"    Source: {fact.get('source_node_id')}")
             print(f"    Target: {fact.get('target_node_id')}")
-            print(f"    Fact: {fact.get('fact')}")
-            print(f"    Score: {fact.get('score'):.3f}")
+            print(f"    Fact: {fact.get('summary')}")
+            score = fact.get('score')
+            if score is not None:
+                print(f"    Score: {score:.3f}")
+            else:
+                print(f"    Score: N/A")
     except Exception as e:
         print(f"  ❌ Error: {e}")
 
@@ -109,7 +121,7 @@ def main():
                 print(f"    ID: {edge.get('id')}")
                 print(f"    Source: {edge.get('source_node_id')}")
                 print(f"    Target: {edge.get('target_node_id')}")
-                print(f"    Fact: {edge.get('fact')}")
+                print(f"    Fact: {edge.get('summary')}")
             else:
                 print(f"  ❌ Edge not found")
         else:
