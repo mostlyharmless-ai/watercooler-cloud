@@ -813,38 +813,41 @@ class LeanRAGBackend(MemoryBackend):
                     graph_name = work_dir.name
                     db, graph = get_falkordb_connection(graph_name)
 
-                    # Query for entity at any level
-                    query = """
-                    MATCH (n:Entity {entity_name: $entity_name})
-                    RETURN n.entity_name, n.description, n.source_id, n.degree, n.parent, n.level
-                    LIMIT 1
-                    """
+                    try:
+                        # Query for entity at any level
+                        query = """
+                        MATCH (n:Entity {entity_name: $entity_name})
+                        RETURN n.entity_name, n.description, n.source_id, n.degree, n.parent, n.level
+                        LIMIT 1
+                        """
 
-                    result = graph.query(query, params={'entity_name': node_id})
+                        result = graph.query(query, params={'entity_name': node_id})
 
-                    if not result.result_set:
-                        return None
+                        if not result.result_set:
+                            return None
 
-                    row = result.result_set[0]
-                    entity_name, description, source_id, degree, parent, level = row
+                        row = result.result_set[0]
+                        entity_name, description, source_id, degree, parent, level = row
 
-                    return {
-                        "id": entity_name,  # Required by CoreResult
-                        "name": entity_name,
-                        "summary": description,
-                        "score": None,  # Not applicable for direct retrieval
-                        "backend": "leanrag",
-                        "content": None,  # Entities don't have content
-                        "source": source_id,  # Chunk hash where entity was found
-                        "metadata": {
-                            "parent": parent,  # Hierarchical parent
-                            "degree": degree,  # Graph connectivity
-                            "level": level,  # Hierarchy level
-                        },
-                        "extra": {
-                            "corpus": str(work_dir),
-                        },
-                    }
+                        return {
+                            "id": entity_name,  # Required by CoreResult
+                            "name": entity_name,
+                            "summary": description,
+                            "score": None,  # Not applicable for direct retrieval
+                            "backend": "leanrag",
+                            "content": None,  # Entities don't have content
+                            "source": source_id,  # Chunk hash where entity was found
+                            "metadata": {
+                                "parent": parent,  # Hierarchical parent
+                                "degree": degree,  # Graph connectivity
+                                "level": level,  # Hierarchy level
+                            },
+                            "extra": {
+                                "corpus": str(work_dir),
+                            },
+                        }
+                    finally:
+                        db.close()  # Always close database connection
 
                 finally:
                     os.chdir(original_cwd)
