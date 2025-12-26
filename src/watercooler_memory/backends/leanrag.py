@@ -100,6 +100,30 @@ class LeanRAGBackend(MemoryBackend):
                 "Ensure LeanRAG submodule is properly initialized."
             )
 
+    def _normalize_entity_name(self, name: str | None) -> str | None:
+        """Normalize entity name by stripping quotes and whitespace.
+
+        LeanRAG stores entity names in different ways:
+        - Milvus: Raw names with quotes (e.g., '"OAUTH2"')
+        - FalkorDB: Stripped names without quotes (e.g., 'OAUTH2')
+
+        This normalization ensures consistency across backends by matching
+        FalkorDB's normalization pattern (see falkordb.py:161).
+
+        Args:
+            name: Entity name to normalize (may be None for optional fields)
+
+        Returns:
+            Normalized entity name, or None if input was None
+
+        Example:
+            >>> backend._normalize_entity_name('"OAUTH2"  ')
+            'OAUTH2'
+        """
+        if name is None:
+            return None
+        return name.strip().strip('"').strip()
+
     def _apply_test_prefix(self, work_dir: Path) -> Path:
         """Apply pytest__ prefix to work_dir basename if test_mode is enabled.
 
@@ -528,10 +552,9 @@ class LeanRAGBackend(MemoryBackend):
                     # Normalize to CoreResult format
                     normalized_results = []
                     for entity_name, parent, description, source_id in results:
-                        # Strip quotes to match FalkorDB normalization (see falkordb.py:161)
-                        # Milvus stores raw names with quotes, but FalkorDB strips them
-                        normalized_name = entity_name.strip().strip('"').strip()
-                        normalized_parent = parent.strip().strip('"').strip() if parent else parent
+                        # Normalize entity names to match FalkorDB pattern
+                        normalized_name = self._normalize_entity_name(entity_name)
+                        normalized_parent = self._normalize_entity_name(parent)
 
                         normalized_results.append({
                             "id": normalized_name,  # Required by CoreResult
@@ -712,7 +735,9 @@ class LeanRAGBackend(MemoryBackend):
                         if len(facts) >= max_results * 3:
                             break
 
-                    # Sort by score (descending) BEFORE truncating to max_results
+                    # Return top-scored results (sort before truncate ensures best quality)
+                    # This is critical: sorting before slicing ensures we return the highest-scored
+                    # relationships, not just the first N found (which would be order-dependent)
                     facts.sort(key=lambda x: x["score"], reverse=True)
                     return facts[:max_results]
 
