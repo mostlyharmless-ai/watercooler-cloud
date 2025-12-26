@@ -71,6 +71,14 @@ class LeanRAGBackend(MemoryBackend):
     - Reduced redundancy (~46% vs flat baselines)
 
     This adapter wraps LeanRAG subprocess calls and maps to/from canonical payloads.
+
+    Performance Considerations:
+    - Current implementation creates new FalkorDB connections per request
+    - Future Enhancement: Connection pooling for high-throughput scenarios
+      - Recommended for production deployments handling >100 QPS
+      - Consider using a connection pool (e.g., redis-py connection pool)
+      - Pool size should be tuned based on concurrent request volume
+      - Trade-off: Memory overhead vs connection setup latency
     """
 
     def __init__(self, config: LeanRAGConfig | None = None) -> None:
