@@ -55,8 +55,8 @@ def skip_if_no_test_db():
 class TestLeanRAGSearchNodes:
     """Test search_nodes() functionality."""
 
-    def test_search_nodes_graphiti(self, leanrag_backend, skip_if_no_test_db):
-        """Test searching for Graphiti-related entities."""
+    def test_search_nodes_returns_valid_results(self, leanrag_backend, skip_if_no_test_db):
+        """Test search_nodes returns valid results with correct format."""
         nodes = leanrag_backend.search_nodes(query="Graphiti", max_results=5)
 
         assert isinstance(nodes, list)
@@ -71,8 +71,8 @@ class TestLeanRAGSearchNodes:
             assert node["backend"] == "leanrag"
             assert "score" in node, "Node must have score"
 
-    def test_search_nodes_memory_backend(self, leanrag_backend, skip_if_no_test_db):
-        """Test searching for memory backend entities."""
+    def test_search_nodes_field_types(self, leanrag_backend, skip_if_no_test_db):
+        """Test search_nodes response has correct field types."""
         nodes = leanrag_backend.search_nodes(query="memory backend", max_results=5)
 
         assert isinstance(nodes, list)
@@ -88,8 +88,8 @@ class TestLeanRAGSearchNodes:
 class TestLeanRAGSearchFacts:
     """Test search_facts() functionality with hierarchical traversal."""
 
-    def test_search_facts_graphiti(self, leanrag_backend, skip_if_no_test_db):
-        """Test searching for Graphiti-related relationships."""
+    def test_search_facts_returns_valid_results(self, leanrag_backend, skip_if_no_test_db):
+        """Test search_facts returns valid results with SOURCE||TARGET format."""
         facts = leanrag_backend.search_facts(query="Graphiti implementation", max_results=5)
 
         assert isinstance(facts, list)
@@ -111,8 +111,8 @@ class TestLeanRAGSearchFacts:
                 # Verify ID format is SOURCE||TARGET
                 assert "||" in fact["id"], "Fact ID should be SOURCE||TARGET format"
 
-    def test_search_facts_memory_backend(self, leanrag_backend, skip_if_no_test_db):
-        """Test searching for memory backend relationships."""
+    def test_search_facts_preserves_directionality(self, leanrag_backend, skip_if_no_test_db):
+        """Test search_facts preserves edge directionality in IDs."""
         facts = leanrag_backend.search_facts(query="memory backend", max_results=5)
 
         assert isinstance(facts, list)
@@ -125,8 +125,8 @@ class TestLeanRAGSearchFacts:
                 # ID should match the order returned by search_nodes_link
                 assert fact["id"] == f"{src}||{tgt}"
 
-    def test_search_facts_mcp_server(self, leanrag_backend, skip_if_no_test_db):
-        """Test searching for MCP server relationships."""
+    def test_search_facts_sorted_by_score(self, leanrag_backend, skip_if_no_test_db):
+        """Test search_facts results are sorted by score descending."""
         facts = leanrag_backend.search_facts(query="MCP server", max_results=5)
 
         assert isinstance(facts, list)
