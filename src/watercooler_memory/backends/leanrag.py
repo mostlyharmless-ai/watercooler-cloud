@@ -286,15 +286,17 @@ class LeanRAGBackend(MemoryBackend):
             chunk_file = self._ensure_chunk_file(work_dir, chunks)
 
             leanrag_abspath = self.config.leanrag_path.resolve()
-            if str(leanrag_abspath) not in sys.path:
-                sys.path.insert(0, str(leanrag_abspath))
 
             with open(chunk_file, "r") as fh:
                 corpus = json.load(fh)
             chunks_dict = {item["hash_code"]: item["text"] for item in corpus}
 
-            # Thread-safe directory change for LeanRAG imports
+            # Thread-safe directory change AND sys.path modification
             with _chdir_lock:
+                # Add LeanRAG to path inside lock to prevent race conditions
+                if str(leanrag_abspath) not in sys.path:
+                    sys.path.insert(0, str(leanrag_abspath))
+
                 original_cwd = os.getcwd()
                 try:
                     os.chdir(str(self.config.leanrag_path))
@@ -378,11 +380,13 @@ class LeanRAGBackend(MemoryBackend):
 
         try:
             leanrag_abspath = self.config.leanrag_path.resolve()
-            if str(leanrag_abspath) not in sys.path:
-                sys.path.insert(0, str(leanrag_abspath))
 
-            # Thread-safe directory change for LeanRAG imports
+            # Thread-safe directory change AND sys.path modification
             with _chdir_lock:
+                # Add LeanRAG to path inside lock to prevent race conditions
+                if str(leanrag_abspath) not in sys.path:
+                    sys.path.insert(0, str(leanrag_abspath))
+
                 original_cwd = os.getcwd()
                 try:
                     os.chdir(str(self.config.leanrag_path))
@@ -495,11 +499,13 @@ class LeanRAGBackend(MemoryBackend):
         try:
             # Add LeanRAG to path
             leanrag_abspath = self.config.leanrag_path.resolve()
-            if str(leanrag_abspath) not in sys.path:
-                sys.path.insert(0, str(leanrag_abspath))
 
-            # Thread-safe directory change for LeanRAG imports
+            # Thread-safe directory change AND sys.path modification
             with _chdir_lock:
+                # Add LeanRAG to path inside lock to prevent race conditions
+                if str(leanrag_abspath) not in sys.path:
+                    sys.path.insert(0, str(leanrag_abspath))
+
                 original_cwd = os.getcwd()
                 try:
                     os.chdir(str(self.config.leanrag_path))
@@ -594,11 +600,13 @@ class LeanRAGBackend(MemoryBackend):
         try:
             # Add LeanRAG to path
             leanrag_abspath = self.config.leanrag_path.resolve()
-            if str(leanrag_abspath) not in sys.path:
-                sys.path.insert(0, str(leanrag_abspath))
 
-            # Thread-safe directory change for LeanRAG imports
+            # Thread-safe directory change AND sys.path modification
             with _chdir_lock:
+                # Add LeanRAG to path inside lock to prevent race conditions
+                if str(leanrag_abspath) not in sys.path:
+                    sys.path.insert(0, str(leanrag_abspath))
+
                 original_cwd = os.getcwd()
                 try:
                     os.chdir(str(self.config.leanrag_path))
@@ -787,11 +795,13 @@ class LeanRAGBackend(MemoryBackend):
         try:
             # Add LeanRAG to path
             leanrag_abspath = self.config.leanrag_path.resolve()
-            if str(leanrag_abspath) not in sys.path:
-                sys.path.insert(0, str(leanrag_abspath))
 
-            # Thread-safe directory change for LeanRAG imports
+            # Thread-safe directory change AND sys.path modification
             with _chdir_lock:
+                # Add LeanRAG to path inside lock to prevent race conditions
+                if str(leanrag_abspath) not in sys.path:
+                    sys.path.insert(0, str(leanrag_abspath))
+
                 original_cwd = os.getcwd()
                 try:
                     os.chdir(str(self.config.leanrag_path))
@@ -921,11 +931,13 @@ class LeanRAGBackend(MemoryBackend):
         try:
             # Add LeanRAG to path
             leanrag_abspath = self.config.leanrag_path.resolve()
-            if str(leanrag_abspath) not in sys.path:
-                sys.path.insert(0, str(leanrag_abspath))
 
-            # Thread-safe directory change for LeanRAG imports
+            # Thread-safe directory change AND sys.path modification
             with _chdir_lock:
+                # Add LeanRAG to path inside lock to prevent race conditions
+                if str(leanrag_abspath) not in sys.path:
+                    sys.path.insert(0, str(leanrag_abspath))
+
                 original_cwd = os.getcwd()
                 try:
                     os.chdir(str(self.config.leanrag_path))
