@@ -621,6 +621,11 @@ class LeanRAGBackend(MemoryBackend):
                     # Performance cap: Limit entity paths to prevent combinatorial explosion
                     # For max_results=10, limit to top 10 paths to keep combinations manageable
                     MAX_ENTITY_PATHS = max(10, max_results)
+                    if len(entity_paths) > MAX_ENTITY_PATHS:
+                        logger.debug(
+                            f"Performance cap hit: Limiting entity paths from {len(entity_paths)} to {MAX_ENTITY_PATHS} "
+                            f"(max_results={max_results}). Combinatorics capped to avoid explosion."
+                        )
                     entity_paths = entity_paths[:MAX_ENTITY_PATHS]
 
                     # 3. For each pair of entity paths, search for relationships
@@ -636,6 +641,11 @@ class LeanRAGBackend(MemoryBackend):
                         all_entities = list(set(path1 + path2))
 
                         # Cap entities per pair to prevent explosion
+                        if len(all_entities) > MAX_ENTITIES_PER_PAIR:
+                            logger.debug(
+                                f"Performance cap hit: Limiting entities per path pair from {len(all_entities)} to {MAX_ENTITIES_PER_PAIR}. "
+                                f"Prevents combinatorial explosion in relationship search."
+                            )
                         all_entities = all_entities[:MAX_ENTITIES_PER_PAIR]
 
                         # Search for relationships between all pairs of entities
