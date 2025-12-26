@@ -31,6 +31,12 @@ def leanrag_backend():
     if not process_script.exists():
         pytest.skip(f"LeanRAG submodule incomplete (missing {process_script})")
 
+    # Check if required dependencies are installed
+    try:
+        import pymilvus
+    except ImportError:
+        pytest.skip("LeanRAG dependencies not installed (pymilvus required)")
+
     config = LeanRAGConfig(
         work_dir=Path.home() / ".watercooler/leanrag/test-run",
         leanrag_path=leanrag_path,
