@@ -531,6 +531,8 @@ __all__ = [
     "auto_register_builtin",
     # Backend implementations
     "GraphitiBackend",
+    "LeanRAGBackend",
+    "LeanRAGConfig",
 ]
 
 # Registry re-exports
@@ -544,3 +546,4 @@ from .registry import (  # noqa: E402
 
 # Backend re-exports
 from .graphiti import GraphitiBackend  # noqa: E402
+from .leanrag import LeanRAGBackend, LeanRAGConfig  # noqa: E402
