@@ -374,8 +374,87 @@ Use `watercooler_memory` when you need:
 - Vector embeddings
 - Advanced RAG features
 
+## MCP Server Integration
+
+When using the Watercooler MCP server, graph generation happens automatically on each thread entry write. Configure via `config.toml`:
+
+```toml
+[mcp.graph]
+# Enable LLM summaries and embeddings for new entries
+generate_summaries = true
+generate_embeddings = true
+
+# Check service availability before generation (default: true)
+# When true, skips generation gracefully if services are unavailable
+auto_detect_services = true
+
+# Service endpoints
+summarizer_api_base = "http://localhost:11434/v1"  # Ollama
+summarizer_model = "llama3.2:3b"
+embedding_api_base = "http://localhost:8080/v1"    # llama.cpp
+embedding_model = "bge-m3"
+```
+
+### Service Health Checking
+
+The MCP server checks service availability before attempting generation:
+
+1. **LLM service check**: Pings the `/models` endpoint with a 5-second timeout
+2. **Embedding service check**: Similar check for embedding API
+3. **Graceful degradation**: If services are unavailable, generation is skipped with a warning
+
+Check service status via the health tool:
+
+```
+watercooler_health
+
+# Output includes:
+# Graph Services:
+#   Summaries Enabled: True
+#   LLM Service: available (http://localhost:11434/v1)
+#   Embeddings Enabled: True
+#   Embedding Service: unavailable (http://localhost:8080/v1)
+#   Auto-Detect Services: True
+```
+
+### Auto-Start Services (Optional)
+
+If you have `watercooler_memory` installed with `ServerManager`, you can enable auto-start:
+
+```bash
+# Enable auto-start via environment variable
+export WATERCOOLER_AUTO_START_SERVICES=true
+
+# Or in config.toml:
+[mcp.graph]
+auto_start_services = true
+```
+
+When enabled, the MCP server will attempt to start local LLM/embedding services if they're unavailable.
+
+### Troubleshooting
+
+**Problem: "LLM service unavailable" warning**
+
+1. Start Ollama: `ollama serve`
+2. Verify model is pulled: `ollama list`
+3. Check endpoint: `curl http://localhost:11434/v1/models`
+
+**Problem: "Embedding service unavailable" warning**
+
+1. Start llama.cpp server with embedding model
+2. Or use llama-cpp-python: `python -m llama_cpp.server --model bge-m3.gguf --port 8080`
+3. Check endpoint: `curl http://localhost:8080/v1/embeddings`
+
+**Problem: Summaries/embeddings not generating**
+
+1. Check config: `generate_summaries = true` and `generate_embeddings = true`
+2. Run health check: `watercooler_health`
+3. Enable debug logging: `WATERCOOLER_LOG_LEVEL=DEBUG`
+
 ## See Also
 
 - [Configuration Guide](CONFIGURATION.md) - Config file reference
 - [Environment Variables](ENVIRONMENT_VARS.md) - All environment variables
 - [Memory Module](MEMORY.md) - Full RAG pipeline documentation
+- [Graph Sync](GRAPH_SYNC.md) - Real-time graph synchronization

@@ -35,6 +35,16 @@ from git import Repo, InvalidGitRepositoryError, GitCommandError
 from watercooler import commands, fs
 from watercooler.metadata import thread_meta
 from watercooler.thread_entries import ThreadEntry, parse_thread_entries
+from watercooler.baseline_graph.reader import (
+    is_graph_available,
+    list_threads_from_graph,
+    read_thread_from_graph,
+    get_entry_from_graph,
+    get_entries_range_from_graph,
+    increment_access_count,
+    GraphThread,
+    GraphEntry,
+)
 from .config import (
     ThreadContext,
     get_agent_name,
@@ -60,8 +70,10 @@ from .branch_parity import (
     acquire_topic_lock,
     write_parity_state,
     get_branch_health,
+    ensure_readable,
     PreflightResult,
     ParityStatus,
+    auto_merge_to_main,
 )
 from .observability import log_debug, log_action, log_warning, log_error, timeit
 
@@ -135,6 +147,48 @@ except Exception:
 
 T = TypeVar("T")
 
+# ============================================================================
+# Startup Warnings System
+# ============================================================================
+# Store warnings at startup (missing config, unavailable services, etc.)
+# These are surfaced in tool responses on first invocation, not stderr.
+
+_startup_warnings: List[str] = []
+_warnings_shown: bool = False
+
+
+def _add_startup_warning(msg: str) -> None:
+    """Add a warning message to be shown on first tool invocation."""
+    global _startup_warnings
+    if msg and msg not in _startup_warnings:
+        _startup_warnings.append(msg)
+
+
+def _get_startup_warnings() -> List[str]:
+    """Get pending startup warnings and mark them as shown."""
+    global _warnings_shown, _startup_warnings
+    if _warnings_shown:
+        return []
+    _warnings_shown = True
+    return list(_startup_warnings)
+
+
+def _format_warnings_for_response(response: str) -> str:
+    """Append any pending startup warnings to a tool response."""
+    warnings = _get_startup_warnings()
+    if not warnings:
+        return response
+
+    warning_block = "\n\n" + "─" * 60 + "\n"
+    warning_block += "⚠️  Setup Notices:\n"
+    for warning in warnings:
+        # Indent each line of the warning
+        indented = "\n".join("   " + line for line in warning.strip().split("\n"))
+        warning_block += f"\n{indented}\n"
+    warning_block += "─" * 60
+
+    return response + warning_block
+
 
 def _should_auto_branch() -> bool:
     return os.getenv("WATERCOOLER_AUTO_BRANCH", "1") != "0"
@@ -190,7 +244,7 @@ def _attempt_auto_fix_divergence(
     context: ThreadContext,
     validation_result: BranchPairingResult,
 ) -> Optional[BranchPairingResult]:
-    """Attempt to auto-fix branch history divergence via rebase.
+    """Attempt to auto-fix branch history divergence via rebase or merge.
 
     Args:
         context: Thread context with code and threads repo info
@@ -203,7 +257,54 @@ def _attempt_auto_fix_divergence(
     Raises:
         BranchPairingError: If auto-fix fails and requires manual intervention
     """
-    log_debug("Detected branch history divergence, attempting auto-fix via rebase")
+    log_debug("Detected branch history divergence, attempting auto-fix")
+
+    # Check if this is a "merge to main" case (code PR merged, threads needs to follow)
+    merge_to_main_mismatch = None
+    for mismatch in validation_result.mismatches:
+        if mismatch.type == "branch_history_diverged" and mismatch.needs_merge_to_main:
+            merge_to_main_mismatch = mismatch
+            break
+
+    # Handle merge-to-main case: code branch merged to main, threads should follow
+    if merge_to_main_mismatch:
+        log_debug("Ahead-of-main divergence detected, will merge threads to main")
+        try:
+            threads_repo = Repo(context.threads_dir, search_parent_directories=True)
+            main_branch = _find_main_branch(threads_repo)
+            if not main_branch:
+                raise BranchPairingError(
+                    "Cannot auto-merge: main branch not found in threads repo"
+                )
+
+            feature_branch = validation_result.threads_branch or context.code_branch
+            success, message = auto_merge_to_main(threads_repo, feature_branch, main_branch)
+
+            if success:
+                log_debug(f"Auto-merged threads to main: {message}")
+                # Re-validate to confirm fix worked
+                revalidation = validate_branch_pairing(
+                    code_repo=context.code_root,
+                    threads_repo=context.threads_dir,
+                    strict=True,
+                    check_history=True,
+                )
+                if revalidation.valid:
+                    log_debug("Branch pairing now valid after auto-merge to main")
+                    return revalidation
+                else:
+                    log_debug(f"Auto-merge completed but validation still failing: {revalidation.warnings}")
+                    return revalidation
+            else:
+                raise BranchPairingError(
+                    f"Auto-merge to main failed: {message}\n"
+                    f"Manual recovery: cd <threads-repo> && git checkout main && "
+                    f"git merge {feature_branch} && git push origin main"
+                )
+        except BranchPairingError:
+            raise
+        except Exception as e:
+            raise BranchPairingError(f"Auto-merge to main failed: {e}")
 
     # Check if this is a "behind-main" divergence (threads behind main but code not)
     # vs a local-vs-origin divergence. They require different fix strategies.
@@ -570,6 +671,218 @@ def _validate_thread_context(code_path: str) -> tuple[str | None, ThreadContext 
     return (None, context)
 
 
+# ============================================================================
+# Graph-First Read Helpers
+# ============================================================================
+
+
+def _use_graph_for_reads(threads_dir: Path) -> bool:
+    """Check if graph should be used for read operations.
+
+    The graph is used when:
+    1. WATERCOOLER_USE_GRAPH env var is set to "1" (explicit opt-in)
+    2. OR graph data exists and is available
+
+    This allows graceful fallback - if graph doesn't exist or is broken,
+    we fall back to markdown parsing.
+    """
+    explicit_opt_in = os.getenv("WATERCOOLER_USE_GRAPH", "0") == "1"
+    if explicit_opt_in:
+        return is_graph_available(threads_dir)
+    # Auto-use graph if available and not explicitly disabled
+    auto_use = os.getenv("WATERCOOLER_USE_GRAPH", "auto") == "auto"
+    if auto_use:
+        return is_graph_available(threads_dir)
+    return False
+
+
+def _track_access(threads_dir: Path, node_type: str, node_id: str) -> None:
+    """Safely track access to a node (thread or entry).
+
+    This is a non-blocking operation - errors are logged but don't fail the read.
+    Only tracks if graph features are enabled.
+
+    Args:
+        threads_dir: Threads directory
+        node_type: "thread" or "entry"
+        node_id: Topic (for threads) or entry_id (for entries)
+    """
+    # TODO: Counter writes disabled - they dirty the tree and block auto-sync.
+    # See thread: graph-access-counters-sync-strategy for design discussion.
+    # Re-enable once per-system counter files or deferred writes are implemented.
+    return
+    if not _use_graph_for_reads(threads_dir):
+        return
+    try:
+        increment_access_count(threads_dir, node_type, node_id)
+    except Exception as e:
+        log_debug(f"[ODOMETER] Failed to track {node_type}:{node_id} access: {e}")
+
+
+def _graph_entry_to_thread_entry(graph_entry: GraphEntry, full_body: str | None = None) -> ThreadEntry:
+    """Convert GraphEntry to ThreadEntry for compatibility with existing code.
+
+    Args:
+        graph_entry: Entry from graph
+        full_body: Optional full body if retrieved from markdown
+    """
+    # Build header line in expected format
+    header = f"Entry: {graph_entry.agent} {graph_entry.timestamp}\n"
+    header += f"Role: {graph_entry.role}\n"
+    header += f"Type: {graph_entry.entry_type}\n"
+    header += f"Title: {graph_entry.title}"
+
+    body = full_body if full_body else graph_entry.body or graph_entry.summary or ""
+
+    return ThreadEntry(
+        index=graph_entry.index,
+        header=header,
+        body=body,
+        agent=graph_entry.agent,
+        timestamp=graph_entry.timestamp,
+        role=graph_entry.role,
+        entry_type=graph_entry.entry_type,
+        title=graph_entry.title,
+        entry_id=graph_entry.entry_id,
+    )
+
+
+def _load_thread_entries_graph_first(
+    topic: str,
+    context: ThreadContext,
+) -> tuple[str | None, list[ThreadEntry]]:
+    """Load thread entries, trying graph first with markdown fallback.
+
+    This provides graph-accelerated reads while maintaining markdown as
+    source of truth. If the graph is unavailable or stale, falls back
+    to direct markdown parsing.
+
+    Args:
+        topic: Thread topic
+        context: Thread context
+
+    Returns:
+        Tuple of (error_message, entries). Error is None on success.
+    """
+    threads_dir = context.threads_dir
+
+    # Try graph first if available
+    if _use_graph_for_reads(threads_dir):
+        try:
+            result = read_thread_from_graph(threads_dir, topic)
+            if result:
+                graph_thread, graph_entries = result
+                # Graph entries may not have full body - need to get from markdown
+                # For now, use summaries from graph (bodies are optional in graph)
+                thread_path = fs.thread_path(topic, threads_dir)
+                if thread_path.exists():
+                    # Parse markdown to check graph completeness
+                    content = fs.read_body(thread_path)
+                    md_entries = parse_thread_entries(content)
+
+                    # Check if graph is stale (fewer entries than markdown)
+                    if len(graph_entries) < len(md_entries):
+                        log_debug(
+                            f"[GRAPH] Graph stale for {topic}: "
+                            f"{len(graph_entries)} graph vs {len(md_entries)} markdown. "
+                            "Auto-repairing from markdown."
+                        )
+                        # Auto-repair: sync full thread to graph
+                        try:
+                            from watercooler.baseline_graph.sync import sync_thread_to_graph
+                            from watercooler_mcp.config import get_watercooler_config
+
+                            wc_config = get_watercooler_config()
+                            graph_config = wc_config.mcp.graph
+
+                            sync_result = sync_thread_to_graph(
+                                threads_dir=threads_dir,
+                                topic=topic,
+                                generate_summaries=graph_config.generate_summaries,
+                                generate_embeddings=graph_config.generate_embeddings,
+                            )
+                            if sync_result:
+                                log_debug(f"[GRAPH] Auto-repair succeeded for {topic}")
+                                # Re-read from graph after repair
+                                repaired = read_thread_from_graph(threads_dir, topic)
+                                if repaired:
+                                    _, graph_entries = repaired
+                            else:
+                                log_debug(f"[GRAPH] Auto-repair failed, using markdown entries")
+                                return (None, md_entries)
+                        except Exception as repair_err:
+                            log_debug(f"[GRAPH] Auto-repair error: {repair_err}, using markdown")
+                            return (None, md_entries)
+
+                    # Merge: use graph metadata with markdown bodies
+                    entries = []
+                    for ge in graph_entries:
+                        # Find matching markdown entry by index
+                        md_entry = next(
+                            (e for e in md_entries if e.index == ge.index),
+                            None
+                        )
+                        if md_entry:
+                            entries.append(md_entry)
+                        else:
+                            # Use graph entry with summary as body
+                            entries.append(_graph_entry_to_thread_entry(ge))
+                    log_debug(f"[GRAPH] Loaded {len(entries)} entries from graph for {topic}")
+                    return (None, entries)
+                else:
+                    # No markdown, use graph entries directly
+                    entries = [_graph_entry_to_thread_entry(ge) for ge in graph_entries]
+                    log_debug(f"[GRAPH] Loaded {len(entries)} entries from graph only for {topic}")
+                    return (None, entries)
+        except Exception as e:
+            log_debug(f"[GRAPH] Failed to load from graph, falling back to markdown: {e}")
+
+    # Fallback to markdown parsing
+    return _load_thread_entries(topic, context)
+
+
+def _list_threads_graph_first(
+    threads_dir: Path,
+    open_only: bool | None = None,
+) -> list[tuple[str, str, str, str, Path, bool]]:
+    """List threads, trying graph first with markdown fallback.
+
+    Args:
+        threads_dir: Threads directory
+        open_only: Filter by status
+
+    Returns:
+        List of thread tuples (title, status, ball, updated, path, is_new)
+    """
+    # Try graph first if available
+    if _use_graph_for_reads(threads_dir):
+        try:
+            graph_threads = list_threads_from_graph(threads_dir, open_only)
+            if graph_threads:
+                # Convert to expected tuple format
+                result = []
+                for gt in graph_threads:
+                    thread_path = threads_dir / f"{gt.topic}.md"
+                    # is_new would require checking against agent's last contribution
+                    # For now, set to False - the markdown fallback handles this
+                    is_new = False
+                    result.append((
+                        gt.title,
+                        gt.status,
+                        gt.ball,
+                        gt.last_updated,
+                        thread_path,
+                        is_new,
+                    ))
+                log_debug(f"[GRAPH] Listed {len(result)} threads from graph")
+                return result
+        except Exception as e:
+            log_debug(f"[GRAPH] Failed to list from graph, falling back to markdown: {e}")
+
+    # Fallback to markdown
+    return commands.list_threads(threads_dir=threads_dir, open_only=open_only)
+
+
 def _build_commit_footers(
     context: ThreadContext,
     *,
@@ -662,6 +975,45 @@ def run_with_sync(
             priority_flush=priority_flush,
         )
 
+        # Sync to baseline graph (non-blocking - failures don't stop the write)
+        if topic and context.threads_dir:
+            log_warning(f"[GRAPH] Attempting graph sync for {topic}/{entry_id}")
+            try:
+                from watercooler.baseline_graph.sync import sync_entry_to_graph
+                from watercooler_mcp.config import get_watercooler_config
+
+                # Get graph config for summary/embedding generation
+                wc_config = get_watercooler_config()
+                graph_config = wc_config.mcp.graph
+                log_warning(f"[GRAPH] Config: summaries={graph_config.generate_summaries}, embeddings={graph_config.generate_embeddings}")
+
+                sync_result = sync_entry_to_graph(
+                    threads_dir=context.threads_dir,
+                    topic=topic,
+                    entry_id=entry_id,
+                    generate_summaries=graph_config.generate_summaries,
+                    generate_embeddings=graph_config.generate_embeddings,
+                )
+                log_warning(f"[GRAPH] Sync result for {topic}/{entry_id}: {sync_result}")
+
+                # Phase 2: Commit graph files to keep working tree clean
+                # This prevents uncommitted graph files from blocking future preflight pulls
+                if sync_result:
+                    graph_committed = sync.commit_graph_changes(topic, entry_id)
+                    if graph_committed:
+                        log_warning(f"[GRAPH] Graph files committed for {topic}/{entry_id}")
+                    else:
+                        log_warning(f"[GRAPH] Graph commit skipped or failed for {topic}/{entry_id}")
+            except Exception as graph_err:
+                # Graph sync failure should not block the write operation
+                log_warning(f"[GRAPH] Sync failed (non-blocking): {graph_err}")
+                try:
+                    from watercooler.baseline_graph.sync import record_graph_sync_error
+
+                    record_graph_sync_error(context.threads_dir, topic, entry_id, graph_err)
+                except Exception:
+                    pass  # Best effort error recording
+
         # Update parity state file after successful write
         if context.code_root and context.threads_dir:
             try:
@@ -686,6 +1038,47 @@ def run_with_sync(
         if lock:
             lock.release()
             log_debug(f"[PARITY] Released lock for topic '{topic}'")
+
+
+def run_with_graph_sync(
+    context: ThreadContext,
+    operation: Callable[[], T],
+    commit_msg: str,
+) -> T:
+    """Execute graph operation with full parity protocol.
+
+    Flow: preflight → operation → commit graph files → push with retry
+
+    Unlike run_with_sync, this is simpler:
+    - No topic lock (graph operations are idempotent)
+    - No entry footers (graph files, not thread entries)
+    - Commits only graph/baseline/* files
+    """
+    sync = get_git_sync_manager_from_context(context)
+
+    # 1. Preflight (Factor 1 + Factor 2 pre-check)
+    if context.code_root and context.threads_dir:
+        preflight_result = run_preflight(
+            code_repo_path=context.code_root,
+            threads_repo_path=context.threads_dir,
+            auto_fix=True,
+            fetch_first=True,
+        )
+        if not preflight_result.can_proceed:
+            raise BranchPairingError(
+                preflight_result.blocking_reason or "Branch parity preflight failed"
+            )
+        if preflight_result.auto_fixed:
+            log_debug(f"[GRAPH-SYNC] Preflight auto-fixed: {preflight_result.state.actions_taken}")
+
+    # 2. Execute operation
+    result = operation()
+
+    # 3. Commit and push graph files (blocking)
+    if sync and context.threads_dir:
+        sync.commit_graph_changes_sync(commit_msg)
+
+    return result
 
 
 # ============================================================================
@@ -840,6 +1233,40 @@ def health(ctx: Context, code_path: str = "") -> str:
             f"fastmcp: {fm_ver}",
         ]
 
+        # Add graph service status
+        try:
+            from watercooler_mcp.config import get_watercooler_config
+            from watercooler.baseline_graph.summarizer import (
+                SummarizerConfig,
+                is_llm_service_available,
+                create_summarizer_config,
+            )
+            from watercooler.baseline_graph.sync import (
+                EmbeddingConfig,
+                is_embedding_available,
+            )
+
+            wc_config = get_watercooler_config()
+            graph_config = wc_config.mcp.graph
+
+            # Check service availability
+            summarizer_cfg = create_summarizer_config()
+            llm_available = is_llm_service_available(summarizer_cfg)
+            embed_cfg = EmbeddingConfig.from_env()
+            embed_available = is_embedding_available(embed_cfg)
+
+            status_lines.extend([
+                "",
+                "Graph Services:",
+                f"  Summaries Enabled: {graph_config.generate_summaries}",
+                f"  LLM Service: {'available' if llm_available else 'unavailable'} ({summarizer_cfg.api_base})",
+                f"  Embeddings Enabled: {graph_config.generate_embeddings}",
+                f"  Embedding Service: {'available' if embed_available else 'unavailable'} ({embed_cfg.api_base})",
+                f"  Auto-Detect Services: {graph_config.auto_detect_services}",
+            ])
+        except Exception as e:
+            status_lines.append(f"\nGraph Services: Error - {e}")
+
         # Add branch parity health if code and threads repos are available
         if context.code_root and context.threads_dir:
             try:
@@ -863,9 +1290,9 @@ def health(ctx: Context, code_path: str = "") -> str:
             except Exception as e:
                 status_lines.append(f"\nBranch Parity: Error - {e}")
 
-        return "\n".join(status_lines)
+        return _format_warnings_for_response("\n".join(status_lines))
     except Exception as e:
-        return f"Watercooler MCP Server\nStatus: Error\nError: {str(e)}"
+        return _format_warnings_for_response(f"Watercooler MCP Server\nStatus: Error\nError: {str(e)}")
 
 
 @mcp.tool(name="watercooler_whoami")
@@ -930,10 +1357,32 @@ def reconcile_parity(
 
         # First, try to sync threads if behind origin (the reconcile part)
         threads_repo = Repo(context.threads_dir, search_parent_directories=True)
+        code_repo = Repo(context.code_root, search_parent_directories=True)
         actions_taken = []
 
         # Get current health before reconcile
         health_before = get_branch_health(context.code_root, context.threads_dir)
+
+        # Check if CODE is behind origin - this requires user action, we can't auto-fix
+        code_behind = health_before.get('code_behind_origin', 0)
+        if code_behind > 0:
+            code_branch = health_before.get('code_branch', 'unknown')
+            return ToolResult(content=[TextContent(
+                type="text",
+                text=json.dumps({
+                    "status": "code_behind_origin",
+                    "error": f"Code branch '{code_branch}' is {code_behind} commits behind origin. "
+                             f"Please pull the code repo first: git pull",
+                    "code_behind": code_behind,
+                    "code_branch": code_branch,
+                    "code_root": str(context.code_root),
+                    "suggested_commands": [
+                        f"cd {context.code_root}",
+                        "git pull --rebase",
+                    ],
+                    "actions_taken": [],
+                }, indent=2)
+            )])
 
         # If threads is behind, pull it (this is the "reconcile" operation)
         threads_behind = health_before.get('threads_behind_origin', 0)
@@ -946,15 +1395,9 @@ def reconcile_parity(
                 if _pull_rebase(threads_repo):
                     actions_taken.append(f"Pulled threads (rebase, {threads_behind} commits)")
                 else:
-                    return ToolResult(content=[TextContent(
-                        type="text",
-                        text=json.dumps({
-                            "status": "error",
-                            "error": "Failed to pull threads - rebase conflict detected. "
-                                     "Please resolve manually with: cd <threads-dir> && git rebase --abort",
-                            "threads_dir": str(context.threads_dir),
-                        }, indent=2)
-                    )])
+                    # Pull failed - let run_preflight handle any conflicts (including graph-only conflicts)
+                    log_debug("[RECONCILE] Pull with rebase failed, will check for conflicts in preflight")
+                    actions_taken.append(f"Pull with rebase failed (conflicts may exist)")
 
         # Run preflight with auto-fix enabled
         preflight_result = run_preflight(
@@ -1083,6 +1526,12 @@ def list_threads(
             ))])
 
         agent = get_agent_name(ctx.client_id)
+
+        # Lightweight read sync: auto-pull if behind origin (never blocks)
+        sync_ok, sync_actions = ensure_readable(context.threads_dir, context.code_root)
+        if sync_actions:
+            log_debug(f"list_threads read sync: {sync_actions}")
+
         log_debug("list_threads refreshing git state")
         git_start = time.time()
         _refresh_threads(context)
@@ -1096,9 +1545,9 @@ def list_threads(
             log_debug("list_threads created empty threads directory")
             return ToolResult(content=[TextContent(type="text", text=f"No threads found. Threads directory created at: {threads_dir}\n\nCreate your first thread with watercooler_say.")])
 
-        # Get thread list from commands module
+        # Get thread list (graph-first with markdown fallback)
         scan_start = time.time()
-        threads = commands.list_threads(threads_dir=threads_dir, open_only=open_only)
+        threads = _list_threads_graph_first(threads_dir, open_only=open_only)
         scan_elapsed = time.time() - scan_start
         log_debug(f"list_threads scanned {len(threads)} threads in {scan_elapsed:.2f}s")
 
@@ -1201,7 +1650,7 @@ def list_threads(
             f"chars={len(response)})"
         )
         log_debug("list_threads returning response")
-        return ToolResult(content=[TextContent(type="text", text=response)])
+        return ToolResult(content=[TextContent(type="text", text=_format_warnings_for_response(response))])
 
     except Exception as e:
         log_error(f"list_threads error: {e}")
@@ -1254,6 +1703,11 @@ def read_thread(
                 "Run from inside your code repo or set WATERCOOLER_CODE_REPO/WATERCOOLER_GIT_REPO."
             )
 
+        # Lightweight read sync: auto-pull if behind origin (never blocks)
+        sync_ok, sync_actions = ensure_readable(context.threads_dir, context.code_root)
+        if sync_actions:
+            log_debug(f"read_thread read sync: {sync_actions}")
+
         _refresh_threads(context)
         threads_dir = context.threads_dir
 
@@ -1266,13 +1720,20 @@ def read_thread(
         if not thread_path.exists():
             return f"Error: Thread '{topic}' not found in {threads_dir}\n\nAvailable threads: {', '.join(p.stem for p in threads_dir.glob('*.md')) if threads_dir.exists() else 'none'}"
 
+        # Track thread access (non-blocking)
+        _track_access(threads_dir, "thread", topic)
+
         # Read full thread content
         content = fs.read_body(thread_path)
         if resolved_format == "markdown":
-            return content
+            return _format_warnings_for_response(content)
 
-        # Parse once and extract all needed data from content
-        entries = parse_thread_entries(content)
+        # For JSON format, use graph-first loading
+        load_error, entries = _load_thread_entries_graph_first(topic, context)
+        if load_error:
+            return load_error
+
+        # Extract metadata from content
         header_block = content.split("---", 1)[0].strip() if "---" in content else ""
         title, status, ball, last = _extract_thread_metadata(content, topic)
 
@@ -1289,6 +1750,10 @@ def read_thread(
             },
             "entries": [_entry_full_payload(entry) for entry in entries],
         }
+        # For JSON, add warnings as a separate field if present
+        warnings = _get_startup_warnings()
+        if warnings:
+            payload["_warnings"] = warnings
         return json.dumps(payload, indent=2)
 
     except Exception as e:
@@ -1322,8 +1787,13 @@ def list_thread_entries(
     if limit is not None and limit > _MAX_LIMIT:
         return ToolResult(content=[TextContent(type="text", text=f"Error: limit must not exceed {_MAX_LIMIT}.")])
 
+    # Lightweight read sync: auto-pull if behind origin (never blocks)
+    sync_ok, sync_actions = ensure_readable(context.threads_dir, context.code_root)
+    if sync_actions:
+        log_debug(f"list_thread_entries read sync: {sync_actions}")
+
     _refresh_threads(context)
-    load_error, entries = _load_thread_entries(topic, context)
+    load_error, entries = _load_thread_entries_graph_first(topic, context)
     if load_error:
         return ToolResult(content=[TextContent(type="text", text=load_error)])
 
@@ -1379,8 +1849,13 @@ def get_thread_entry(
     if error or context is None:
         return ToolResult(content=[TextContent(type="text", text=error or "Unknown error")])
 
+    # Lightweight read sync: auto-pull if behind origin (never blocks)
+    sync_ok, sync_actions = ensure_readable(context.threads_dir, context.code_root)
+    if sync_actions:
+        log_debug(f"get_thread_entry read sync: {sync_actions}")
+
     _refresh_threads(context)
-    load_error, entries = _load_thread_entries(topic, context)
+    load_error, entries = _load_thread_entries_graph_first(topic, context)
     if load_error:
         return ToolResult(content=[TextContent(type="text", text=load_error)])
 
@@ -1401,6 +1876,10 @@ def get_thread_entry(
 
     if selected is None:
         return ToolResult(content=[TextContent(type="text", text="Error: failed to resolve the requested entry.")])
+
+    # Track entry access (non-blocking)
+    if selected.entry_id and context.threads_dir:
+        _track_access(context.threads_dir, "entry", selected.entry_id)
 
     payload = {
         "topic": topic,
@@ -1443,8 +1922,13 @@ def get_thread_entry_range(
     if error or context is None:
         return ToolResult(content=[TextContent(type="text", text=error or "Unknown error")])
 
+    # Lightweight read sync: auto-pull if behind origin (never blocks)
+    sync_ok, sync_actions = ensure_readable(context.threads_dir, context.code_root)
+    if sync_actions:
+        log_debug(f"get_thread_entry_range read sync: {sync_actions}")
+
     _refresh_threads(context)
-    load_error, entries = _load_thread_entries(topic, context)
+    load_error, entries = _load_thread_entries_graph_first(topic, context)
     if load_error:
         return ToolResult(content=[TextContent(type="text", text=load_error)])
 
@@ -1458,6 +1942,12 @@ def get_thread_entry_range(
         return ToolResult(content=[TextContent(type="text", text="Error: computed end index is before start index.")])
 
     selected_entries = entries[start_index : effective_end + 1] if total else []
+
+    # Track entry access for all entries in range (non-blocking)
+    if context.threads_dir:
+        for entry in selected_entries:
+            if entry.entry_id:
+                _track_access(context.threads_dir, "entry", entry.entry_id)
 
     payload = {
         "topic": topic,
@@ -1579,7 +2069,7 @@ def say(
         from watercooler.metadata import thread_meta
         _, status, ball, _ = thread_meta(thread_path)
 
-        return (
+        return _format_warnings_for_response(
             f"✅ Entry added to '{topic}'\n"
             f"Title: {title}\n"
             f"Role: {role} | Type: {entry_type}\n"
@@ -2103,8 +2593,9 @@ def baseline_graph_build(
     ctx: Context,
     code_path: str = "",
     output_dir: str = "",
-    extractive_only: bool = True,
+    extractive_only: Optional[bool] = None,
     skip_closed: bool = False,
+    generate_embeddings: Optional[bool] = None,
 ) -> str:
     """Build baseline graph from threads.
 
@@ -2116,8 +2607,11 @@ def baseline_graph_build(
     Args:
         code_path: Path to code repository (for resolving threads dir).
         output_dir: Output directory for graph files (optional).
-        extractive_only: Use extractive summaries only (no LLM). Default: True.
+        extractive_only: Use extractive summaries only (no LLM).
+            Defaults to inverse of config generate_summaries from ~/.watercooler/config.toml.
         skip_closed: Skip closed threads. Default: False.
+        generate_embeddings: Generate embedding vectors for entries.
+            Defaults to config value from ~/.watercooler/config.toml.
 
     Returns:
         JSON manifest with export statistics.
@@ -2125,6 +2619,7 @@ def baseline_graph_build(
     try:
         from pathlib import Path
         from watercooler.baseline_graph import export_all_threads, SummarizerConfig
+        from watercooler_mcp.config import get_watercooler_config
 
         error, context = _require_context(code_path)
         if error:
@@ -2136,22 +2631,495 @@ def baseline_graph_build(
         if not threads_dir.exists():
             return f"Threads directory not found: {threads_dir}"
 
+        # Get config defaults for summary/embedding generation
+        wc_config = get_watercooler_config()
+        graph_config = wc_config.mcp.graph
+
+        # Use config values if not explicitly provided
+        # extractive_only is inverse of generate_summaries
+        do_extractive = extractive_only if extractive_only is not None else not graph_config.generate_summaries
+        do_embeddings = generate_embeddings if generate_embeddings is not None else graph_config.generate_embeddings
+
         # Default output to threads_dir/graph/baseline
         if output_dir:
             out_path = Path(output_dir)
         else:
             out_path = threads_dir / "graph" / "baseline"
 
-        config = SummarizerConfig(prefer_extractive=extractive_only)
+        config = SummarizerConfig(prefer_extractive=do_extractive)
 
-        manifest = export_all_threads(
-            threads_dir, out_path, config, skip_closed=skip_closed
+        # Define the build operation
+        def _do_build() -> dict:
+            return export_all_threads(
+                threads_dir,
+                out_path,
+                config,
+                skip_closed=skip_closed,
+                generate_embeddings=do_embeddings,
+            )
+
+        # Run with full parity protocol (preflight + commit + push)
+        manifest = run_with_graph_sync(
+            context,
+            _do_build,
+            "graph: build baseline",
         )
 
         return json.dumps(manifest, indent=2)
 
+    except BranchPairingError as e:
+        return f"Branch parity error: {str(e)}"
     except Exception as e:
         return f"Error building baseline graph: {str(e)}"
+
+
+@mcp.tool(name="watercooler_search")
+def search_graph_tool(
+    ctx: Context,
+    code_path: str = "",
+    query: str = "",
+    semantic: bool = False,
+    semantic_threshold: float = 0.5,
+    start_time: str = "",
+    end_time: str = "",
+    thread_status: str = "",
+    thread_topic: str = "",
+    role: str = "",
+    entry_type: str = "",
+    agent: str = "",
+    limit: int = 10,
+    combine: str = "AND",
+    include_threads: bool = True,
+    include_entries: bool = True,
+) -> str:
+    """Unified search across threads and entries in the baseline graph.
+
+    Supports keyword search, semantic search with embeddings, time-based
+    filtering, and metadata filters. All filters can be combined with AND or OR logic.
+
+    Args:
+        code_path: Path to code repository (for resolving threads dir).
+        query: Search query (keyword or semantic depending on mode).
+        semantic: If True, use semantic search with embedding cosine similarity.
+            Requires embeddings to be generated. Falls back to keyword if unavailable.
+        semantic_threshold: Minimum cosine similarity for semantic matches (0.0-1.0).
+            Only used when semantic=True. Default: 0.5. Lower values return more results.
+        start_time: Filter results after this ISO timestamp.
+        end_time: Filter results before this ISO timestamp.
+        thread_status: Filter threads by status (OPEN, CLOSED, etc.).
+        thread_topic: Filter entries by specific thread topic.
+        role: Filter entries by role (planner, implementer, etc.).
+        entry_type: Filter entries by type (Note, Plan, Decision, etc.).
+        agent: Filter entries by agent name (partial match).
+        limit: Maximum results to return (default: 10, max: 100).
+        combine: How to combine filters - "AND" or "OR" (default: AND).
+        include_threads: Include thread nodes in results (default: True).
+        include_entries: Include entry nodes in results (default: True).
+
+    Returns:
+        JSON with search results including matched nodes and metadata.
+    """
+    try:
+        from watercooler.baseline_graph.search import SearchQuery, search_graph
+        from watercooler.baseline_graph.reader import is_graph_available
+
+        error, context = _require_context(code_path)
+        if error:
+            return error
+        if context is None or not context.threads_dir:
+            return "Error: Unable to resolve threads directory."
+
+        threads_dir = context.threads_dir
+        if not threads_dir.exists():
+            return f"Threads directory not found: {threads_dir}"
+
+        # Check if graph is available
+        if not is_graph_available(threads_dir):
+            return json.dumps({
+                "error": "Graph not available",
+                "message": "No baseline graph found. Run watercooler_baseline_graph_build first.",
+                "results": [],
+                "count": 0,
+            })
+
+        # Validate and constrain limit
+        limit = max(1, min(limit, 100))
+
+        # Build search query
+        search_query = SearchQuery(
+            query=query if query else None,
+            semantic=semantic,
+            semantic_threshold=max(0.0, min(1.0, semantic_threshold)),
+            start_time=start_time if start_time else None,
+            end_time=end_time if end_time else None,
+            thread_status=thread_status if thread_status else None,
+            thread_topic=thread_topic if thread_topic else None,
+            role=role if role else None,
+            entry_type=entry_type if entry_type else None,
+            agent=agent if agent else None,
+            limit=limit,
+            combine=combine.upper() if combine.upper() in ("AND", "OR") else "AND",
+            include_threads=include_threads,
+            include_entries=include_entries,
+        )
+
+        # Execute search
+        results = search_graph(threads_dir, search_query)
+
+        # Format results for JSON output
+        output = {
+            "count": results.count,
+            "total_scanned": results.total_scanned,
+            "results": [],
+        }
+
+        for result in results.results:
+            item = {
+                "type": result.node_type,
+                "id": result.node_id,
+                "score": result.score,
+                "matched_fields": result.matched_fields,
+            }
+
+            if result.thread:
+                item["thread"] = {
+                    "topic": result.thread.topic,
+                    "title": result.thread.title,
+                    "status": result.thread.status,
+                    "ball": result.thread.ball,
+                    "last_updated": result.thread.last_updated,
+                    "entry_count": result.thread.entry_count,
+                    "summary": result.thread.summary,
+                }
+
+            if result.entry:
+                item["entry"] = {
+                    "entry_id": result.entry.entry_id,
+                    "thread_topic": result.entry.thread_topic,
+                    "index": result.entry.index,
+                    "agent": result.entry.agent,
+                    "role": result.entry.role,
+                    "entry_type": result.entry.entry_type,
+                    "title": result.entry.title,
+                    "timestamp": result.entry.timestamp,
+                    "summary": result.entry.summary,
+                }
+
+            output["results"].append(item)
+
+        return json.dumps(output, indent=2)
+
+    except Exception as e:
+        return f"Error searching graph: {str(e)}"
+
+
+@mcp.tool(name="watercooler_find_similar")
+def find_similar_entries_tool(
+    ctx: Context,
+    entry_id: str,
+    code_path: str = "",
+    limit: int = 5,
+    similarity_threshold: float = 0.5,
+    use_embeddings: bool = True,
+) -> str:
+    """Find entries similar to a given entry using embedding similarity.
+
+    Uses cosine similarity with embedding vectors when available.
+    Falls back to same-thread heuristic if embeddings are not available.
+
+    Args:
+        entry_id: The entry ID to find similar entries for.
+        code_path: Path to code repository (for resolving threads dir).
+        limit: Maximum number of similar entries to return (default: 5).
+        similarity_threshold: Minimum cosine similarity (0.0-1.0, default: 0.5).
+        use_embeddings: Try to use embedding similarity (default: True).
+
+    Returns:
+        JSON with similar entries and their similarity scores.
+    """
+    try:
+        from watercooler.baseline_graph.search import find_similar_entries
+        from watercooler.baseline_graph.reader import is_graph_available
+
+        error, context = _require_context(code_path)
+        if error:
+            return error
+        if context is None or not context.threads_dir:
+            return "Error: Unable to resolve threads directory."
+
+        threads_dir = context.threads_dir
+        if not threads_dir.exists():
+            return f"Threads directory not found: {threads_dir}"
+
+        if not is_graph_available(threads_dir):
+            return json.dumps({
+                "error": "Graph not available",
+                "message": "No baseline graph found. Run watercooler_baseline_graph_build first.",
+                "results": [],
+            })
+
+        # Validate parameters
+        limit = max(1, min(limit, 50))
+        similarity_threshold = max(0.0, min(1.0, similarity_threshold))
+
+        # Find similar entries
+        similar = find_similar_entries(
+            threads_dir=threads_dir,
+            entry_id=entry_id,
+            limit=limit,
+            use_embeddings=use_embeddings,
+            similarity_threshold=similarity_threshold,
+        )
+
+        # Format results
+        output = {
+            "source_entry_id": entry_id,
+            "count": len(similar),
+            "method": "embedding_similarity" if use_embeddings else "same_thread_heuristic",
+            "threshold": similarity_threshold,
+            "results": [],
+        }
+
+        for entry in similar:
+            output["results"].append({
+                "entry_id": entry.entry_id,
+                "thread_topic": entry.thread_topic,
+                "title": entry.title,
+                "agent": entry.agent,
+                "role": entry.role,
+                "timestamp": entry.timestamp,
+                "summary": entry.summary,
+            })
+
+        return json.dumps(output, indent=2)
+
+    except Exception as e:
+        return f"Error finding similar entries: {str(e)}"
+
+
+@mcp.tool(name="watercooler_graph_health")
+def graph_health_tool(
+    ctx: Context,
+    code_path: str = "",
+) -> str:
+    """Check graph synchronization health and report any issues.
+
+    Reports the status of all threads in the graph:
+    - Synced threads (graph matches markdown)
+    - Stale threads (need sync)
+    - Error threads (sync failed)
+    - Pending threads (sync in progress)
+
+    Use this to diagnose graph sync issues before running reconcile.
+
+    Args:
+        code_path: Path to code repository (for resolving threads dir).
+
+    Returns:
+        JSON health report with thread statuses and recommendations.
+    """
+    try:
+        from watercooler.baseline_graph.sync import check_graph_health
+        from watercooler.baseline_graph.reader import is_graph_available
+
+        error, context = _require_context(code_path)
+        if error:
+            return error
+        if context is None or not context.threads_dir:
+            return "Error: Unable to resolve threads directory."
+
+        threads_dir = context.threads_dir
+        if not threads_dir.exists():
+            return f"Threads directory not found: {threads_dir}"
+
+        # Check if graph exists at all
+        graph_available = is_graph_available(threads_dir)
+
+        # Get health report
+        health = check_graph_health(threads_dir)
+
+        output = {
+            "graph_available": graph_available,
+            "healthy": health.healthy,
+            "total_threads": health.total_threads,
+            "synced_threads": health.synced_threads,
+            "stale_threads": health.stale_threads,
+            "error_threads": health.error_threads,
+            "pending_threads": health.pending_threads,
+            "error_details": health.error_details,
+            "recommendations": [],
+        }
+
+        # Add recommendations
+        if not graph_available:
+            output["recommendations"].append(
+                "Graph not available. Run watercooler_baseline_graph_build to create it."
+            )
+        if health.stale_threads:
+            output["recommendations"].append(
+                f"{len(health.stale_threads)} threads need sync. Run watercooler_reconcile_graph."
+            )
+        if health.error_threads:
+            output["recommendations"].append(
+                f"{health.error_threads} threads have sync errors. Check error_details and run reconcile."
+            )
+
+        return json.dumps(output, indent=2)
+
+    except Exception as e:
+        return f"Error checking graph health: {str(e)}"
+
+
+@mcp.tool(name="watercooler_reconcile_graph")
+def reconcile_graph_tool(
+    ctx: Context,
+    code_path: str = "",
+    topics: str = "",
+    generate_summaries: Optional[bool] = None,
+    generate_embeddings: Optional[bool] = None,
+) -> str:
+    """Reconcile graph with markdown files to fix sync issues.
+
+    Rebuilds graph nodes and edges for threads that are stale, have errors,
+    or are explicitly specified. This is the primary tool for ingesting
+    legacy markdown-only threads into the graph representation.
+
+    Args:
+        code_path: Path to code repository (for resolving threads dir).
+        topics: Comma-separated list of topics to reconcile. If empty,
+                reconciles all stale/error topics.
+        generate_summaries: Whether to generate LLM summaries (slower).
+            Defaults to config value from ~/.watercooler/config.toml.
+        generate_embeddings: Whether to generate embedding vectors (slower).
+            Defaults to config value from ~/.watercooler/config.toml.
+
+    Returns:
+        JSON report with reconciliation results per topic.
+    """
+    try:
+        from watercooler.baseline_graph.sync import reconcile_graph
+        from watercooler_mcp.config import get_watercooler_config
+
+        error, context = _require_context(code_path)
+        if error:
+            return error
+        if context is None or not context.threads_dir:
+            return "Error: Unable to resolve threads directory."
+
+        threads_dir = context.threads_dir
+        if not threads_dir.exists():
+            return f"Threads directory not found: {threads_dir}"
+
+        # Get config defaults for summary/embedding generation
+        wc_config = get_watercooler_config()
+        graph_config = wc_config.mcp.graph
+
+        # Use config values if not explicitly provided
+        do_summaries = generate_summaries if generate_summaries is not None else graph_config.generate_summaries
+        do_embeddings = generate_embeddings if generate_embeddings is not None else graph_config.generate_embeddings
+
+        # Parse topics list
+        topic_list = None
+        if topics:
+            topic_list = [t.strip() for t in topics.split(",") if t.strip()]
+
+        # Define the reconcile operation
+        def _do_reconcile() -> dict:
+            return reconcile_graph(
+                threads_dir=threads_dir,
+                topics=topic_list,
+                generate_summaries=do_summaries,
+                generate_embeddings=do_embeddings,
+            )
+
+        # Run with full parity protocol (preflight + commit + push)
+        results = run_with_graph_sync(
+            context,
+            _do_reconcile,
+            f"graph: reconcile {topics or 'all'}",
+        )
+
+        # Build output
+        successes = [t for t, ok in results.items() if ok]
+        failures = [t for t, ok in results.items() if not ok]
+
+        output = {
+            "total_reconciled": len(results),
+            "successes": len(successes),
+            "failures": len(failures),
+            "success_topics": successes,
+            "failure_topics": failures,
+        }
+
+        return json.dumps(output, indent=2)
+
+    except BranchPairingError as e:
+        return f"Branch parity error: {str(e)}"
+    except Exception as e:
+        return f"Error reconciling graph: {str(e)}"
+
+
+@mcp.tool(name="watercooler_access_stats")
+def access_stats_tool(
+    ctx: Context,
+    code_path: str = "",
+    node_type: str = "",
+    limit: int = 10,
+) -> str:
+    """Get access statistics from the graph odometer.
+
+    Returns the most frequently accessed threads and entries, useful for
+    understanding usage patterns and identifying popular content.
+
+    Args:
+        code_path: Path to code repository (for resolving threads dir).
+        node_type: Filter by "thread" or "entry". Empty string returns both.
+        limit: Maximum number of results to return (default 10).
+
+    Returns:
+        JSON with most accessed nodes including type, id, and access count.
+    """
+    try:
+        from watercooler.baseline_graph.reader import get_most_accessed
+
+        error, context = _require_context(code_path)
+        if error:
+            return error
+        if context is None or not context.threads_dir:
+            return "Error: Unable to resolve threads directory."
+
+        threads_dir = context.threads_dir
+        if not threads_dir.exists():
+            return f"Threads directory not found: {threads_dir}"
+
+        # Validate node_type
+        filter_type = None
+        if node_type:
+            if node_type.lower() not in ("thread", "entry"):
+                return f"Invalid node_type: {node_type}. Must be 'thread', 'entry', or empty."
+            filter_type = node_type.lower()
+
+        # Get most accessed
+        results = get_most_accessed(
+            threads_dir=threads_dir,
+            node_type=filter_type,
+            limit=max(1, min(limit, 100)),  # Clamp to 1-100
+        )
+
+        # Format output
+        output = {
+            "total_results": len(results),
+            "filter": filter_type or "all",
+            "stats": [
+                {"type": t, "id": nid, "access_count": count}
+                for t, nid, count in results
+            ],
+        }
+
+        return json.dumps(output, indent=2)
+
+    except Exception as e:
+        return f"Error getting access stats: {str(e)}"
 
 
 # ============================================================================
@@ -3746,30 +4714,140 @@ def _check_first_run() -> None:
         )
 
         if not has_config:
-            print(
-                "\n"
-                "━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━\n"
-                "ℹ️  No watercooler config found.\n"
-                "\n"
-                "   To customize settings, create a config file:\n"
-                "\n"
-                "     watercooler config init --user     # ~/.watercooler/config.toml\n"
-                "     watercooler config init --project  # .watercooler/config.toml\n"
-                "\n"
-                "   Using defaults for now. This message won't appear again\n"
-                "   once a config file exists.\n"
-                "━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━\n",
-                file=sys.stderr
+            _add_startup_warning(
+                "No config file found. Create one to customize settings:\n"
+                "  uvx watercooler-cloud config init --user\n"
+                "Using built-in defaults for now."
             )
     except Exception:
         # Don't let config check errors break server startup
         pass
 
 
+def _ensure_ollama_running():
+    """Start Ollama if graph features are enabled and it's not running.
+
+    This reduces friction for new users - if they have Ollama installed
+    and graph features enabled, we'll start it automatically.
+    """
+    import subprocess
+    import urllib.request
+    import urllib.error
+
+    try:
+        from .config import get_watercooler_config
+        config = get_watercooler_config()
+        graph_config = config.mcp.graph
+
+        # Only auto-start if graph features are enabled
+        if not (graph_config.generate_summaries or graph_config.generate_embeddings):
+            return
+
+        # Check if Ollama is already responding
+        try:
+            req = urllib.request.Request(
+                "http://localhost:11434/v1/models",
+                headers={"Content-Type": "application/json"}
+            )
+            with urllib.request.urlopen(req, timeout=2) as resp:
+                if resp.status == 200:
+                    return  # Already running
+        except (urllib.error.URLError, TimeoutError, OSError):
+            pass  # Not running, try to start
+
+        # Try to start Ollama
+        log_debug("Starting Ollama for graph features...")
+
+        # Method 1: Try systemctl (Linux with systemd)
+        try:
+            result = subprocess.run(
+                ["systemctl", "start", "ollama"],
+                capture_output=True,
+                timeout=5
+            )
+            if result.returncode == 0:
+                # Wait for it to be ready
+                for _ in range(10):
+                    time.sleep(0.5)
+                    try:
+                        req = urllib.request.Request("http://localhost:11434/v1/models")
+                        with urllib.request.urlopen(req, timeout=2):
+                            log_debug("Ollama started successfully via systemctl.")
+                            return
+                    except (urllib.error.URLError, TimeoutError, OSError):
+                        continue
+        except (FileNotFoundError, subprocess.TimeoutExpired):
+            pass
+
+        # Method 2: Try ollama serve directly (macOS, or Linux without systemd)
+        try:
+            # Check if ollama command exists
+            result = subprocess.run(
+                ["which", "ollama"],
+                capture_output=True,
+                timeout=2
+            )
+            if result.returncode == 0:
+                # Start ollama serve in background
+                subprocess.Popen(
+                    ["ollama", "serve"],
+                    stdout=subprocess.DEVNULL,
+                    stderr=subprocess.DEVNULL,
+                    start_new_session=True
+                )
+                # Wait for it to be ready
+                for _ in range(10):
+                    time.sleep(0.5)
+                    try:
+                        req = urllib.request.Request("http://localhost:11434/v1/models")
+                        with urllib.request.urlopen(req, timeout=2):
+                            log_debug("Ollama started successfully via ollama serve.")
+                            return
+                    except (urllib.error.URLError, TimeoutError, OSError):
+                        continue
+        except (FileNotFoundError, subprocess.TimeoutExpired):
+            pass
+
+        # If we get here, couldn't start Ollama - give platform-aware guidance
+        import platform
+        system = platform.system().lower()
+
+        if system == "windows":
+            install_cmd = "winget install Ollama.Ollama"
+            alt_msg = "Or download from: https://ollama.com/download/windows\n"
+        elif system == "darwin":
+            install_cmd = "brew install ollama"
+            alt_msg = "Or: curl -fsSL https://ollama.com/install.sh | sh\n"
+        else:  # Linux
+            install_cmd = "curl -fsSL https://ollama.com/install.sh | sh"
+            alt_msg = ""
+
+        msg = (
+            "Ollama not available - graph features (summaries/embeddings) disabled.\n"
+            "To enable AI-powered summaries and semantic search:\n"
+            f"  {install_cmd}\n"
+        )
+        if alt_msg:
+            msg += f"  {alt_msg}"
+        msg += (
+            "Then pull models:\n"
+            "  ollama pull llama3.2:3b\n"
+            "  ollama pull nomic-embed-text\n"
+            "Restart your IDE to reload the MCP server."
+        )
+        _add_startup_warning(msg)
+    except Exception as e:
+        # Don't let auto-start errors break server startup
+        log_debug(f"Ollama auto-start check failed: {e}")
+
+
 def main():
     """Entry point for watercooler-mcp command."""
     # Check for first-run and suggest config initialization
     _check_first_run()
+
+    # Auto-start Ollama if graph features are enabled
+    _ensure_ollama_running()
 
     # Get transport configuration from unified config system
     from .config import get_mcp_transport_config

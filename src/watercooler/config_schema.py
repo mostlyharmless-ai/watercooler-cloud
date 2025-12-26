@@ -184,6 +184,52 @@ class LoggingConfig(BaseModel):
         return v
 
 
+class GraphConfig(BaseModel):
+    """Baseline graph configuration for summaries and embeddings."""
+
+    # Summary generation
+    generate_summaries: bool = Field(
+        default=False,
+        description="Generate LLM summaries for entries on write (requires LLM service)",
+    )
+    summarizer_api_base: str = Field(
+        default="http://localhost:11434/v1",
+        description="Summarizer API base URL (Ollama default)",
+    )
+    summarizer_model: str = Field(
+        default="llama3.2:3b",
+        description="Model for summarization",
+    )
+
+    # Embedding generation
+    generate_embeddings: bool = Field(
+        default=False,
+        description="Generate embedding vectors for entries on write (requires embedding service)",
+    )
+    embedding_api_base: str = Field(
+        default="http://localhost:8080/v1",
+        description="Embedding API base URL (llama.cpp default)",
+    )
+    embedding_model: str = Field(
+        default="bge-m3",
+        description="Model for embeddings",
+    )
+
+    # Behavior
+    prefer_extractive: bool = Field(
+        default=False,
+        description="Use extractive summaries (no LLM) when True",
+    )
+    auto_detect_services: bool = Field(
+        default=True,
+        description="Check service availability before generation; skip gracefully if unavailable",
+    )
+    auto_start_services: bool = Field(
+        default=False,
+        description="Auto-start LLM/embedding services if unavailable (requires ServerManager)",
+    )
+
+
 class McpConfig(BaseModel):
     """MCP server configuration."""
 
@@ -237,6 +283,7 @@ class McpConfig(BaseModel):
     git: GitConfig = Field(default_factory=GitConfig)
     sync: SyncConfig = Field(default_factory=SyncConfig)
     logging: LoggingConfig = Field(default_factory=LoggingConfig)
+    graph: GraphConfig = Field(default_factory=GraphConfig)
 
     # Agent-specific overrides (keyed by platform slug)
     agents: Dict[str, AgentConfig] = Field(

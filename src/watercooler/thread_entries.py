@@ -14,19 +14,37 @@ Entry-ID Format:
     Entry-IDs are automatically generated when entries are created via the
     watercooler commands (say, ack, handoff) and stored in commit footers for
     full traceability in git history.
+
+Parser Strategy:
+    This parser uses Entry: header lines as the primary boundary detection.
+    Each entry starts with a line matching:
+        Entry: <agent> <ISO8601-timestamp>
+
+    This approach is robust because:
+    - Entry: lines have a specific format with timestamp that won't be confused
+    - No reliance on '---' separators (which conflict with horizontal rules)
+    - Works correctly even with code blocks containing '---' or 'Entry:' text
+    - Entry-IDs provide unique identification for deduplication
 """
 
 from __future__ import annotations
 
 from dataclasses import dataclass
 import re
-from typing import Iterable, Optional
+from typing import List, Optional, Tuple
 
 
+# Entry: header line - the primary entry boundary marker
+# Format: "Entry: Agent Name (user) 2025-01-01T12:00:00Z"
 _ENTRY_LINE_RE = re.compile(
     r"^Entry:\s*(?P<agent>.+?)\s+(?P<timestamp>\d{4}-\d{2}-\d{2}T\d{2}:\d{2}:\d{2}Z)\s*$"
 )
+
+# Entry-ID comment - unique identifier for deduplication
 _ENTRY_ID_RE = re.compile(r"<!--\s*Entry-ID:\s*([A-Za-z0-9_-]+)\s*-->", re.IGNORECASE)
+
+# Code fence detection for skipping content inside code blocks
+_CODE_FENCE_RE = re.compile(r"^(`{3,}|~{3,})")
 
 
 @dataclass(frozen=True)
@@ -64,154 +82,54 @@ class ThreadEntry:
     end_offset: int
 
 
-def parse_thread_entries(text: str) -> list[ThreadEntry]:
-    """Parse thread entries from a markdown thread file.
+def _find_entry_line_indexes(lines: List[str]) -> List[Tuple[int, str, str]]:
+    """Find all Entry: header lines, skipping those inside code blocks.
 
     Args:
-        text: Full thread markdown content.
+        lines: List of lines from the markdown file
 
     Returns:
-        A list of ``ThreadEntry`` instances in order of appearance.
-
-    Performance Characteristics:
-        This implementation loads the entire thread into memory and builds line offset
-        arrays for all entries.
-
-        Expected parse times (on typical hardware):
-        - Typical threads (< 1000 entries, < 1MB): ~10-50ms
-        - Large threads (1000-10K entries, 1-10MB): ~50-500ms
-        - Very large threads (10K+ entries, 10MB+): Consider optimizations:
-          * Lazy parsing with generator-based iteration
-          * Caching parsed results with mtime invalidation
-          * Streaming parser for offset-based access
-
-        Memory usage scales linearly with thread size (O(n) for n entries).
+        List of tuples: (line_index, agent, timestamp) for each Entry: line found
     """
+    entry_positions: List[Tuple[int, str, str]] = []
+    in_code_block = False
+    # Store opening fence char and minimum length for proper matching
+    # Per CommonMark spec: closing fence must use same char and be at least as long
+    code_fence_char: Optional[str] = None
+    code_fence_len: int = 0
 
-    if not text:
-        return []
+    for idx, line in enumerate(lines):
+        stripped = line.strip()
 
-    lines = text.splitlines(keepends=True)
-    if not lines:
-        return []
-
-    separator_indexes = [idx for idx, line in enumerate(lines) if line.strip() == "---"]
-    if not separator_indexes:
-        return []
-
-    header_end_index = separator_indexes[0]
-    current_index = header_end_index + 1
-
-    # Build line offset array for byte-level indexing
-    # For large threads (10K+ lines), this is O(n) but acceptable for Phase 1
-    line_starts: list[int] = []
-    offset = 0
-    for line in lines:
-        line_starts.append(offset)
-        offset += len(line)
-
-    entries: list[ThreadEntry] = []
-    entry_counter = 0
-
-    while current_index < len(lines):
-        # Skip leading blank lines between separators and the entry header
-        while current_index < len(lines) and lines[current_index].strip() == "":
-            current_index += 1
-
-        if current_index >= len(lines):
-            break
-
-        entry_start_index = current_index
-
-        # Gather lines until the next separator (or EOF)
-        inner_index = current_index
-        while inner_index < len(lines) and lines[inner_index].strip() != "---":
-            inner_index += 1
-
-        entry_line_slice = lines[entry_start_index:inner_index]
-
-        # Prepare next loop iteration (skip separator if present)
-        current_index = inner_index + 1 if inner_index < len(lines) else inner_index
-
-        if not entry_line_slice:
+        # Track code fence state
+        fence_match = _CODE_FENCE_RE.match(stripped)
+        if fence_match:
+            fence = fence_match.group(1)
+            if not in_code_block:
+                # Opening fence: record char and length
+                in_code_block = True
+                code_fence_char = fence[0]
+                code_fence_len = len(fence)
+            elif fence[0] == code_fence_char and len(fence) >= code_fence_len:
+                # Closing fence: same char and at least as long
+                in_code_block = False
+                code_fence_char = None
+                code_fence_len = 0
+            # If fence doesn't match (different char or too short), stay in code block
             continue
 
-        header_lines, body_lines = _split_entry_header_body(entry_line_slice)
+        # Skip lines inside code blocks
+        if in_code_block:
+            continue
 
-        metadata = _parse_entry_header(header_lines)
-        entry_id = _extract_entry_id(entry_line_slice)
+        # Check for Entry: header line
+        match = _ENTRY_LINE_RE.match(stripped)
+        if match:
+            agent = match.group("agent").strip()
+            timestamp = match.group("timestamp").strip()
+            entry_positions.append((idx, agent, timestamp))
 
-        header_text = "".join(header_lines).rstrip("\n")
-        body_text = "".join(body_lines).rstrip("\n")
-
-        end_line_index = _resolve_last_content_line(entry_line_slice, entry_start_index)
-
-        # Ensure end_line_index is within valid bounds
-        # Use max(0, ...) to handle edge case of empty lines (though early returns prevent this)
-        if not lines or end_line_index >= len(lines) or end_line_index >= len(line_starts):
-            end_line_index = max(0, len(lines) - 1)
-
-        entry = ThreadEntry(
-            index=entry_counter,
-            header=header_text,
-            body=body_text,
-            agent=metadata.agent,
-            timestamp=metadata.timestamp,
-            role=metadata.role,
-            entry_type=metadata.entry_type,
-            title=metadata.title,
-            entry_id=entry_id,
-            start_line=entry_start_index + 1,
-            end_line=end_line_index + 1,
-            start_offset=line_starts[entry_start_index],
-            end_offset=line_starts[end_line_index] + len(lines[end_line_index]),
-        )
-        entries.append(entry)
-        entry_counter += 1
-
-    # Deduplicate entries by Entry-ID (keep first occurrence)
-    # This handles git merge scenarios where same entry appears on multiple branches
-    seen_ids: set[str] = set()
-    deduplicated: list[ThreadEntry] = []
-    for entry in entries:
-        if entry.entry_id:
-            if entry.entry_id in seen_ids:
-                continue  # Skip duplicate
-            seen_ids.add(entry.entry_id)
-        deduplicated.append(entry)
-
-    # Sort entries by timestamp (chronological order)
-    # Entries without timestamps sort to the end
-    def sort_key(entry: ThreadEntry) -> tuple[int, str]:
-        # Entries with timestamps sort first (0), entries without sort last (1)
-        # Within each group, sort by timestamp (or empty string for missing timestamps)
-        has_timestamp = 0 if entry.timestamp else 1
-        timestamp = entry.timestamp or ""
-        return (has_timestamp, timestamp)
-
-    sorted_entries = sorted(deduplicated, key=sort_key)
-
-    # Re-index entries after deduplication and sorting
-    for idx, entry in enumerate(sorted_entries):
-        # ThreadEntry is frozen (dataclass(frozen=True)), so we need to create new instances
-        # with updated index values
-        sorted_entries[idx] = ThreadEntry(
-            index=idx,
-            header=entry.header,
-            body=entry.body,
-            agent=entry.agent,
-            timestamp=entry.timestamp,
-            role=entry.role,
-            entry_type=entry.entry_type,
-            title=entry.title,
-            entry_id=entry.entry_id,
-            start_line=entry.start_line,
-            end_line=entry.end_line,
-            start_offset=entry.start_offset,
-            end_offset=entry.end_offset,
-        )
-
-    return sorted_entries
+    return entry_positions
 
 
 @dataclass(frozen=True)
@@ -223,41 +141,39 @@ class _EntryMetadata:
     title: Optional[str]
 
 
-def _split_entry_header_body(entry_lines: Iterable[str]) -> tuple[list[str], list[str]]:
-    header_lines: list[str] = []
-    body_lines: list[str] = []
-    in_header = True
+def _parse_header_metadata(lines: List[str], start_idx: int, end_idx: int) -> _EntryMetadata:
+    """Parse metadata from header lines (Entry: through first blank line).
 
-    for line in entry_lines:
-        if in_header:
-            if line.strip() == "":
-                in_header = False
-                continue
-            header_lines.append(line)
-        else:
-            body_lines.append(line)
+    Args:
+        lines: All lines from the file
+        start_idx: Index of the Entry: line
+        end_idx: Index where this entry ends (next Entry: or EOF)
 
-    return header_lines, body_lines
-
-
-def _parse_entry_header(header_lines: Iterable[str]) -> _EntryMetadata:
+    Returns:
+        Parsed metadata
+    """
     agent: Optional[str] = None
     timestamp: Optional[str] = None
     role: Optional[str] = None
     entry_type: Optional[str] = None
     title: Optional[str] = None
 
-    for raw_line in header_lines:
-        line = raw_line.strip()
-        if not line:
-            continue
+    # Parse header lines until we hit a blank line
+    for idx in range(start_idx, min(end_idx, len(lines))):
+        line = lines[idx].strip()
 
+        # Stop at first blank line (end of header)
+        if not line:
+            break
+
+        # Parse Entry: line
         match = _ENTRY_LINE_RE.match(line)
         if match:
             agent = match.group("agent").strip()
             timestamp = match.group("timestamp").strip()
             continue
 
+        # Parse key: value lines
         if ":" not in line:
             continue
 
@@ -272,26 +188,195 @@ def _parse_entry_header(header_lines: Iterable[str]) -> _EntryMetadata:
         elif key == "title":
             title = value
 
-    return _EntryMetadata(agent=agent, timestamp=timestamp, role=role, entry_type=entry_type, title=title)
+    return _EntryMetadata(
+        agent=agent,
+        timestamp=timestamp,
+        role=role,
+        entry_type=entry_type,
+        title=title,
+    )
 
 
-def _extract_entry_id(entry_lines: Iterable[str]) -> Optional[str]:
-    joined = "".join(entry_lines)
-    match = _ENTRY_ID_RE.search(joined)
-    if not match:
-        return None
-    return match.group(1).strip() or None
+def _extract_header_and_body(
+    lines: List[str], start_idx: int, end_idx: int
+) -> Tuple[str, str]:
+    """Extract header block and body from entry lines.
+
+    Args:
+        lines: All lines from the file
+        start_idx: Index of the Entry: line
+        end_idx: Index where this entry ends
+
+    Returns:
+        Tuple of (header_text, body_text)
+    """
+    header_lines: List[str] = []
+    body_lines: List[str] = []
+    in_body = False
+
+    for idx in range(start_idx, end_idx):
+        line = lines[idx]
+
+        if not in_body:
+            if line.strip() == "":
+                in_body = True
+            else:
+                header_lines.append(line)
+        else:
+            body_lines.append(line)
+
+    header_text = "".join(header_lines).rstrip("\n")
+    body_text = "".join(body_lines).rstrip("\n")
+
+    return header_text, body_text
 
 
-def _resolve_last_content_line(entry_lines: list[str], entry_start_index: int) -> int:
-    """Return absolute line index for the last line with content in the entry."""
+def _extract_entry_id(lines: List[str], start_idx: int, end_idx: int) -> Optional[str]:
+    """Extract Entry-ID from entry content.
 
-    if not entry_lines:
-        return entry_start_index
+    Args:
+        lines: All lines from the file
+        start_idx: Index of the Entry: line
+        end_idx: Index where this entry ends
 
-    for reverse_offset, line in enumerate(reversed(entry_lines)):
-        if line.strip():
-            return entry_start_index + len(entry_lines) - 1 - reverse_offset
-    # Fallback to the first line when everything is blank (should be rare)
-    return entry_start_index
+    Returns:
+        Entry-ID string or None if not found
+    """
+    for idx in range(start_idx, end_idx):
+        match = _ENTRY_ID_RE.search(lines[idx])
+        if match:
+            return match.group(1).strip() or None
+    return None
 
+
+def _find_last_content_line(lines: List[str], start_idx: int, end_idx: int) -> int:
+    """Find the last line with non-whitespace content.
+
+    Args:
+        lines: All lines from the file
+        start_idx: Start of entry
+        end_idx: End of entry (exclusive)
+
+    Returns:
+        Line index of last content line
+    """
+    for idx in range(end_idx - 1, start_idx - 1, -1):
+        if lines[idx].strip():
+            return idx
+    return start_idx
+
+
+def parse_thread_entries(text: str) -> List[ThreadEntry]:
+    """Parse thread entries from a markdown thread file.
+
+    This parser uses Entry: header lines as the primary boundary detection.
+    Each entry starts with a line matching: "Entry: <agent> <timestamp>"
+
+    This approach is robust because:
+    - Entry: lines have a specific format with timestamp
+    - No reliance on '---' separators (which conflict with horizontal rules)
+    - Code blocks are properly handled (Entry: inside them are skipped)
+    - Entry-IDs provide unique identification for deduplication
+
+    Args:
+        text: Full thread markdown content.
+
+    Returns:
+        A list of ``ThreadEntry`` instances sorted by timestamp.
+    """
+    if not text:
+        return []
+
+    lines = text.splitlines(keepends=True)
+    if not lines:
+        return []
+
+    # Find all Entry: lines (skipping those in code blocks)
+    entry_positions = _find_entry_line_indexes(lines)
+    if not entry_positions:
+        return []
+
+    # Build line offset array for byte-level indexing
+    line_starts: List[int] = []
+    offset = 0
+    for line in lines:
+        line_starts.append(offset)
+        offset += len(line)
+
+    entries: List[ThreadEntry] = []
+
+    # Process each entry
+    for i, (start_idx, agent, timestamp) in enumerate(entry_positions):
+        # Entry ends at next Entry: line or EOF
+        if i + 1 < len(entry_positions):
+            end_idx = entry_positions[i + 1][0]
+        else:
+            end_idx = len(lines)
+
+        # Parse metadata
+        metadata = _parse_header_metadata(lines, start_idx, end_idx)
+
+        # Extract header and body
+        header_text, body_text = _extract_header_and_body(lines, start_idx, end_idx)
+
+        # Extract Entry-ID
+        entry_id = _extract_entry_id(lines, start_idx, end_idx)
+
+        # Find last content line for accurate end_line
+        last_content_idx = _find_last_content_line(lines, start_idx, end_idx)
+
+        entry = ThreadEntry(
+            index=i,  # Will be re-indexed after sorting
+            header=header_text,
+            body=body_text,
+            agent=metadata.agent or agent,  # Fallback to parsed agent
+            timestamp=metadata.timestamp or timestamp,  # Fallback to parsed timestamp
+            role=metadata.role,
+            entry_type=metadata.entry_type,
+            title=metadata.title,
+            entry_id=entry_id,
+            start_line=start_idx + 1,  # 1-indexed
+            end_line=last_content_idx + 1,  # 1-indexed
+            start_offset=line_starts[start_idx],
+            end_offset=line_starts[last_content_idx] + len(lines[last_content_idx]),
+        )
+        entries.append(entry)
+
+    # Deduplicate by Entry-ID (keep first occurrence)
+    seen_ids: set[str] = set()
+    deduplicated: List[ThreadEntry] = []
+    for entry in entries:
+        if entry.entry_id:
+            if entry.entry_id in seen_ids:
+                continue
+            seen_ids.add(entry.entry_id)
+        deduplicated.append(entry)
+
+    # Sort by timestamp (chronological order)
+    def sort_key(entry: ThreadEntry) -> Tuple[int, str]:
+        has_timestamp = 0 if entry.timestamp else 1
+        timestamp = entry.timestamp or ""
+        return (has_timestamp, timestamp)
+
+    sorted_entries = sorted(deduplicated, key=sort_key)
+
+    # Re-index after sorting
+    result: List[ThreadEntry] = []
+    for idx, entry in enumerate(sorted_entries):
+        result.append(ThreadEntry(
+            index=idx,
+            header=entry.header,
+            body=entry.body,
+            agent=entry.agent,
+            timestamp=entry.timestamp,
+            role=entry.role,
+            entry_type=entry.entry_type,
+            title=entry.title,
+            entry_id=entry.entry_id,
+            start_line=entry.start_line,
+            end_line=entry.end_line,
+            start_offset=entry.start_offset,
+            end_offset=entry.end_offset,
+        ))
+
+    return result

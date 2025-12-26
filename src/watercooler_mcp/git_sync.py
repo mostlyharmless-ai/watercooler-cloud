@@ -187,6 +187,7 @@ class BranchMismatch:
     threads: Optional[str]
     severity: str  # "error", "warning"
     recovery: str  # Suggested recovery command or action
+    needs_merge_to_main: bool = False  # True if threads branch should be merged to main
 
 
 @dataclass
@@ -1137,6 +1138,169 @@ class GitSyncManager:
             raise GitSyncError(f"Failed to commit: {e}") from e
         return True
 
+    def commit_graph_changes(
+        self,
+        topic: str,
+        entry_id: Optional[str] = None,
+        max_retries: int = 5,
+    ) -> bool:
+        """Commit and push graph files (Phase 2 of Two-Phase Commit).
+
+        This commits only graph/baseline/* files to keep the working tree clean
+        after graph sync operations. This prevents uncommitted graph files from
+        blocking future preflight pulls.
+
+        Args:
+            topic: Thread topic for commit message
+            entry_id: Optional entry ID for commit message
+            max_retries: Max push retry attempts
+
+        Returns:
+            True if commit+push succeeded or no changes, False on failure
+        """
+        try:
+            repo = self._repo
+            graph_path = Path(self.local_path) / "graph" / "baseline"
+
+            # Check if graph directory exists
+            if not graph_path.exists():
+                log_debug("[GRAPH-COMMIT] No graph/baseline directory, skipping")
+                return True
+
+            # Check for changes in graph files
+            log_debug("GIT_OP_START: status graph/baseline")
+            with git.Git().custom_environment(**self._env):
+                status_output = repo.git.status("--porcelain", "graph/baseline/")
+            log_debug(f"GIT_OP_END: status graph/baseline: {status_output[:100] if status_output else '(clean)'}")
+
+            if not status_output.strip():
+                log_debug("[GRAPH-COMMIT] No graph changes to commit")
+                return True
+
+            # Stage only graph files
+            log_debug("GIT_OP_START: add graph/baseline/")
+            with git.Git().custom_environment(**self._env):
+                repo.git.add("graph/baseline/")
+            log_debug("GIT_OP_END: add graph/baseline/")
+
+            # Build commit message
+            if entry_id:
+                message = f"graph: sync {topic}/{entry_id}"
+            else:
+                message = f"graph: sync {topic}"
+
+            # Commit
+            log_debug(f"GIT_OP_START: commit -m '{message}'")
+            with git.Git().custom_environment(**self._env):
+                repo.git.commit("-m", message, env=self._env)
+            log_debug("GIT_OP_END: commit")
+            self._log(f"[GRAPH-COMMIT] Committed graph changes: {message}")
+
+            # Push with retry
+            from watercooler_mcp.branch_parity import push_after_commit
+
+            try:
+                branch_name = repo.active_branch.name
+            except (TypeError, AttributeError):
+                branch_name = "main"
+
+            push_success, push_error = push_after_commit(
+                self.local_path, branch_name, max_retries=max_retries
+            )
+
+            if not push_success:
+                log_warning(f"[GRAPH-COMMIT] Push failed: {push_error}")
+                return False
+
+            self._log("[GRAPH-COMMIT] Graph changes pushed successfully")
+            return True
+
+        except GitCommandError as e:
+            # No changes to commit is not an error
+            if "nothing to commit" in str(e).lower():
+                log_debug("[GRAPH-COMMIT] Nothing to commit")
+                return True
+            log_warning(f"[GRAPH-COMMIT] Git error: {e}")
+            return False
+        except Exception as e:
+            log_warning(f"[GRAPH-COMMIT] Unexpected error: {e}")
+            return False
+
+    def commit_graph_changes_sync(
+        self,
+        commit_msg: str,
+        max_retries: int = 5,
+    ) -> None:
+        """Commit and push graph files, blocking until confirmed.
+
+        Unlike commit_graph_changes(), this method raises on failure instead
+        of returning False. Use this when graph operations need reliable
+        confirmation that changes are pushed.
+
+        Args:
+            commit_msg: Commit message for graph changes
+            max_retries: Max push retry attempts
+
+        Raises:
+            GitSyncError: If commit or push fails after retries
+        """
+        try:
+            repo = self._repo
+            graph_path = Path(self.local_path) / "graph" / "baseline"
+
+            # Check if graph directory exists
+            if not graph_path.exists():
+                log_debug("[GRAPH-COMMIT-SYNC] No graph/baseline directory, skipping")
+                return
+
+            # Check for changes in graph files
+            with git.Git().custom_environment(**self._env):
+                status_output = repo.git.status("--porcelain", "graph/baseline/")
+
+            if not status_output.strip():
+                log_debug("[GRAPH-COMMIT-SYNC] No graph changes to commit")
+                return
+
+            # Stage only graph files
+            with git.Git().custom_environment(**self._env):
+                repo.git.add("graph/baseline/")
+
+            # Commit
+            log_debug(f"[GRAPH-COMMIT-SYNC] Committing: {commit_msg}")
+            with git.Git().custom_environment(**self._env):
+                repo.git.commit("-m", commit_msg, env=self._env)
+            self._log(f"[GRAPH-COMMIT-SYNC] Committed: {commit_msg}")
+
+            # Push with retry (BLOCKING)
+            from watercooler_mcp.branch_parity import push_after_commit
+
+            try:
+                branch_name = repo.active_branch.name
+            except (TypeError, AttributeError):
+                branch_name = "main"
+
+            push_success, push_error = push_after_commit(
+                self.local_path, branch_name, max_retries=max_retries
+            )
+
+            if not push_success:
+                raise GitSyncError(
+                    f"Graph push failed after {max_retries} retries: {push_error}"
+                )
+
+            self._log("[GRAPH-COMMIT-SYNC] Graph changes pushed successfully")
+
+        except GitCommandError as e:
+            # No changes to commit is not an error
+            if "nothing to commit" in str(e).lower():
+                log_debug("[GRAPH-COMMIT-SYNC] Nothing to commit")
+                return
+            raise GitSyncError(f"Graph commit failed: {e}") from e
+        except GitSyncError:
+            raise  # Re-raise our own errors
+        except Exception as e:
+            raise GitSyncError(f"Graph commit failed: {e}") from e
+
     def push_pending(self, max_retries: int = 5) -> bool:
         """Push local commits to the remote with retry logic."""
         self._last_push_error = None
@@ -1611,6 +1775,7 @@ class BranchDivergenceInfo:
     needs_rebase: bool  # True if threads branch needs to be rebased
     needs_fetch: bool  # True if remote fetch might help
     details: str  # Human-readable explanation
+    needs_merge_to_main: bool = False  # True if threads branch should be merged to main (after code PR merge)
 
 
 def _find_main_branch(repo: Repo) -> Optional[str]:
@@ -1751,13 +1916,12 @@ def _detect_behind_main_divergence(
 
         # Ahead-of-main disparity: code has parity but threads/staging is ahead of threads/main
         # This happens when code/staging was merged to code/main but threads/staging wasn't
-        # NOTE: We do NOT auto-merge to threads/main - that violates "neutral origin" principle
+        # Per branch pairing contract: threads follows code. Auto-merge threads to main.
         if code_synced and len(threads_ahead_main) > 0 and len(threads_behind_main) == 0:
             sync_reason = "content-equivalent" if code_content_synced else "0 commits behind"
             log_debug(f"[PARITY] *** AHEAD-OF-MAIN DISPARITY *** threads_ahead={len(threads_ahead_main)}, "
-                  f"reason={sync_reason} - returning info-only (no auto-merge)")
+                  f"reason={sync_reason} - signaling merge to main needed")
 
-            # Return info-only - no automatic merge to avoid polluting threads/main
             return BranchDivergenceInfo(
                 diverged=True,
                 commits_ahead=len(threads_ahead_main),
@@ -1768,9 +1932,10 @@ def _detect_behind_main_divergence(
                 details=(
                     f"Threads branch '{threads_branch}' is {len(threads_ahead_main)} commits ahead of "
                     f"'{threads_main}', but code branch '{code_branch}' is synced with "
-                    f"'{code_main}' ({sync_reason}). If this is after a PR merge, run: "
-                    f"watercooler merge-threads {threads_branch}"
-                )
+                    f"'{code_main}' ({sync_reason}). Code PR was merged; threads branch will be "
+                    f"merged to main to maintain parity."
+                ),
+                needs_merge_to_main=True,
             )
 
         log_debug(f"[PARITY] No disparity detected - returning None")
@@ -2577,23 +2742,40 @@ def validate_branch_pairing(
             warnings.append(divergence.details)
 
         # Also check for behind-main divergence (threads behind main, code not)
+        # or ahead-of-main divergence (threads ahead, code synced with main)
         # This is a separate check from local vs origin divergence
         behind_main = _detect_behind_main_divergence(
             code_repo_obj, threads_repo_obj, code_branch, threads_branch
         )
         if behind_main:
-            mismatches.append(BranchMismatch(
-                type="branch_history_diverged",
-                code=code_branch,
-                threads=threads_branch,
-                severity="error",
-                recovery=(
-                    f"Threads branch is {behind_main.commits_behind} commits behind main "
-                    f"but code branch is up-to-date. "
-                    f"Run: watercooler_sync_branch_state with operation='recover' to rebase "
-                    f"threads branch onto main."
-                )
-            ))
+            if behind_main.needs_merge_to_main:
+                # Ahead-of-main case: code PR merged, threads needs to merge to main
+                mismatches.append(BranchMismatch(
+                    type="branch_history_diverged",
+                    code=code_branch,
+                    threads=threads_branch,
+                    severity="error",
+                    recovery=(
+                        f"Threads branch is {behind_main.commits_ahead} commits ahead of main "
+                        f"but code branch is synced with main (PR merged). "
+                        f"Will auto-merge threads branch to main."
+                    ),
+                    needs_merge_to_main=True,
+                ))
+            else:
+                # Behind-main case: threads needs to rebase onto main
+                mismatches.append(BranchMismatch(
+                    type="branch_history_diverged",
+                    code=code_branch,
+                    threads=threads_branch,
+                    severity="error",
+                    recovery=(
+                        f"Threads branch is {behind_main.commits_behind} commits behind main "
+                        f"but code branch is up-to-date. "
+                        f"Run: watercooler_sync_branch_state with operation='recover' to rebase "
+                        f"threads branch onto main."
+                    )
+                ))
             warnings.append(behind_main.details)
 
     # Determine validity
