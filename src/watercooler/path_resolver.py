@@ -249,22 +249,6 @@ def _compose_local_threads_path(base: Path, slug: str) -> Path:
     return _resolve_path(path)
 
 
-def _validate_path_security(candidate: Path) -> None:
-    """Validate path to prevent directory traversal attacks.
-    
-    Args:
-        candidate: Path to validate
-        
-    Raises:
-        ValueError: If path contains parent directory references (..)
-    """
-    # Check for parent directory references in relative paths
-    if not candidate.is_absolute() and ".." in candidate.parts:
-        raise ValueError(
-            "Path traversal detected: parent directory references (..) "
-            "are not allowed in relative paths"
-        )
-
 
 def resolve_threads_dir(
     cli_value: Optional[str] = None,
@@ -298,16 +282,12 @@ def resolve_threads_dir(
 
     # 1. CLI argument takes precedence
     if cli_value:
-        candidate = Path(cli_value)
-        _validate_path_security(candidate)
-        return _normalize(candidate)
+        return _normalize(Path(cli_value))
 
     # 2. Explicit environment variable
     explicit = os.getenv("WATERCOOLER_DIR")
     if explicit:
-        candidate = _expand_path(explicit)
-        _validate_path_security(candidate)
-        return _normalize(candidate)
+        return _normalize(_expand_path(explicit))
 
     # 3. Git-aware discovery
     if code_root is None:
@@ -364,15 +344,11 @@ def resolve_templates_dir(cli_value: Optional[str] = None) -> Path:
         Path to directory containing _TEMPLATE_*.md files
     """
     if cli_value:
-        candidate = Path(cli_value)
-        _validate_path_security(candidate)
-        return candidate
+        return Path(cli_value)
 
     env = os.getenv("WATERCOOLER_TEMPLATES")
     if env:
-        candidate = Path(env)
-        _validate_path_security(candidate)
-        return candidate
+        return Path(env)
 
     # Check for project-local templates
     project_local = Path(".watercooler/templates")
