@@ -57,17 +57,22 @@ class TestSearchNodes:
     @patch('os.chdir')
     def test_search_nodes_success(self, mock_chdir, mock_getcwd, mock_syspath, backend):
         """Test successful node search returns normalized results."""
-        # Mock LeanRAG adapter module
-        mock_adapter = MagicMock()
-        mock_adapter.search_vector_search = MagicMock(return_value=[
+        # Mock LeanRAG modules
+        mock_llm = MagicMock()
+        mock_llm.embedding = MagicMock(return_value=[0.1, 0.2, 0.3])  # Mock embedding vector
+
+        mock_vector = MagicMock()
+        mock_vector.search_vector_search = MagicMock(return_value=[
             ("OAUTH2", "AUTHENTICATION", "OAuth2 authorization framework", "chunk_abc123"),
             ("JWT_TOKENS", "OAUTH2", "JSON Web Tokens for auth", "chunk_def456"),
         ])
 
         with patch.dict('sys.modules', {
             'leanrag': MagicMock(),
+            'leanrag.core': MagicMock(),
+            'leanrag.core.llm': mock_llm,
             'leanrag.database': MagicMock(),
-            'leanrag.database.adapter': mock_adapter
+            'leanrag.database.vector': mock_vector,
         }):
             results = backend.search_nodes(query="authentication", max_results=10)
 
@@ -132,11 +137,14 @@ class TestSearchFacts:
         mock_adapter.search_nodes_link = MagicMock(return_value=(
             "OAUTH2", "JWT_TOKENS", "Uses for authentication", 1.0, 0
         ))
+        mock_adapter.find_tree_root = MagicMock(side_effect=lambda db, entity: [entity])  # Return single-element path
 
         with patch.dict('sys.modules', {
             'leanrag': MagicMock(),
             'leanrag.database': MagicMock(),
-            'leanrag.database.adapter': mock_adapter
+            'leanrag.database.adapter': mock_adapter,
+            'itertools': __import__('itertools'),  # Use real itertools
+            'logging': __import__('logging'),  # Use real logging
         }):
             with patch.object(backend, 'search_nodes', mock_search_nodes):
                 results = backend.search_facts(query="authentication", max_results=5)
@@ -175,16 +183,27 @@ class TestGetNode:
     @patch('os.chdir')
     def test_get_node_success(self, mock_chdir, mock_getcwd, mock_syspath, backend):
         """Test successful node retrieval returns normalized result."""
-        # Mock LeanRAG adapter
-        mock_adapter = MagicMock()
-        mock_adapter.search_nodes = MagicMock(return_value=[
-            ("OAUTH2", "OAuth2 framework", "chunk_abc", 5, "AUTHENTICATION", 0)
-        ])
+        # Mock FalkorDB connection and query result
+        mock_result = MagicMock()
+        mock_result.result_set = [[
+            "OAUTH2",  # entity_name
+            "OAuth2 framework",  # description
+            "chunk_abc",  # source_id
+            5,  # degree
+            "AUTHENTICATION",  # parent
+            0  # level
+        ]]
+
+        mock_graph = MagicMock()
+        mock_graph.query = MagicMock(return_value=mock_result)
+
+        mock_falkordb = MagicMock()
+        mock_falkordb.get_falkordb_connection = MagicMock(return_value=(MagicMock(), mock_graph))
 
         with patch.dict('sys.modules', {
             'leanrag': MagicMock(),
             'leanrag.database': MagicMock(),
-            'leanrag.database.adapter': mock_adapter
+            'leanrag.database.falkordb': mock_falkordb,
         }):
             result = backend.get_node("OAUTH2")
 
@@ -201,14 +220,20 @@ class TestGetNode:
     @patch('os.chdir')
     def test_get_node_not_found(self, mock_chdir, mock_getcwd, mock_syspath, backend):
         """Test get_node returns None if entity not found."""
-        # Mock LeanRAG adapter
-        mock_adapter = MagicMock()
-        mock_adapter.search_nodes = MagicMock(return_value=[])
+        # Mock FalkorDB connection with empty result
+        mock_result = MagicMock()
+        mock_result.result_set = []
+
+        mock_graph = MagicMock()
+        mock_graph.query = MagicMock(return_value=mock_result)
+
+        mock_falkordb = MagicMock()
+        mock_falkordb.get_falkordb_connection = MagicMock(return_value=(MagicMock(), mock_graph))
 
         with patch.dict('sys.modules', {
             'leanrag': MagicMock(),
             'leanrag.database': MagicMock(),
-            'leanrag.database.adapter': mock_adapter
+            'leanrag.database.falkordb': mock_falkordb,
         }):
             result = backend.get_node("NONEXISTENT")
 
@@ -357,18 +382,23 @@ class TestNormalization:
     def test_all_responses_include_backend_tag(self, mock_chdir, mock_getcwd, mock_syspath, backend):
         """Test all method responses include backend='leanrag'."""
         # Mock search_nodes
-        mock_adapter_search = MagicMock()
-        mock_adapter_search.search_vector_search = MagicMock(return_value=[
+        mock_llm = MagicMock()
+        mock_llm.embedding = MagicMock(return_value=[0.1, 0.2])
+
+        mock_vector = MagicMock()
+        mock_vector.search_vector_search = MagicMock(return_value=[
             ("OAUTH2", "AUTH", "OAuth2", "chunk_abc"),
         ])
 
-        # Mock get_node
-        mock_adapter_get = MagicMock()
-        mock_adapter_get.search_nodes = MagicMock(return_value=[
-            ("OAUTH2", "OAuth2", "chunk_abc", 5, "AUTH", 0)
-        ])
+        # Mock get_node - FalkorDB
+        mock_result_node = MagicMock()
+        mock_result_node.result_set = [["OAUTH2", "OAuth2", "chunk_abc", 5, "AUTH", 0]]
+        mock_graph_node = MagicMock()
+        mock_graph_node.query = MagicMock(return_value=mock_result_node)
+        mock_falkordb = MagicMock()
+        mock_falkordb.get_falkordb_connection = MagicMock(return_value=(MagicMock(), mock_graph_node))
 
-        # Mock get_edge
+        # Mock get_edge - adapter
         mock_adapter_edge = MagicMock()
         mock_adapter_edge.search_nodes_link = MagicMock(return_value=(
             "OAUTH2", "JWT", "Uses", 1.0, 0
@@ -376,8 +406,10 @@ class TestNormalization:
 
         with patch.dict('sys.modules', {
             'leanrag': MagicMock(),
+            'leanrag.core': MagicMock(),
+            'leanrag.core.llm': mock_llm,
             'leanrag.database': MagicMock(),
-            'leanrag.database.adapter': mock_adapter_search
+            'leanrag.database.vector': mock_vector,
         }):
             nodes = backend.search_nodes("test")
             assert all(n["backend"] == "leanrag" for n in nodes)
@@ -385,7 +417,7 @@ class TestNormalization:
         with patch.dict('sys.modules', {
             'leanrag': MagicMock(),
             'leanrag.database': MagicMock(),
-            'leanrag.database.adapter': mock_adapter_get
+            'leanrag.database.falkordb': mock_falkordb,
         }):
             node = backend.get_node("OAUTH2")
             assert node["backend"] == "leanrag"
@@ -393,7 +425,7 @@ class TestNormalization:
         with patch.dict('sys.modules', {
             'leanrag': MagicMock(),
             'leanrag.database': MagicMock(),
-            'leanrag.database.adapter': mock_adapter_edge
+            'leanrag.database.adapter': mock_adapter_edge,
         }):
             edge = backend.get_edge("OAUTH2||JWT")
             assert edge["backend"] == "leanrag"
@@ -403,16 +435,27 @@ class TestNormalization:
     @patch('os.chdir')
     def test_responses_include_extra_fields(self, mock_chdir, mock_getcwd, mock_syspath, backend):
         """Test responses include backend-specific fields in extra map."""
-        # Mock LeanRAG adapter
-        mock_adapter = MagicMock()
-        mock_adapter.search_nodes = MagicMock(return_value=[
-            ("OAUTH2", "OAuth2", "chunk_abc", 5, "AUTH", 0)
-        ])
+        # Mock FalkorDB connection and query result
+        mock_result = MagicMock()
+        mock_result.result_set = [[
+            "OAUTH2",  # entity_name
+            "OAuth2",  # description
+            "chunk_abc",  # source_id
+            5,  # degree
+            "AUTH",  # parent
+            0  # level
+        ]]
+
+        mock_graph = MagicMock()
+        mock_graph.query = MagicMock(return_value=mock_result)
+
+        mock_falkordb = MagicMock()
+        mock_falkordb.get_falkordb_connection = MagicMock(return_value=(MagicMock(), mock_graph))
 
         with patch.dict('sys.modules', {
             'leanrag': MagicMock(),
             'leanrag.database': MagicMock(),
-            'leanrag.database.adapter': mock_adapter
+            'leanrag.database.falkordb': mock_falkordb,
         }):
             node = backend.get_node("OAUTH2")
 
