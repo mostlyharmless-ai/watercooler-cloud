@@ -34,7 +34,9 @@ def test_resolve_templates_dir_project_local(tmp_path, monkeypatch):
     try:
         os.chdir(project_dir)
         result = resolve_templates_dir()
-        assert result == Path(".watercooler/templates")
+        # Should return absolute path to .watercooler/templates
+        assert result.is_absolute()
+        assert result == watercooler_dir.resolve()
     finally:
         os.chdir(original_cwd)
 

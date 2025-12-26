@@ -17,8 +17,13 @@ from watercooler.agents import _canonical_agent, _load_agents_registry
 from .git_sync import GitSyncManager
 from .observability import log_debug
 
-# Import shared git discovery from path_resolver (consolidates logic)
-from watercooler.path_resolver import discover_git_info as _discover_git_shared
+# Import shared git discovery and path helpers from path_resolver (consolidates logic)
+from watercooler.path_resolver import (
+    discover_git_info as _discover_git_shared,
+    _expand_path,
+    _resolve_path,
+    _default_threads_base,
+)
 
 from .provisioning import is_auto_provision_requested
 
@@ -64,38 +69,8 @@ _SYNC_MANAGER_CACHE: Dict[Tuple[str, str], GitSyncManager] = {}
 _SYNC_MANAGER_LOCK = threading.Lock()
 
 
-def _expand_path(value: str) -> Path:
-    expanded = os.path.expandvars(os.path.expanduser(value))
-    return Path(expanded)
-
-
-def _resolve_path(path: Path) -> Path:
-    try:
-        return path.resolve(strict=False)
-    except Exception:
-        return path
-
-
-def _default_threads_base(code_root: Optional[Path]) -> Path:
-    base_env = os.getenv("WATERCOOLER_THREADS_BASE")
-    if base_env:
-        return _resolve_path(_expand_path(base_env))
-
-    if code_root is not None:
-        try:
-            parent = code_root.parent
-            if parent != code_root:
-                return _resolve_path(parent)
-        except Exception:
-            pass
-
-    try:
-        cwd = Path.cwd().resolve()
-        parent = cwd.parent if cwd.parent != cwd else cwd
-        return _resolve_path(parent)
-    except Exception:
-        # Fallback to the current working directory if resolution fails
-        return _resolve_path(Path.cwd())
+# Helper functions _expand_path, _resolve_path, and _default_threads_base
+# are now imported from watercooler.path_resolver to eliminate duplication
 
 
 def _normalize_code_root(code_root: Optional[Path]) -> Optional[Path]:

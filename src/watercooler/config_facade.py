@@ -110,7 +110,7 @@ class Config:
             )
         return self._paths
 
-    def full(self, project_path: Optional[Path] = None, force_reload: bool = False):
+    def full(self, project_path: Optional[Path] = None, force_reload: bool = False) -> "WatercoolerConfig":
         """Get full configuration (lazy-loads TOML + Pydantic).
 
         Loads and merges configuration from:
@@ -343,7 +343,9 @@ class Config:
         # Fall back to credentials file
         try:
             return self.credentials.github.token or None
-        except (AttributeError, KeyError):
+        except (AttributeError, KeyError) as e:
+            import logging
+            logging.debug(f"Failed to load GitHub token from credentials: {e}")
             return None
 
     def reset(self) -> None:
