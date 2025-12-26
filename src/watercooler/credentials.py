@@ -373,8 +373,15 @@ def get_memory_graph_config() -> Dict[str, Any]:
         Use get_server_config() instead. This function remains for
         backwards compatibility with existing config files.
     """
-    config = _load_config()
-    return config.get("memory_graph", {})
+    # Delegate to unified config system (eliminates duplicate TOML loading)
+    try:
+        from .config_facade import config
+        full_config = config.full()
+        return getattr(full_config, "memory_graph", {})
+    except Exception:
+        # Fallback to old behavior if config system unavailable
+        config_data = _load_config()
+        return config_data.get("memory_graph", {})
 
 
 # Default server configurations for local development
