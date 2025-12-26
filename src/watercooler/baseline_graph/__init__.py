@@ -34,6 +34,41 @@ from .export import (
     load_graph,
 )
 
+from .reader import (
+    GraphThread,
+    GraphEntry,
+    is_graph_available,
+    get_graph_staleness,
+    list_threads_from_graph,
+    read_thread_from_graph,
+    get_entry_from_graph,
+    get_entries_range_from_graph,
+    format_thread_markdown,
+    format_entry_json,
+    increment_access_count,
+    get_access_count,
+    get_most_accessed,
+)
+
+from .sync import (
+    sync_entry_to_graph,
+    sync_thread_to_graph,
+    record_graph_sync_error,
+    check_graph_health,
+    reconcile_graph,
+)
+
+from .search import (
+    SearchQuery,
+    SearchResult,
+    SearchResults,
+    search_graph,
+    search_entries,
+    search_threads,
+    find_similar_entries,
+    search_by_time_range,
+)
+
 __all__ = [
     # Summarizer
     "summarize_entry",
@@ -54,4 +89,34 @@ __all__ = [
     "load_nodes",
     "load_edges",
     "load_graph",
+    # Reader
+    "GraphThread",
+    "GraphEntry",
+    "is_graph_available",
+    "get_graph_staleness",
+    "list_threads_from_graph",
+    "read_thread_from_graph",
+    "get_entry_from_graph",
+    "get_entries_range_from_graph",
+    "format_thread_markdown",
+    "format_entry_json",
+    # Odometer (access tracking)
+    "increment_access_count",
+    "get_access_count",
+    "get_most_accessed",
+    # Sync
+    "sync_entry_to_graph",
+    "sync_thread_to_graph",
+    "record_graph_sync_error",
+    "check_graph_health",
+    "reconcile_graph",
+    # Search
+    "SearchQuery",
+    "SearchResult",
+    "SearchResults",
+    "search_graph",
+    "search_entries",
+    "search_threads",
+    "find_similar_entries",
+    "search_by_time_range",
 ]

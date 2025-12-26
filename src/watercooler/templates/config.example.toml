@@ -184,6 +184,53 @@ default_spec = "general-purpose"
 # disable_file = false
 
 
+# -----------------------------------------------------------------------------
+# Graph Settings
+# Baseline graph construction with summaries and embeddings for semantic search
+# -----------------------------------------------------------------------------
+[mcp.graph]
+
+# Generate LLM summaries for entries on write
+# Requires LLM service (Ollama, llama.cpp, etc.) at [servers.llm] endpoint
+# Env: WATERCOOLER_GRAPH_SUMMARIES
+generate_summaries = true
+
+# Generate embedding vectors for entries on write
+# Requires embedding service at [servers.embedding] endpoint
+# Env: WATERCOOLER_GRAPH_EMBEDDINGS
+generate_embeddings = true
+
+# Use extractive summaries only (no LLM calls, faster but less semantic)
+# Env: WATERCOOLER_GRAPH_EXTRACTIVE
+# prefer_extractive = false
+
+# LLM service endpoint override (defaults to [servers.llm].api_base)
+# Env: BASELINE_GRAPH_API_BASE
+# summarizer_api_base = "http://localhost:11434/v1"
+
+# LLM model override (defaults to [servers.llm].model)
+# Env: BASELINE_GRAPH_MODEL
+# summarizer_model = "llama3.2:3b"
+
+# Embedding service endpoint override (defaults to [servers.embedding].api_base)
+# Env: EMBEDDING_API_BASE
+# embedding_api_base = "http://localhost:8080/v1"
+
+# Embedding model override (defaults to [servers.embedding].model)
+# Env: EMBEDDING_MODEL
+# embedding_model = "bge-m3"
+
+# Check service availability before generation (skip gracefully if unavailable)
+# When true, summary/embedding generation will only proceed if services respond
+# Env: WATERCOOLER_GRAPH_AUTO_DETECT
+auto_detect_services = true
+
+# Auto-start LLM/embedding services if unavailable (requires ServerManager)
+# When true, will attempt to start local servers via watercooler_memory
+# Env: WATERCOOLER_AUTO_START_SERVICES
+# auto_start_services = false
+
+
 # =============================================================================
 # DASHBOARD SETTINGS
 # Configuration for watercooler-site dashboard
@@ -264,8 +311,76 @@ default_spec = "general-purpose"
 
 
 # =============================================================================
-# MEMORY GRAPH SETTINGS
-# Configuration for watercooler_memory pipeline (summarization, embeddings)
+# SERVER SETTINGS (RECOMMENDED)
+# Unified configuration for LLM and embedding servers
+# Used by baseline_graph pipeline and other watercooler tools
+#
+# RECOMMENDED: Use Ollama for both LLM and embeddings - simplest setup!
+#   1. Install Ollama: https://ollama.ai
+#   2. Pull models: ollama pull llama3.2:3b && ollama pull nomic-embed-text
+#   3. Ollama runs automatically on localhost:11434
+# =============================================================================
+
+# -----------------------------------------------------------------------------
+# LLM Server
+# For summarization, chat, and other LLM tasks
+# -----------------------------------------------------------------------------
+[servers.llm]
+
+# API endpoint - any OpenAI-compatible API
+# Env: LLM_API_BASE
+api_base = "http://localhost:11434/v1"  # Ollama (recommended)
+
+# Model name - use any Ollama model: llama3.2, qwen3, mistral, etc.
+# Env: LLM_MODEL
+model = "llama3.2:3b"
+
+# Request timeout (seconds) - increase for larger models or slower hardware
+# Env: LLM_TIMEOUT
+timeout = 120.0
+
+# Max tokens for generation - 512-1024 recommended for summaries
+# Env: LLM_MAX_TOKENS
+max_tokens = 512
+
+
+# -----------------------------------------------------------------------------
+# Embedding Server
+# For vector embeddings (semantic search, RAG)
+# Using Ollama for embeddings is simplest - only one server needed!
+# -----------------------------------------------------------------------------
+[servers.embedding]
+
+# API endpoint - Ollama supports embeddings via the same endpoint
+# Env: EMBEDDING_API_BASE
+api_base = "http://localhost:11434/v1"  # Ollama (recommended - same server!)
+
+# Model name - nomic-embed-text is excellent and available in Ollama
+# Env: EMBEDDING_MODEL
+model = "nomic-embed-text"
+
+# Batch size for embedding requests
+# Env: EMBEDDING_BATCH_SIZE
+batch_size = 32
+
+# Request timeout (seconds)
+# Env: EMBEDDING_TIMEOUT
+timeout = 60.0
+
+
+# -----------------------------------------------------------------------------
+# Alternative: Separate embedding server (advanced)
+# If you prefer llama.cpp or other dedicated embedding servers:
+# -----------------------------------------------------------------------------
+# [servers.embedding]
+# api_base = "http://localhost:8080/v1"  # llama.cpp server
+# model = "bge-m3"                        # or any GGUF embedding model
+
+
+# =============================================================================
+# MEMORY GRAPH SETTINGS (DEPRECATED)
+# Use [servers.*] sections above instead.
+# These settings are kept for backwards compatibility.
 # =============================================================================
 [memory_graph]
 
@@ -314,12 +429,12 @@ default_spec = "general-purpose"
 
 # API endpoint - supports any OpenAI-compatible embedding API
 # Env: EMBEDDING_API_BASE
-# Default: Local server (no API key needed)
-# api_base = "http://localhost:8081/v1"
+# Ollama recommended (same server as LLM):
+# api_base = "http://localhost:11434/v1"
 
 # Model name
 # Env: EMBEDDING_MODEL
-# model = "bge-m3"
+# model = "nomic-embed-text"
 
 # Batch size for embedding requests
 # Env: EMBEDDING_BATCH_SIZE
@@ -377,6 +492,10 @@ default_spec = "general-purpose"
 # mcp.logging.max_bytes          WATERCOOLER_LOG_MAX_BYTES
 # mcp.logging.backup_count       WATERCOOLER_LOG_BACKUP_COUNT
 # mcp.logging.disable_file       WATERCOOLER_LOG_DISABLE_FILE
+# mcp.graph.generate_summaries   WATERCOOLER_GRAPH_SUMMARIES
+# mcp.graph.generate_embeddings  WATERCOOLER_GRAPH_EMBEDDINGS
+# mcp.graph.auto_detect_services WATERCOOLER_GRAPH_AUTO_DETECT
+# mcp.graph.auto_start_services  WATERCOOLER_AUTO_START_SERVICES
 # validation.on_write            WATERCOOLER_VALIDATE_ON_WRITE
 # validation.fail_on_violation   WATERCOOLER_FAIL_ON_VIOLATION
 #

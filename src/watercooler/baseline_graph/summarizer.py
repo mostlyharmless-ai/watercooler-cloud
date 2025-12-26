@@ -83,6 +83,33 @@ class SummarizerConfig:
         )
 
 
+def is_llm_service_available(config: Optional[SummarizerConfig] = None) -> bool:
+    """Check if LLM service is available.
+
+    Args:
+        config: Summarizer configuration (uses env defaults if None)
+
+    Returns:
+        True if the LLM service responds to a models list request
+    """
+    config = config or SummarizerConfig.from_env()
+
+    try:
+        import httpx
+    except ImportError:
+        logger.debug("httpx not available, cannot check LLM service")
+        return False
+
+    try:
+        url = f"{config.api_base.rstrip('/')}/models"
+        with httpx.Client(timeout=5.0) as client:
+            response = client.get(url)
+            return response.status_code == 200
+    except Exception as e:
+        logger.debug(f"LLM service not available at {config.api_base}: {e}")
+        return False
+
+
 def _extract_headers(text: str, max_headers: int = 3) -> List[str]:
     """Extract markdown headers from text.
 
