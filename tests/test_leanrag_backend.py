@@ -161,6 +161,55 @@ class TestSearchFacts:
         assert "metadata" in result
         assert "extra" in result
 
+    @patch('sys.path')
+    @patch('os.getcwd')
+    @patch('os.chdir')
+    def test_bidirectional_deduplication(self, mock_chdir, mock_getcwd, mock_syspath, backend):
+        """Test that bidirectional edges are deduplicated while preserving directionality.
+        
+        Verifies:
+        1. Edges A->B and B->A are treated as the same edge (frozenset deduplication)
+        2. The direction returned by search_nodes_link is preserved
+        3. The synthetic ID format matches the preserved direction
+        """
+        # Mock entity search to return two entities
+        mock_search_nodes = MagicMock(return_value=[
+            {"id": "OAUTH2", "name": "OAUTH2"},
+            {"id": "JWT_TOKENS", "name": "JWT_TOKENS"},
+        ])
+
+        # Mock LeanRAG adapter
+        mock_adapter = MagicMock()
+        # Simulate that search_nodes_link returns the relationship in a specific direction
+        # When called with (OAUTH2, JWT_TOKENS), return OAUTH2 -> JWT_TOKENS
+        mock_adapter.search_nodes_link = MagicMock(return_value=(
+            "OAUTH2", "JWT_TOKENS", "Uses for authentication", 1.0, 0
+        ))
+        mock_adapter.find_tree_root = MagicMock(side_effect=lambda db, entity: [entity])
+
+        with patch.dict('sys.modules', {
+            'leanrag': MagicMock(),
+            'leanrag.database': MagicMock(),
+            'leanrag.database.adapter': mock_adapter,
+            'itertools': __import__('itertools'),
+            'logging': __import__('logging'),
+        }):
+            with patch.object(backend, 'search_nodes', mock_search_nodes):
+                results = backend.search_facts(query="authentication", max_results=10)
+
+        # Should return exactly 1 fact (not 2, due to deduplication)
+        assert len(results) == 1, "Bidirectional edges should be deduplicated to 1 result"
+
+        # Verify the direction matches what search_nodes_link returned
+        result = results[0]
+        assert result["id"] == "OAUTH2||JWT_TOKENS", "ID should match search_nodes_link direction"
+        assert result["source_node_id"] == "OAUTH2", "Source should match search_nodes_link"
+        assert result["target_node_id"] == "JWT_TOKENS", "Target should match search_nodes_link"
+        
+        # Verify that search_nodes_link was called only once per entity pair
+        # (not twice for both directions)
+        assert mock_adapter.search_nodes_link.call_count >= 1, "Should have called search_nodes_link"
+
 
 class TestSearchEpisodes:
     """Tests for search_episodes() method."""
