@@ -20,9 +20,20 @@ from watercooler_memory.backends import UnsupportedOperationError
 def leanrag_backend():
     """Create LeanRAG backend with test-run database."""
     project_root = Path(__file__).parent.parent
+    leanrag_path = project_root / "external/LeanRAG"
+
+    # Skip if LeanRAG submodule not initialized
+    if not leanrag_path.exists():
+        pytest.skip(f"LeanRAG submodule not initialized at {leanrag_path}")
+
+    # Skip if process.py not found (incomplete submodule)
+    process_script = leanrag_path / "leanrag/pipelines/process.py"
+    if not process_script.exists():
+        pytest.skip(f"LeanRAG submodule incomplete (missing {process_script})")
+
     config = LeanRAGConfig(
         work_dir=Path.home() / ".watercooler/leanrag/test-run",
-        leanrag_path=project_root / "external/LeanRAG",
+        leanrag_path=leanrag_path,
     )
     return LeanRAGBackend(config)
 

@@ -8,6 +8,7 @@ import os
 import subprocess
 import sys
 import tempfile
+import threading
 from dataclasses import dataclass
 from pathlib import Path
 from typing import Any, Sequence
@@ -26,6 +27,11 @@ from . import (
     QueryResult,
     TransientError,
 )
+
+# Thread-safe lock for os.chdir() operations
+# os.chdir() changes the process-wide current directory, which is not thread-safe.
+# This lock ensures that only one thread can change directories at a time.
+_chdir_lock = threading.Lock()
 
 
 @dataclass
@@ -279,20 +285,22 @@ class LeanRAGBackend(MemoryBackend):
                 corpus = json.load(fh)
             chunks_dict = {item["hash_code"]: item["text"] for item in corpus}
 
-            original_cwd = os.getcwd()
-            try:
-                os.chdir(str(self.config.leanrag_path))
+            # Thread-safe directory change for LeanRAG imports
+            with _chdir_lock:
+                original_cwd = os.getcwd()
+                try:
+                    os.chdir(str(self.config.leanrag_path))
 
-                from leanrag.extraction.chunk import triple_extraction
-                from leanrag.core.llm import generate_text_async
+                    from leanrag.extraction.chunk import triple_extraction
+                    from leanrag.core.llm import generate_text_async
 
-                asyncio.run(
-                    triple_extraction(
-                        chunks_dict, generate_text_async, str(work_dir), save_filtered=False
+                    asyncio.run(
+                        triple_extraction(
+                            chunks_dict, generate_text_async, str(work_dir), save_filtered=False
+                        )
                     )
-                )
-            finally:
-                os.chdir(original_cwd)
+                finally:
+                    os.chdir(original_cwd)
 
             build_cmd = [
                 sys.executable,
@@ -365,43 +373,45 @@ class LeanRAGBackend(MemoryBackend):
             if str(leanrag_abspath) not in sys.path:
                 sys.path.insert(0, str(leanrag_abspath))
 
-            original_cwd = os.getcwd()
-            try:
-                os.chdir(str(self.config.leanrag_path))
+            # Thread-safe directory change for LeanRAG imports
+            with _chdir_lock:
+                original_cwd = os.getcwd()
+                try:
+                    os.chdir(str(self.config.leanrag_path))
 
-                from leanrag.pipelines.query import query_graph
-                from leanrag.core.llm import embedding, generate_text
+                    from leanrag.pipelines.query import query_graph
+                    from leanrag.core.llm import embedding, generate_text
 
-                results: list[dict[str, Any]] = []
-                for q in query.queries:
-                    query_text = q.get("query", q.get("text", ""))
-                    topk = q.get("limit", q.get("topk", 5))
-                    if not query_text:
-                        continue
+                    results: list[dict[str, Any]] = []
+                    for q in query.queries:
+                        query_text = q.get("query", q.get("text", ""))
+                        topk = q.get("limit", q.get("topk", 5))
+                        if not query_text:
+                            continue
 
-                    global_config = {
-                        "working_dir": str(work_dir),
-                        "chunks_file": str(work_dir / "threads_chunk.json"),
-                        "embeddings_func": embedding,
-                        "use_llm_func": generate_text,
-                        "topk": topk,
-                        "level_mode": 1,
-                    }
-
-                    context, answer = query_graph(global_config, None, query_text)
-                    results.append(
-                        {
-                            "query": query_text,
-                            "answer": answer,
-                            "context": context,
+                        global_config = {
+                            "working_dir": str(work_dir),
+                            "chunks_file": str(work_dir / "threads_chunk.json"),
+                            "embeddings_func": embedding,
+                            "use_llm_func": generate_text,
                             "topk": topk,
+                            "level_mode": 1,
                         }
-                    )
 
-                    if answer:
-                        print(f"Query answer: {answer[:200]}...")
-            finally:
-                os.chdir(original_cwd)
+                        context, answer = query_graph(global_config, None, query_text)
+                        results.append(
+                            {
+                                "query": query_text,
+                                "answer": answer,
+                                "context": context,
+                                "topk": topk,
+                            }
+                        )
+
+                        if answer:
+                            print(f"Query answer: {answer[:200]}...")
+                finally:
+                    os.chdir(original_cwd)
 
             return QueryResult(
                 manifest_version=query.manifest_version,
@@ -480,53 +490,55 @@ class LeanRAGBackend(MemoryBackend):
             if str(leanrag_abspath) not in sys.path:
                 sys.path.insert(0, str(leanrag_abspath))
 
-            original_cwd = os.getcwd()
-            try:
-                os.chdir(str(self.config.leanrag_path))
+            # Thread-safe directory change for LeanRAG imports
+            with _chdir_lock:
+                original_cwd = os.getcwd()
+                try:
+                    os.chdir(str(self.config.leanrag_path))
 
-                # Import LeanRAG functions
-                from leanrag.core.llm import embedding
-                from leanrag.database.vector import search_vector_search
+                    # Import LeanRAG functions
+                    from leanrag.core.llm import embedding
+                    from leanrag.database.vector import search_vector_search
 
-                # Convert text query to embedding vector
-                query_embedding = embedding(query)
+                    # Convert text query to embedding vector
+                    query_embedding = embedding(query)
 
-                # Execute vector search (level_mode=2 means all levels: base + clusters)
-                results = search_vector_search(
-                    str(work_dir),
-                    query_embedding,
-                    topk=max_results,
-                    level_mode=2
-                )
+                    # Execute vector search (level_mode=2 means all levels: base + clusters)
+                    results = search_vector_search(
+                        str(work_dir),
+                        query_embedding,
+                        topk=max_results,
+                        level_mode=2
+                    )
 
-                # Normalize to CoreResult format
-                normalized_results = []
-                for entity_name, parent, description, source_id in results:
-                    # Strip quotes to match FalkorDB normalization (see falkordb.py:161)
-                    # Milvus stores raw names with quotes, but FalkorDB strips them
-                    normalized_name = entity_name.strip().strip('"').strip()
-                    normalized_parent = parent.strip().strip('"').strip() if parent else parent
+                    # Normalize to CoreResult format
+                    normalized_results = []
+                    for entity_name, parent, description, source_id in results:
+                        # Strip quotes to match FalkorDB normalization (see falkordb.py:161)
+                        # Milvus stores raw names with quotes, but FalkorDB strips them
+                        normalized_name = entity_name.strip().strip('"').strip()
+                        normalized_parent = parent.strip().strip('"').strip() if parent else parent
 
-                    normalized_results.append({
-                        "id": normalized_name,  # Required by CoreResult
-                        "name": normalized_name,
-                        "summary": description,
-                        "score": 0.0,  # Milvus doesn't return scores in current API
-                        "backend": "leanrag",  # Required by CoreResult
-                        "content": None,  # Entities don't have content
-                        "source": source_id,  # Chunk hash where entity was found
-                        "metadata": {
-                            "parent": normalized_parent,  # Hierarchical parent (for clusters)
-                        },
-                        "extra": {
-                            "corpus": str(work_dir),
-                        },
-                    })
+                        normalized_results.append({
+                            "id": normalized_name,  # Required by CoreResult
+                            "name": normalized_name,
+                            "summary": description,
+                            "score": 0.0,  # Milvus doesn't return scores in current API
+                            "backend": "leanrag",  # Required by CoreResult
+                            "content": None,  # Entities don't have content
+                            "source": source_id,  # Chunk hash where entity was found
+                            "metadata": {
+                                "parent": normalized_parent,  # Hierarchical parent (for clusters)
+                            },
+                            "extra": {
+                                "corpus": str(work_dir),
+                            },
+                        })
 
-                return normalized_results
+                    return normalized_results
 
-            finally:
-                os.chdir(original_cwd)
+                finally:
+                    os.chdir(original_cwd)
 
         except ImportError as e:
             raise TransientError(f"Failed to import LeanRAG modules: {e}") from e
@@ -551,7 +563,7 @@ class LeanRAGBackend(MemoryBackend):
             query: Search query string
             group_ids: Optional list of group IDs to filter by (ignored - LeanRAG uses separate databases)
             max_results: Maximum number of results to return
-            center_node_id: Optional entity name to center search around
+            center_node_id: Optional entity name to center search around (not yet implemented)
 
         Returns:
             List of normalized CoreResult dictionaries with fact/edge data
@@ -577,103 +589,109 @@ class LeanRAGBackend(MemoryBackend):
             if str(leanrag_abspath) not in sys.path:
                 sys.path.insert(0, str(leanrag_abspath))
 
-            original_cwd = os.getcwd()
-            try:
-                os.chdir(str(self.config.leanrag_path))
+            # Thread-safe directory change for LeanRAG imports
+            with _chdir_lock:
+                original_cwd = os.getcwd()
+                try:
+                    os.chdir(str(self.config.leanrag_path))
 
-                # Import LeanRAG functions
-                from leanrag.database.adapter import search_nodes_link, find_tree_root
-                from itertools import combinations
+                    # Import LeanRAG functions
+                    from leanrag.database.adapter import search_nodes_link, find_tree_root
+                    from itertools import combinations
+                    import logging
 
-                # Strategy: Find relevant entities via vector search, then traverse
-                # hierarchical relationships (matches LeanRAG query.py get_reasoning_chain)
-                
-                # 1. Find relevant entities (more than requested to increase relationship discovery)
-                entities = self.search_nodes(query, max_results=max_results * 2)
-                
-                # 2. Get hierarchical paths for each entity
-                # find_tree_root returns [entity, parent, grandparent, ..., root]
-                db_name = work_dir.name
-                entity_paths = []
-                for entity in entities:
-                    entity_name = entity["id"]
-                    path = find_tree_root(db_name, entity_name)
-                    if path:
-                        entity_paths.append(path)
+                    logger = logging.getLogger(__name__)
 
-                # Performance cap: Limit entity paths to prevent combinatorial explosion
-                # For max_results=10, limit to top 10 paths to keep combinations manageable
-                MAX_ENTITY_PATHS = max(10, max_results)
-                entity_paths = entity_paths[:MAX_ENTITY_PATHS]
+                    # Strategy: Find relevant entities via vector search, then traverse
+                    # hierarchical relationships (matches LeanRAG query.py get_reasoning_chain)
 
-                # 3. For each pair of entity paths, search for relationships
-                # between all entities in those paths
-                facts = []
-                seen_edges = set()  # Deduplicate edges (bidirectional)
+                    # 1. Find relevant entities (more than requested to increase relationship discovery)
+                    entities = self.search_nodes(query, max_results=max_results * 2)
 
-                # Performance cap: Limit entities per path pair
-                MAX_ENTITIES_PER_PAIR = 20
+                    # 2. Get hierarchical paths for each entity
+                    # find_tree_root returns [entity, parent, grandparent, ..., root]
+                    db_name = work_dir.name
+                    entity_paths = []
+                    for entity in entities:
+                        entity_name = entity["id"]
+                        path = find_tree_root(db_name, entity_name)
+                        if path:
+                            entity_paths.append(path)
 
-                for path1, path2 in combinations(entity_paths, 2):
-                    # Get all unique entities from both paths
-                    all_entities = list(set(path1 + path2))
+                    # Performance cap: Limit entity paths to prevent combinatorial explosion
+                    # For max_results=10, limit to top 10 paths to keep combinations manageable
+                    MAX_ENTITY_PATHS = max(10, max_results)
+                    entity_paths = entity_paths[:MAX_ENTITY_PATHS]
 
-                    # Cap entities per pair to prevent explosion
-                    all_entities = all_entities[:MAX_ENTITIES_PER_PAIR]
+                    # 3. For each pair of entity paths, search for relationships
+                    # between all entities in those paths
+                    facts = []
+                    seen_edges = set()  # Deduplicate edges (bidirectional)
 
-                    # Search for relationships between all pairs of entities
-                    for e1, e2 in combinations(all_entities, 2):
-                        if e1 == e2:
-                            continue
+                    # Performance cap: Limit entities per path pair
+                    MAX_ENTITIES_PER_PAIR = 20
 
-                        # Early exit if we have enough results
-                        # Collect extra to allow for scoring/ranking
+                    for path1, path2 in combinations(entity_paths, 2):
+                        # Get all unique entities from both paths
+                        all_entities = list(set(path1 + path2))
+
+                        # Cap entities per pair to prevent explosion
+                        all_entities = all_entities[:MAX_ENTITIES_PER_PAIR]
+
+                        # Search for relationships between all pairs of entities
+                        for e1, e2 in combinations(all_entities, 2):
+                            if e1 == e2:
+                                continue
+
+                            # Early exit if we have enough results
+                            # Collect extra to allow for scoring/ranking
+                            if len(facts) >= max_results * 3:
+                                break
+
+                            # Deduplicate using bidirectional key (frozenset treats {A,B} == {B,A})
+                            edge_key = frozenset([e1, e2])
+                            if edge_key in seen_edges:
+                                continue
+
+                            try:
+                                # search_nodes_link returns (src, tgt, description, weight, level)
+                                link = search_nodes_link(e1, e2, str(work_dir), level=None)
+
+                                if link:
+                                    seen_edges.add(edge_key)
+                                    # Preserve original directionality from search_nodes_link
+                                    src, tgt, description, weight, level = link
+                                    facts.append({
+                                        "id": f"{src}||{tgt}",  # Synthetic ID with original direction
+                                        "source_node_id": src,  # Original source
+                                        "target_node_id": tgt,  # Original target
+                                        "summary": description,  # Relationship description
+                                        "score": float(weight) if weight else 0.0,
+                                        "backend": "leanrag",
+                                        "content": None,  # Facts don't have content
+                                        "source": None,  # Not applicable to edges
+                                        "metadata": {
+                                            "level": level,  # Hierarchy level for downstream ranking
+                                        },
+                                        "extra": {
+                                            "corpus": str(work_dir),
+                                        },
+                                    })
+                            except Exception as e:
+                                # Log failed link lookups for debugging (may be expected if no relationship exists)
+                                logger.debug(f"Link lookup failed for ({e1}, {e2}): {e}")
+                                continue
+
+                        # Early exit at path pair level too
                         if len(facts) >= max_results * 3:
                             break
 
-                        # Deduplicate using bidirectional key (frozenset treats {A,B} == {B,A})
-                        edge_key = frozenset([e1, e2])
-                        if edge_key in seen_edges:
-                            continue
+                    # Sort by score (descending) BEFORE truncating to max_results
+                    facts.sort(key=lambda x: x["score"], reverse=True)
+                    return facts[:max_results]
 
-                        try:
-                            # search_nodes_link returns (src, tgt, description, weight, level)
-                            link = search_nodes_link(e1, e2, str(work_dir), level=None)
-
-                            if link:
-                                seen_edges.add(edge_key)
-                                # Preserve original directionality from search_nodes_link
-                                src, tgt, description, weight, level = link
-                                facts.append({
-                                    "id": f"{src}||{tgt}",  # Synthetic ID with original direction
-                                    "source_node_id": src,  # Original source
-                                    "target_node_id": tgt,  # Original target
-                                    "summary": description,  # Relationship description
-                                    "score": float(weight) if weight else 0.0,
-                                    "backend": "leanrag",
-                                    "content": None,  # Facts don't have content
-                                    "source": None,  # Not applicable to edges
-                                    "metadata": {
-                                        "level": level,  # Hierarchy level for downstream ranking
-                                    },
-                                    "extra": {
-                                        "corpus": str(work_dir),
-                                    },
-                                })
-                        except Exception:
-                            # If link lookup fails, continue to next pair
-                            continue
-
-                    # Early exit at path pair level too
-                    if len(facts) >= max_results * 3:
-                        break
-
-                # Sort by score (descending) BEFORE truncating to max_results
-                facts.sort(key=lambda x: x["score"], reverse=True)
-                return facts[:max_results]
-
-            finally:
-                os.chdir(original_cwd)
+                finally:
+                    os.chdir(original_cwd)
 
         except ImportError as e:
             raise TransientError(f"Failed to import LeanRAG modules: {e}") from e
@@ -754,52 +772,54 @@ class LeanRAGBackend(MemoryBackend):
             if str(leanrag_abspath) not in sys.path:
                 sys.path.insert(0, str(leanrag_abspath))
 
-            original_cwd = os.getcwd()
-            try:
-                os.chdir(str(self.config.leanrag_path))
+            # Thread-safe directory change for LeanRAG imports
+            with _chdir_lock:
+                original_cwd = os.getcwd()
+                try:
+                    os.chdir(str(self.config.leanrag_path))
 
-                # Import FalkorDB connection function
-                from leanrag.database.falkordb import get_falkordb_connection
+                    # Import FalkorDB connection function
+                    from leanrag.database.falkordb import get_falkordb_connection
 
-                # Query entity at ANY level (not just level=0)
-                graph_name = work_dir.name
-                db, graph = get_falkordb_connection(graph_name)
+                    # Query entity at ANY level (not just level=0)
+                    graph_name = work_dir.name
+                    db, graph = get_falkordb_connection(graph_name)
 
-                # Query for entity at any level
-                query = """
-                MATCH (n:Entity {entity_name: $entity_name})
-                RETURN n.entity_name, n.description, n.source_id, n.degree, n.parent, n.level
-                LIMIT 1
-                """
+                    # Query for entity at any level
+                    query = """
+                    MATCH (n:Entity {entity_name: $entity_name})
+                    RETURN n.entity_name, n.description, n.source_id, n.degree, n.parent, n.level
+                    LIMIT 1
+                    """
 
-                result = graph.query(query, params={'entity_name': node_id})
+                    result = graph.query(query, params={'entity_name': node_id})
 
-                if not result.result_set:
-                    return None
+                    if not result.result_set:
+                        return None
 
-                row = result.result_set[0]
-                entity_name, description, source_id, degree, parent, level = row
+                    row = result.result_set[0]
+                    entity_name, description, source_id, degree, parent, level = row
 
-                return {
-                    "id": entity_name,  # Required by CoreResult
-                    "name": entity_name,
-                    "summary": description,
-                    "score": None,  # Not applicable for direct retrieval
-                    "backend": "leanrag",
-                    "content": None,  # Entities don't have content
-                    "source": source_id,  # Chunk hash where entity was found
-                    "metadata": {
-                        "parent": parent,  # Hierarchical parent
-                        "degree": degree,  # Graph connectivity
-                        "level": level,  # Hierarchy level
-                    },
-                    "extra": {
-                        "corpus": str(work_dir),
-                    },
-                }
+                    return {
+                        "id": entity_name,  # Required by CoreResult
+                        "name": entity_name,
+                        "summary": description,
+                        "score": None,  # Not applicable for direct retrieval
+                        "backend": "leanrag",
+                        "content": None,  # Entities don't have content
+                        "source": source_id,  # Chunk hash where entity was found
+                        "metadata": {
+                            "parent": parent,  # Hierarchical parent
+                            "degree": degree,  # Graph connectivity
+                            "level": level,  # Hierarchy level
+                        },
+                        "extra": {
+                            "corpus": str(work_dir),
+                        },
+                    }
 
-            finally:
-                os.chdir(original_cwd)
+                finally:
+                    os.chdir(original_cwd)
 
         except ImportError as e:
             raise TransientError(f"Failed to import LeanRAG modules: {e}") from e
@@ -886,44 +906,46 @@ class LeanRAGBackend(MemoryBackend):
             if str(leanrag_abspath) not in sys.path:
                 sys.path.insert(0, str(leanrag_abspath))
 
-            original_cwd = os.getcwd()
-            try:
-                os.chdir(str(self.config.leanrag_path))
+            # Thread-safe directory change for LeanRAG imports
+            with _chdir_lock:
+                original_cwd = os.getcwd()
+                try:
+                    os.chdir(str(self.config.leanrag_path))
 
-                # Import LeanRAG function
-                from leanrag.database.adapter import search_nodes_link
+                    # Import LeanRAG function
+                    from leanrag.database.adapter import search_nodes_link
 
-                # Parse synthetic ID (already validated above)
-                source, target = parts
+                    # Parse synthetic ID (already validated above)
+                    source, target = parts
 
-                # Retrieve relationship
-                # search_nodes_link returns (src, tgt, description, weight, level)
-                result = search_nodes_link(source, target, str(work_dir), level=None)
-                
-                if not result:
-                    return None
+                    # Retrieve relationship
+                    # search_nodes_link returns (src, tgt, description, weight, level)
+                    result = search_nodes_link(source, target, str(work_dir), level=None)
 
-                src, tgt, description, weight, level = result
+                    if not result:
+                        return None
 
-                return {
-                    "id": edge_id,  # Required by CoreResult
-                    "source_node_id": src,
-                    "target_node_id": tgt,
-                    "summary": description,
-                    "score": float(weight) if weight else 0.0,
-                    "backend": "leanrag",
-                    "content": None,  # Edges don't have content
-                    "source": None,  # Not applicable to edges
-                    "metadata": {
-                        "level": level,
-                    },
-                    "extra": {
-                        "corpus": str(work_dir),
-                    },
-                }
+                    src, tgt, description, weight, level = result
 
-            finally:
-                os.chdir(original_cwd)
+                    return {
+                        "id": edge_id,  # Required by CoreResult
+                        "source_node_id": src,
+                        "target_node_id": tgt,
+                        "summary": description,
+                        "score": float(weight) if weight else 0.0,
+                        "backend": "leanrag",
+                        "content": None,  # Edges don't have content
+                        "source": None,  # Not applicable to edges
+                        "metadata": {
+                            "level": level,
+                        },
+                        "extra": {
+                            "corpus": str(work_dir),
+                        },
+                    }
+
+                finally:
+                    os.chdir(original_cwd)
 
         except ImportError as e:
             raise TransientError(f"Failed to import LeanRAG modules: {e}") from e
