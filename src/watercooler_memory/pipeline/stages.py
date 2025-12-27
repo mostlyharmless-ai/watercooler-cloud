@@ -247,8 +247,8 @@ class ExtractStageRunner(StageRunner):
             errors.append("LEANRAG_DIR not configured")
         elif not self.config.leanrag_dir.exists():
             errors.append(f"LeanRAG directory not found: {self.config.leanrag_dir}")
-        elif not (self.config.leanrag_dir / "process_markdown_pipeline.py").exists():
-            errors.append("LeanRAG process_markdown_pipeline.py not found")
+        elif not (self.config.leanrag_dir / "leanrag/pipelines/process.py").exists():
+            errors.append("LeanRAG pipeline script not found at leanrag/pipelines/process.py")
 
         # Check LLM config
         errors.extend(self.config.llm.validate())
@@ -324,7 +324,7 @@ class ExtractStageRunner(StageRunner):
 
         # Run LeanRAG pipeline
         leanrag_dir = self.config.leanrag_dir
-        pipeline_script = leanrag_dir / "process_markdown_pipeline.py"
+        pipeline_script = leanrag_dir / "leanrag/pipelines/process.py"
 
         cmd = [
             sys.executable,

@@ -17,8 +17,17 @@ from watercooler.agents import _canonical_agent, _load_agents_registry
 from .git_sync import GitSyncManager
 from .observability import log_debug
 
-# GitPython for subprocess-free git discovery (fixes Windows stdio hang)
-from git import Repo, InvalidGitRepositoryError, GitCommandError
+# Import shared git discovery and path helpers from path_resolver (consolidates logic)
+from watercooler.path_resolver import (
+    discover_git_info as _discover_git_shared,
+    _expand_path,
+    _resolve_path,
+    _default_threads_base,
+    _strip_repo_suffix,
+    _extract_repo_path,
+    _split_namespace_repo,
+    _compose_local_threads_path,
+)
 
 from .provisioning import is_auto_provision_requested
 
@@ -64,38 +73,8 @@ _SYNC_MANAGER_CACHE: Dict[Tuple[str, str], GitSyncManager] = {}
 _SYNC_MANAGER_LOCK = threading.Lock()
 
 
-def _expand_path(value: str) -> Path:
-    expanded = os.path.expandvars(os.path.expanduser(value))
-    return Path(expanded)
-
-
-def _resolve_path(path: Path) -> Path:
-    try:
-        return path.resolve(strict=False)
-    except Exception:
-        return path
-
-
-def _default_threads_base(code_root: Optional[Path]) -> Path:
-    base_env = os.getenv("WATERCOOLER_THREADS_BASE")
-    if base_env:
-        return _resolve_path(_expand_path(base_env))
-
-    if code_root is not None:
-        try:
-            parent = code_root.parent
-            if parent != code_root:
-                return _resolve_path(parent)
-        except Exception:
-            pass
-
-    try:
-        cwd = Path.cwd().resolve()
-        parent = cwd.parent if cwd.parent != cwd else cwd
-        return _resolve_path(parent)
-    except Exception:
-        # Fallback to the current working directory if resolution fails
-        return _resolve_path(Path.cwd())
+# Helper functions _expand_path, _resolve_path, and _default_threads_base
+# are now imported from watercooler.path_resolver to eliminate duplication
 
 
 def _normalize_code_root(code_root: Optional[Path]) -> Optional[Path]:
@@ -129,103 +108,44 @@ def _run_git(args: list[str], cwd: Path) -> Optional[str]:
 
 
 def _discover_git(code_root: Optional[Path]) -> _GitDetails:
-    """Discover git repository info using GitPython (no subprocess, fixes Windows stdio hang)."""
-    if code_root is None:
-        return _GitDetails(None, None, None, None)
-    if not code_root.exists():
-        return _GitDetails(None, None, None, None)
+    """Discover git repository info using shared path_resolver.
 
+    Delegates to watercooler.path_resolver.discover_git_info to consolidate
+    git discovery logic and eliminate duplication.
+    """
     log_debug(f"CONFIG: Discovering git info for {code_root}")
 
-    try:
-        # Use GitPython to discover git info (no subprocess)
-        repo = Repo(code_root, search_parent_directories=True)
+    # Use shared git discovery from path_resolver
+    git_info = _discover_git_shared(code_root)
 
-        # Get repository root
-        root = Path(repo.working_dir) if repo.working_dir else None
+    log_debug(f"CONFIG: Git discovery complete (root={git_info.root}, branch={git_info.branch})")
 
-        # Get current branch (None if detached HEAD)
-        try:
-            branch = repo.active_branch.name
-        except TypeError:
-            # Detached HEAD state
-            branch = None
-
-        # Get short commit hash
-        try:
-            commit = repo.head.commit.hexsha[:7]
-        except (ValueError, AttributeError):
-            commit = None
-
-        # Get origin remote URL
-        try:
-            # repo.remotes returns IterableList - use repo.remote() for safe access
-            remote = repo.remote('origin').url
-        except (ValueError, AttributeError, IndexError):
-            # ValueError raised if 'origin' remote doesn't exist
-            remote = None
-
-        if root is not None:
-            root = _resolve_path(root)
-
-        log_debug(f"CONFIG: Git discovery complete (root={root}, branch={branch})")
-        return _GitDetails(root=root, branch=branch, commit=commit, remote=remote)
-
-    except InvalidGitRepositoryError:
-        log_debug(f"CONFIG: Not a git repository: {code_root}")
-        return _GitDetails(None, None, None, None)
-    except Exception as e:
-        log_debug(f"CONFIG: Git discovery error: {e}")
-        return _GitDetails(None, None, None, None)
+    return _GitDetails(
+        root=git_info.root,
+        branch=git_info.branch,
+        commit=git_info.commit,
+        remote=git_info.remote
+    )
 
 
 def _branch_has_upstream(code_root: Optional[Path], branch: Optional[str]) -> bool:
-    """Check if branch has upstream using GitPython (no subprocess)."""
+    """Check if branch has upstream using subprocess git calls."""
     if code_root is None or branch is None:
         return False
 
     try:
-        repo = Repo(code_root, search_parent_directories=True)
-        if branch not in [b.name for b in repo.heads]:
+        # Check if branch exists
+        branches = _run_git(["branch", "--list", branch], code_root)
+        if not branches:
             return False
-        branch_obj = repo.heads[branch]
-        return branch_obj.tracking_branch() is not None
-    except (InvalidGitRepositoryError, AttributeError, IndexError):
+
+        # Check if branch has upstream
+        upstream = _run_git(["rev-parse", "--abbrev-ref", f"{branch}@{{upstream}}"], code_root)
+        return upstream is not None
+    except Exception:
         return False
 
 
-def _strip_repo_suffix(value: str) -> str:
-    value = value.strip()
-    if value.endswith(".git"):
-        value = value[:-4]
-    return value.rstrip("/")
-
-
-def _extract_repo_path(remote: str) -> Optional[str]:
-    remote = remote.strip()
-    if not remote:
-        return None
-    remote = _strip_repo_suffix(remote)
-    if remote.startswith("git@"):
-        remote = remote.split(":", 1)[-1]
-    elif "://" in remote:
-        remote = remote.split("://", 1)[-1]
-        if "/" in remote:
-            remote = remote.split("/", 1)[-1]
-        else:
-            remote = ""
-    remote = remote.lstrip("/")
-    return remote or None
-
-
-def _split_namespace_repo(slug: str) -> Tuple[Optional[str], str]:
-    parts = [p for p in slug.split("/") if p]
-    if not parts:
-        return (None, slug)
-    if len(parts) == 1:
-        return (None, parts[0])
-    namespace = "/".join(parts[:-1])
-    return (namespace, parts[-1])
 
 
 def _compose_threads_slug_from_code(code_repo: str) -> str:
@@ -237,16 +157,6 @@ def _compose_threads_slug_from_code(code_repo: str) -> str:
     if namespace:
         return f"{namespace}/{slug_repo}"
     return slug_repo
-
-
-def _compose_local_threads_path(base: Path, slug: str) -> Path:
-    parts = [p for p in slug.split("/") if p]
-    path = base
-    for part in parts[:-1]:
-        path = path / part
-    if parts:
-        path = path / parts[-1]
-    return _resolve_path(path)
 
 
 def _infer_threads_repo_from_code(ctx: ThreadContext) -> Optional[str]:

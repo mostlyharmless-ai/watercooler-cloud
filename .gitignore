@@ -247,4 +247,7 @@ tests/test-artifacts/
 tests/test_artifacts/
 
 # Planning documents (not for version control)
-docs/planning/
+#docs/planning/
+
+# Pipeline work artifacts (development/testing)
+pipeline_work/
