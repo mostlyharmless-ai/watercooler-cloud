@@ -4,16 +4,18 @@ Consolidates git-aware path discovery logic used by both
 the core library and MCP server. This eliminates duplication
 between watercooler/config.py and watercooler_mcp/config.py.
 
-Uses subprocess for git operations (no external dependencies).
+Uses GitPython for git operations (avoids Windows subprocess stdio hangs).
 """
 
 from __future__ import annotations
 
 import os
-import subprocess
 from dataclasses import dataclass
 from pathlib import Path
 from typing import Optional, Tuple
+
+# GitPython for in-process git operations (avoids Windows subprocess stdio hangs)
+from git import Repo, InvalidGitRepositoryError, GitCommandError
 
 
 @dataclass(frozen=True)
@@ -45,34 +47,14 @@ def _resolve_path(path: Path) -> Path:
         return path
 
 
-def _run_git(args: list[str], cwd: Path) -> Optional[str]:
-    """Run git command and return output.
-
-    Args:
-        args: Git command arguments (e.g., ["rev-parse", "--show-toplevel"])
-        cwd: Working directory for git command
-
-    Returns:
-        Stripped stdout if successful, None on error
-    """
-    try:
-        result = subprocess.run(
-            ["git", *args],
-            cwd=str(cwd),
-            check=True,
-            capture_output=True,
-            text=True,
-        )
-        return result.stdout.strip()
-    except (subprocess.CalledProcessError, FileNotFoundError):
-        return None
 
 
 def discover_git_info(code_root: Optional[Path]) -> GitInfo:
-    """Discover git repository information using subprocess.
+    """Discover git repository information using GitPython.
 
     Consolidates logic from watercooler/config.py and watercooler_mcp/config.py.
-    Uses subprocess git calls (no GitPython dependency).
+    Uses GitPython library for in-process git operations, avoiding
+    Windows subprocess stdio hanging issues.
 
     Args:
         code_root: Directory to search from (searches parent dirs)
@@ -83,27 +65,38 @@ def discover_git_info(code_root: Optional[Path]) -> GitInfo:
     if code_root is None or not code_root.exists():
         return GitInfo(None, None, None, None)
 
-    # Check if we're in a git repository
-    is_repo = _run_git(["rev-parse", "--is-inside-work-tree"], code_root)
-    if not is_repo or is_repo.lower() != "true":
+    try:
+        # Use GitPython to discover git info (no subprocess)
+        repo = Repo(code_root, search_parent_directories=True)
+
+        # Get repository root
+        root = Path(repo.working_dir) if repo.working_dir else None
+
+        # Get current branch (None if detached HEAD)
+        try:
+            branch = repo.active_branch.name
+        except TypeError:
+            # Detached HEAD state
+            branch = None
+
+        # Get short commit hash
+        try:
+            commit = repo.head.commit.hexsha[:7]
+        except (ValueError, AttributeError):
+            commit = None
+
+        # Get origin remote URL
+        try:
+            remote_obj = repo.remote("origin")
+            remote = next(iter(remote_obj.urls), None)
+        except (ValueError, GitCommandError):
+            remote = None
+
+        return GitInfo(root=root, branch=branch, commit=commit, remote=remote)
+
+    except (InvalidGitRepositoryError, GitCommandError):
+        # Not a git repository or git command failed
         return GitInfo(None, None, None, None)
-
-    # Get repository root
-    root_str = _run_git(["rev-parse", "--show-toplevel"], code_root)
-    root = Path(root_str).resolve() if root_str else None
-
-    # Get current branch (None if detached HEAD)
-    branch = _run_git(["rev-parse", "--abbrev-ref", "HEAD"], code_root)
-    if branch == "HEAD":
-        branch = None  # Detached HEAD state
-
-    # Get short commit hash
-    commit = _run_git(["rev-parse", "--short", "HEAD"], code_root)
-
-    # Get origin remote URL
-    remote = _run_git(["remote", "get-url", "origin"], code_root)
-
-    return GitInfo(root=root, branch=branch, commit=commit, remote=remote)
 
 
 def _default_threads_base(repo_root: Optional[Path]) -> Path:
