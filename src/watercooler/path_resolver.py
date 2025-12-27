@@ -12,7 +12,7 @@ from __future__ import annotations
 import os
 from dataclasses import dataclass
 from pathlib import Path
-from typing import Optional, Tuple
+from typing import Optional
 
 # GitPython for in-process git operations (avoids Windows subprocess stdio hangs)
 from git import Repo, InvalidGitRepositoryError, GitCommandError
@@ -174,7 +174,7 @@ def _extract_repo_path(remote: Optional[str]) -> Optional[str]:
     return remote or None
 
 
-def _split_namespace_repo(slug: str) -> Tuple[Optional[str], str]:
+def _split_namespace_repo(slug: str) -> tuple[Optional[str], str]:
     """Split repository slug into namespace and repo name.
 
     Examples:
@@ -304,11 +304,15 @@ def resolve_threads_dir(
             if repo_root and threads_dir.is_relative_to(repo_root):
                 return (base / "_local").resolve()
         except AttributeError:
-            # Python <3.9: emulate is_relative_to
-            repo_root_resolved = repo_root.resolve() if repo_root else None
-            threads_resolved = threads_dir.resolve()
-            if repo_root_resolved and str(threads_resolved).startswith(str(repo_root_resolved)):
-                return (base / "_local").resolve()
+            # Python <3.9: emulate is_relative_to using relative_to()
+            if repo_root:
+                try:
+                    threads_dir.resolve().relative_to(repo_root.resolve())
+                    # If relative_to() succeeds, threads_dir is inside repo_root
+                    return (base / "_local").resolve()
+                except ValueError:
+                    # Not inside repo_root, continue
+                    pass
         except ValueError:
             return (base / "_local").resolve()
 

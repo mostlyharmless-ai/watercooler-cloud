@@ -347,7 +347,7 @@ class Config:
         # Fall back to credentials file
         try:
             return self.credentials.github.token or None
-        except (AttributeError, KeyError) as e:
+        except AttributeError as e:
             logging.debug(f"Failed to load GitHub token from credentials: {e}")
             return None
 

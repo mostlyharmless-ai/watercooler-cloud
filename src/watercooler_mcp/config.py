@@ -23,6 +23,10 @@ from watercooler.path_resolver import (
     _expand_path,
     _resolve_path,
     _default_threads_base,
+    _strip_repo_suffix,
+    _extract_repo_path,
+    _split_namespace_repo,
+    _compose_local_threads_path,
 )
 
 from .provisioning import is_auto_provision_requested
@@ -142,38 +146,6 @@ def _branch_has_upstream(code_root: Optional[Path], branch: Optional[str]) -> bo
         return False
 
 
-def _strip_repo_suffix(value: str) -> str:
-    value = value.strip()
-    if value.endswith(".git"):
-        value = value[:-4]
-    return value.rstrip("/")
-
-
-def _extract_repo_path(remote: str) -> Optional[str]:
-    remote = remote.strip()
-    if not remote:
-        return None
-    remote = _strip_repo_suffix(remote)
-    if remote.startswith("git@"):
-        remote = remote.split(":", 1)[-1]
-    elif "://" in remote:
-        remote = remote.split("://", 1)[-1]
-        if "/" in remote:
-            remote = remote.split("/", 1)[-1]
-        else:
-            remote = ""
-    remote = remote.lstrip("/")
-    return remote or None
-
-
-def _split_namespace_repo(slug: str) -> Tuple[Optional[str], str]:
-    parts = [p for p in slug.split("/") if p]
-    if not parts:
-        return (None, slug)
-    if len(parts) == 1:
-        return (None, parts[0])
-    namespace = "/".join(parts[:-1])
-    return (namespace, parts[-1])
 
 
 def _compose_threads_slug_from_code(code_repo: str) -> str:
@@ -185,16 +157,6 @@ def _compose_threads_slug_from_code(code_repo: str) -> str:
     if namespace:
         return f"{namespace}/{slug_repo}"
     return slug_repo
-
-
-def _compose_local_threads_path(base: Path, slug: str) -> Path:
-    parts = [p for p in slug.split("/") if p]
-    path = base
-    for part in parts[:-1]:
-        path = path / part
-    if parts:
-        path = path / parts[-1]
-    return _resolve_path(path)
 
 
 def _infer_threads_repo_from_code(ctx: ThreadContext) -> Optional[str]:
