@@ -33,10 +33,14 @@ Architecture:
 
 from __future__ import annotations
 
+import logging
 import os
 from dataclasses import dataclass
 from pathlib import Path
-from typing import Any, Optional
+from typing import TYPE_CHECKING, Any, Optional
+
+if TYPE_CHECKING:
+    from .config_schema import WatercoolerConfig
 
 
 @dataclass(frozen=True)
@@ -110,7 +114,7 @@ class Config:
             )
         return self._paths
 
-    def full(self, project_path: Optional[Path] = None, force_reload: bool = False) -> "WatercoolerConfig":
+    def full(self, project_path: Optional[Path] = None, force_reload: bool = False) -> WatercoolerConfig:
         """Get full configuration (lazy-loads TOML + Pydantic).
 
         Loads and merges configuration from:
@@ -344,7 +348,6 @@ class Config:
         try:
             return self.credentials.github.token or None
         except (AttributeError, KeyError) as e:
-            import logging
             logging.debug(f"Failed to load GitHub token from credentials: {e}")
             return None
 

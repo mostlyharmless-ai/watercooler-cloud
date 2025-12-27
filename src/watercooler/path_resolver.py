@@ -43,10 +43,8 @@ def _resolve_path(path: Path) -> Path:
     """Safely resolve path, handling errors gracefully."""
     try:
         return path.resolve(strict=False)
-    except Exception:
+    except (OSError, RuntimeError, ValueError):
         return path
-
-
 
 
 def discover_git_info(code_root: Optional[Path]) -> GitInfo:
@@ -122,14 +120,14 @@ def _default_threads_base(repo_root: Optional[Path]) -> Path:
             parent = repo_root.parent
             if parent != repo_root:
                 return _resolve_path(parent)
-        except Exception:
+        except (OSError, RuntimeError, ValueError):
             pass
 
     try:
         cwd = Path.cwd().resolve()
         parent = cwd.parent if cwd.parent != cwd else cwd
         return _resolve_path(parent)
-    except Exception:
+    except (OSError, RuntimeError, ValueError):
         # Fallback to current working directory if resolution fails
         return _resolve_path(Path.cwd())
 
@@ -240,7 +238,6 @@ def _compose_local_threads_path(base: Path, slug: str) -> Path:
     for part in parts:
         path = path / part
     return _resolve_path(path)
-
 
 
 def resolve_threads_dir(

@@ -14,6 +14,7 @@ Note on dependencies:
 from __future__ import annotations
 
 import json
+import logging
 import os
 import stat
 import sys
@@ -380,7 +381,6 @@ def get_memory_graph_config() -> Dict[str, Any]:
         return getattr(full_config, "memory_graph", {})
     except Exception as e:
         # Fallback to old behavior if config system unavailable
-        import logging
         logging.debug(f"Failed to load memory_graph config from facade, using fallback: {e}")
         config_data = _load_config()
         return config_data.get("memory_graph", {})
